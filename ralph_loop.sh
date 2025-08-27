@@ -82,7 +82,7 @@ update_status() {
     local status=$4
     local exit_reason=${5:-""}
     
-    cat > "$STATUS_FILE" << EOF
+    cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(date -Iseconds)",
     "loop_count": $loop_count,
@@ -93,3 +93,266 @@ update_status() {
     "exit_reason": "$exit_reason",
     "next_reset": "$(date -d '+1 hour' -Iseconds | cut -d'T' -f2 | cut -d'+' -f1)"
 }
+STATUSEOF
+}
+
+# Check if we can make another call
+can_make_call() {
+    local calls_made=0
+    if [[ -f "$CALL_COUNT_FILE" ]]; then
+        calls_made=$(cat "$CALL_COUNT_FILE")
+    fi
+    
+    if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
+        return 1  # Cannot make call
+    else
+        return 0  # Can make call
+    fi
+}
+
+# Increment call counter
+increment_call_counter() {
+    local calls_made=0
+    if [[ -f "$CALL_COUNT_FILE" ]]; then
+        calls_made=$(cat "$CALL_COUNT_FILE")
+    fi
+    
+    ((calls_made++))
+    echo "$calls_made" > "$CALL_COUNT_FILE"
+    echo "$calls_made"
+}
+
+# Wait for rate limit reset with countdown
+wait_for_reset() {
+    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+    log_status "WARN" "Rate limit reached ($calls_made/$MAX_CALLS_PER_HOUR). Waiting for reset..."
+    
+    # Calculate time until next hour
+    local current_minute=$(date +%M)
+    local current_second=$(date +%S)
+    local wait_time=$(((60 - current_minute - 1) * 60 + (60 - current_second)))
+    
+    log_status "INFO" "Sleeping for $wait_time seconds until next hour..."
+    
+    # Countdown display
+    while [[ $wait_time -gt 0 ]]; do
+        local hours=$((wait_time / 3600))
+        local minutes=$(((wait_time % 3600) / 60))
+        local seconds=$((wait_time % 60))
+        
+        printf "\r${YELLOW}Time until reset: %02d:%02d:%02d${NC}" $hours $minutes $seconds
+        sleep 1
+        ((wait_time--))
+    done
+    printf "\n"
+    
+    # Reset counter
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
+    log_status "SUCCESS" "Rate limit reset! Ready for new calls."
+}
+
+# Check if we should gracefully exit
+should_exit_gracefully() {
+    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
+        return 1  # Don't exit, file doesn't exist
+    fi
+    
+    local signals=$(cat "$EXIT_SIGNALS_FILE")
+    
+    # Count recent signals (last 5 loops)
+    local recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length')
+    local recent_done_signals=$(echo "$signals" | jq '.done_signals | length')
+    local recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length')
+    
+    # Check for exit conditions
+    
+    # 1. Too many consecutive test-only loops
+    if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
+        log_status "WARN" "Exit condition: Too many test-focused loops ($recent_test_loops >= $MAX_CONSECUTIVE_TEST_LOOPS)"
+        echo "test_saturation"
+        return 0
+    fi
+    
+    # 2. Multiple "done" signals
+    if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
+        log_status "WARN" "Exit condition: Multiple completion signals ($recent_done_signals >= $MAX_CONSECUTIVE_DONE_SIGNALS)"
+        echo "completion_signals"
+        return 0
+    fi
+    
+    # 3. Strong completion indicators
+    if [[ $recent_completion_indicators -ge 2 ]]; then
+        log_status "WARN" "Exit condition: Strong completion indicators ($recent_completion_indicators)"
+        echo "project_complete"
+        return 0
+    fi
+    
+    # 4. Check fix_plan.md for completion
+    if [[ -f "@fix_plan.md" ]]; then
+        local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null || echo "0")
+        local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null || echo "0")
+        
+        if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
+            log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)"
+            echo "plan_complete"
+            return 0
+        fi
+    fi
+    
+    return 1  # Don't exit
+}
+
+# Main execution function
+execute_claude_code() {
+    local calls_made=$(increment_call_counter)
+    local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+    local output_file="$LOG_DIR/claude_output_${timestamp}.log"
+    local loop_count=$1
+    
+    log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    
+    # Execute Claude Code with the prompt
+    if $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1; then
+        log_status "SUCCESS" "Claude Code execution completed successfully"
+        
+        # Extract key information from output if possible
+        if grep -q "error\|Error\|ERROR" "$output_file"; then
+            log_status "WARN" "Errors detected in output, check: $output_file"
+        fi
+        
+        return 0
+    else
+        log_status "ERROR" "Claude Code execution failed, check: $output_file"
+        return 1
+    fi
+}
+
+# Cleanup function
+cleanup() {
+    log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
+    exit 0
+}
+
+# Set up signal handlers
+trap cleanup SIGINT SIGTERM
+
+# Main loop
+main() {
+    local loop_count=0
+    
+    log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
+    log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
+    log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
+    
+    # Check if prompt file exists
+    if [[ ! -f "$PROMPT_FILE" ]]; then
+        log_status "ERROR" "Prompt file '$PROMPT_FILE' not found!"
+        exit 1
+    fi
+    
+    while true; do
+        ((loop_count++))
+        init_call_tracking
+        
+        log_status "LOOP" "=== Starting Loop #$loop_count ==="
+        
+        # Check rate limits
+        if ! can_make_call; then
+            wait_for_reset
+            continue
+        fi
+        
+        # Check for graceful exit conditions
+        local exit_reason=$(should_exit_gracefully)
+        if [[ $? -eq 0 ]]; then
+            log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
+            
+            log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
+            log_status "INFO" "  - Total loops: $loop_count"
+            log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
+            log_status "INFO" "  - Exit reason: $exit_reason"
+            
+            break
+        fi
+        
+        # Update status
+        local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        update_status "$loop_count" "$calls_made" "executing" "running"
+        
+        # Execute Claude Code
+        if execute_claude_code "$loop_count"; then
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
+            
+            # Brief pause between successful executions
+            sleep 5
+        else
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
+            log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
+            sleep 30
+        fi
+        
+        log_status "LOOP" "=== Completed Loop #$loop_count ==="
+    done
+}
+
+# Help function
+show_help() {
+    cat << HELPEOF
+Ralph Loop for Claude Code
+
+Usage: $0 [OPTIONS]
+
+Options:
+    -h, --help          Show this help message
+    -c, --calls NUM     Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
+    -p, --prompt FILE   Set prompt file (default: $PROMPT_FILE)
+    -s, --status        Show current status and exit
+
+Files created:
+    - $LOG_DIR/: All execution logs
+    - $DOCS_DIR/: Generated documentation
+    - $STATUS_FILE: Current status (JSON)
+
+Example:
+    $0 --calls 50 --prompt my_prompt.md
+
+HELPEOF
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -c|--calls)
+            MAX_CALLS_PER_HOUR="$2"
+            shift 2
+            ;;
+        -p|--prompt)
+            PROMPT_FILE="$2"
+            shift 2
+            ;;
+        -s|--status)
+            if [[ -f "$STATUS_FILE" ]]; then
+                echo "Current Status:"
+                cat "$STATUS_FILE" | jq . 2>/dev/null || cat "$STATUS_FILE"
+            else
+                echo "No status file found. Ralph may not be running."
+            fi
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Start the main loop
+main

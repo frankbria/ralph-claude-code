@@ -94,7 +94,7 @@ update_status() {
     local status=$4
     local exit_reason=${5:-""}
     
-    cat > "$STATUS_FILE" << EOF
+    cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(date -Iseconds)",
     "loop_count": $loop_count,
@@ -105,7 +105,7 @@ update_status() {
     "exit_reason": "$exit_reason",
     "next_reset": "$(date -d '+1 hour' -Iseconds | cut -d'T' -f2 | cut -d'+' -f1)"
 }
-EOF
+STATUSEOF
 }
 
 # Check if we can make another call
@@ -312,7 +312,7 @@ main() {
 
 # Help function
 show_help() {
-    cat << EOF
+    cat << HELPEOF
 Ralph Loop for Claude Code
 
 Usage: $0 [OPTIONS]
@@ -331,7 +331,7 @@ Files created:
 Example:
     $0 --calls 50 --prompt my_prompt.md
 
-EOF
+HELPEOF
 }
 
 # Parse command line arguments

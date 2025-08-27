@@ -1,0 +1,36 @@
+# Ralph generated files
+.call_count
+.last_reset
+.exit_signals
+status.json
+
+# Logs
+logs/
+*.log
+
+# Generated documentation
+docs/generated/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+.temp/
+
+# Node modules (if using Node.js projects)
+node_modules/
+
+# Python cache (if using Python projects)
+__pycache__/
+*.pyc
+
+# Rust build (if using Rust projects)
+target/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
