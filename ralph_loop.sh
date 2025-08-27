@@ -272,13 +272,18 @@ should_exit_gracefully() {
         local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null || echo "0")
         local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null || echo "0")
         
+        log_status "INFO" "DEBUG: @fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
+        
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
-            log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)"
+            log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
             echo "plan_complete"
             return 0
         fi
+    else
+        log_status "INFO" "DEBUG: @fix_plan.md file not found" >&2
     fi
     
+    log_status "INFO" "DEBUG: No exit conditions met, continuing loop" >&2
     return 1  # Don't exit
 }
 
