@@ -5,11 +5,13 @@
 status.json
 
 # Logs
-logs/
+logs/*
+!logs/.gitkeep
 *.log
 
 # Generated documentation
-docs/generated/
+docs/generated/*
+!docs/generated/.gitkeep
 
 # OS files
 .DS_Store
