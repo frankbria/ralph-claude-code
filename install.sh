@@ -120,14 +120,29 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/setup.sh" "$@"
 EOF
 
+    # Create ralph-import command
+    cat > "$INSTALL_DIR/ralph-import" << 'EOF'
+#!/bin/bash
+# Ralph PRD Import - Global Command
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_import.sh" "$@"
+EOF
+
     # Copy actual script files to Ralph home with modifications for global operation
     cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
+    
+    # Copy PRD import script to Ralph home
+    cp "$SCRIPT_DIR/ralph_import.sh" "$RALPH_HOME/"
     
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph"
     chmod +x "$INSTALL_DIR/ralph-monitor" 
     chmod +x "$INSTALL_DIR/ralph-setup"
+    chmod +x "$INSTALL_DIR/ralph-import"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
+    chmod +x "$RALPH_HOME/ralph_import.sh"
     
     log "SUCCESS" "Ralph scripts installed to $INSTALL_DIR"
 }
@@ -232,6 +247,7 @@ main() {
     echo "  ralph --monitor          # Start Ralph with integrated monitoring"
     echo "  ralph --help            # Show Ralph options"
     echo "  ralph-setup my-project  # Create new Ralph project"
+    echo "  ralph-import prd.md     # Convert PRD to Ralph project"
     echo "  ralph-monitor           # Manual monitoring dashboard"
     echo ""
     echo "Quick start:"
@@ -253,7 +269,7 @@ case "${1:-install}" in
         ;;
     uninstall)
         log "INFO" "Uninstalling Ralph for Claude Code..."
-        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup"
+        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import"
         rm -rf "$RALPH_HOME"
         log "SUCCESS" "Ralph for Claude Code uninstalled"
         ;;

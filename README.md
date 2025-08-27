@@ -48,17 +48,33 @@ This adds `ralph`, `ralph-monitor`, and `ralph-setup` commands to your PATH.
 
 For each new project you want Ralph to work on:
 
+#### Option A: Import Existing PRD/Specifications
 ```bash
-# 1. Create a new Ralph-managed project (run anywhere)
+# Convert existing PRD/specs to Ralph format (recommended)
+ralph-import my-requirements.md my-project
+cd my-project
+
+# Review and adjust the generated files:
+# - PROMPT.md (Ralph instructions)
+# - @fix_plan.md (task priorities) 
+# - specs/requirements.md (technical specs)
+
+# Start autonomous development
+ralph --monitor
+```
+
+#### Option B: Manual Project Setup
+```bash
+# Create blank Ralph project
 ralph-setup my-awesome-project
 cd my-awesome-project
 
-# 2. Configure your project requirements
+# Configure your project requirements manually
 # Edit PROMPT.md with your project goals
 # Edit specs/ with detailed specifications  
 # Edit @fix_plan.md with initial priorities
 
-# 3. Start autonomous development
+# Start autonomous development
 ralph --monitor
 ```
 
@@ -92,6 +108,45 @@ Ralph automatically stops when it detects:
 - 🎯 Multiple consecutive "done" signals from Claude Code
 - 🧪 Too many test-focused loops (indicating feature completeness)
 - 📋 Strong completion indicators in responses
+
+## 📄 Importing Existing Requirements
+
+Ralph can convert existing PRDs, specifications, or requirement documents into the proper Ralph format using Claude Code.
+
+### Supported Formats
+- **Markdown** (.md) - Product requirements, technical specs
+- **Text files** (.txt) - Plain text requirements
+- **JSON** (.json) - Structured requirement data
+- **Word documents** (.docx) - Business requirements  
+- **PDFs** (.pdf) - Design documents, specifications
+- **Any text-based format** - Ralph will intelligently parse the content
+
+### Usage Examples
+
+```bash
+# Convert a markdown PRD
+ralph-import product-requirements.md my-app
+
+# Convert a text specification  
+ralph-import requirements.txt webapp
+
+# Convert a JSON API spec
+ralph-import api-spec.json backend-service
+
+# Let Ralph auto-name the project from filename
+ralph-import design-doc.pdf
+```
+
+### What Gets Generated
+
+Ralph-import creates a complete project with:
+
+- **PROMPT.md** - Converted into Ralph development instructions
+- **@fix_plan.md** - Requirements broken down into prioritized tasks
+- **specs/requirements.md** - Technical specifications extracted from your document
+- **Standard Ralph structure** - All necessary directories and template files
+
+The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
 ## 🛠️ Configuration
 
@@ -269,10 +324,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Project Commands (Per Project)
 ```bash
-ralph-setup project-name  # Create new Ralph project
-ralph --monitor           # Start with integrated monitoring  
-ralph --status            # Check current loop status
-ralph-monitor             # Manual monitoring dashboard
+ralph-setup project-name     # Create new Ralph project
+ralph-import prd.md project  # Convert PRD/specs to Ralph project
+ralph --monitor              # Start with integrated monitoring  
+ralph --status               # Check current loop status
+ralph-monitor                # Manual monitoring dashboard
 ```
 
 ### tmux Session Management
