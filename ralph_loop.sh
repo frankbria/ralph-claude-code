@@ -15,6 +15,7 @@ MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE=".call_count"
 TIMESTAMP_FILE=".last_reset"
+USE_TMUX=false
 
 # Exit detection configuration
 EXIT_SIGNALS_FILE=".exit_signals"
@@ -32,6 +33,61 @@ NC='\033[0m' # No Color
 
 # Initialize directories
 mkdir -p "$LOG_DIR" "$DOCS_DIR"
+
+# Check if tmux is available
+check_tmux_available() {
+    if ! command -v tmux &> /dev/null; then
+        log_status "ERROR" "tmux is not installed. Please install tmux or run without --monitor flag."
+        echo "Install tmux:"
+        echo "  Ubuntu/Debian: sudo apt-get install tmux"
+        echo "  macOS: brew install tmux"
+        echo "  CentOS/RHEL: sudo yum install tmux"
+        exit 1
+    fi
+}
+
+# Setup tmux session with monitor
+setup_tmux_session() {
+    local session_name="ralph-$(date +%s)"
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    log_status "INFO" "Setting up tmux session: $session_name"
+    
+    # Create new tmux session detached
+    tmux new-session -d -s "$session_name" -c "$(pwd)"
+    
+    # Split window vertically to create monitor pane on the right
+    tmux split-window -h -t "$session_name" -c "$(pwd)"
+    
+    # Start monitor in the right pane
+    tmux send-keys -t "$session_name:0.1" "'$script_dir/ralph_monitor.sh'" Enter
+    
+    # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
+    local ralph_cmd="'$script_dir/ralph_loop.sh'"
+    if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
+        ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
+    fi
+    if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
+        ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
+    fi
+    
+    tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
+    
+    # Focus on left pane (main ralph loop)
+    tmux select-pane -t "$session_name:0.0"
+    
+    # Set window title
+    tmux rename-window -t "$session_name:0" "Ralph: Loop | Monitor"
+    
+    log_status "SUCCESS" "Tmux session created. Attaching to session..."
+    log_status "INFO" "Use Ctrl+B then D to detach from session"
+    log_status "INFO" "Use 'tmux attach -t $session_name' to reattach"
+    
+    # Attach to session (this will block until session ends)
+    tmux attach-session -t "$session_name"
+    
+    exit 0
+}
 
 # Initialize call tracking
 init_call_tracking() {
@@ -310,6 +366,7 @@ Options:
     -c, --calls NUM     Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
     -p, --prompt FILE   Set prompt file (default: $PROMPT_FILE)
     -s, --status        Show current status and exit
+    -m, --monitor       Start with tmux session and live monitor (requires tmux)
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -346,6 +403,10 @@ while [[ $# -gt 0 ]]; do
             fi
             exit 0
             ;;
+        -m|--monitor)
+            USE_TMUX=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -353,6 +414,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# If tmux mode requested, set it up
+if [[ "$USE_TMUX" == "true" ]]; then
+    check_tmux_available
+    setup_tmux_session
+fi
 
 # Start the main loop
 main

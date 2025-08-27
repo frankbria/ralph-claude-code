@@ -41,11 +41,12 @@ Edit the generated files:
 ### 4. Start the Ralph Loop
 
 ```bash
-# Start autonomous development
-../ralph_loop.sh
+# Recommended: Start with integrated tmux monitoring (requires tmux)
+../ralph_loop.sh --monitor
 
-# Monitor progress (in another terminal)
-../ralph_monitor.sh
+# Alternative: Manual monitoring (two separate terminals)
+../ralph_loop.sh                # Terminal 1: Ralph loop
+../ralph_monitor.sh            # Terminal 2: Live monitor
 ```
 
 ## 📖 How It Works
@@ -74,6 +75,9 @@ Ralph automatically stops when it detects:
 # Default: 100 calls per hour
 ../ralph_loop.sh --calls 50
 
+# With integrated monitoring
+../ralph_loop.sh --monitor --calls 50
+
 # Check current usage
 ../ralph_loop.sh --status
 ```
@@ -83,6 +87,9 @@ Ralph automatically stops when it detects:
 ```bash
 # Use custom prompt file
 ../ralph_loop.sh --prompt my_custom_instructions.md
+
+# With integrated monitoring
+../ralph_loop.sh --monitor --prompt my_custom_instructions.md
 ```
 
 ### Exit Thresholds
@@ -138,15 +145,33 @@ my-project/
 
 - **Bash 4.0+** - For script execution
 - **Claude Code CLI** - `npx @anthropic/claude-code`
+- **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
 - **Standard Unix tools** - grep, date, etc.
+
+### Installing tmux
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install tmux
+
+# macOS
+brew install tmux
+
+# CentOS/RHEL
+sudo yum install tmux
+```
 
 ## 📊 Monitoring and Debugging
 
 ### Live Dashboard
 
 ```bash
+# Integrated tmux monitoring (recommended)
+../ralph_loop.sh --monitor
+
+# Manual monitoring in separate terminal
 ../ralph_monitor.sh
 ```
 
@@ -155,6 +180,12 @@ Shows real-time:
 - API calls used vs. limit
 - Recent log entries
 - Rate limit countdown
+
+**tmux Controls:**
+- `Ctrl+B` then `D` - Detach from session (keeps Ralph running)
+- `Ctrl+B` then `←/→` - Switch between panes
+- `tmux list-sessions` - View active sessions
+- `tmux attach -t <session-name>` - Reattach to session
 
 ### Status Checking
 
@@ -171,7 +202,8 @@ tail -f logs/ralph.log
 - **Rate Limits** - Ralph automatically waits and displays countdown
 - **Stuck Loops** - Check `@fix_plan.md` for unclear or conflicting tasks
 - **Early Exit** - Review exit thresholds if Ralph stops too soon
-- **Missing Dependencies** - Ensure Claude Code CLI is installed
+- **Missing Dependencies** - Ensure Claude Code CLI and tmux are installed
+- **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
 
 ## 🤝 Contributing
 

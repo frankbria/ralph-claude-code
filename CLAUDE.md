@@ -26,11 +26,14 @@ cd my-project-name
 
 ### Running the Ralph Loop
 ```bash
-# Start the autonomous development loop (from project directory)
+# Start with integrated tmux monitoring (recommended)
+../ralph_loop.sh --monitor
+
+# Start without monitoring
 ../ralph_loop.sh
 
-# With custom parameters
-../ralph_loop.sh --calls 50 --prompt my_custom_prompt.md
+# With custom parameters and monitoring
+../ralph_loop.sh --monitor --calls 50 --prompt my_custom_prompt.md
 
 # Check current status
 ../ralph_loop.sh --status
@@ -38,8 +41,15 @@ cd my-project-name
 
 ### Monitoring
 ```bash
-# Launch live monitoring dashboard (from project directory)
+# Integrated tmux monitoring (recommended)
+../ralph_loop.sh --monitor
+
+# Manual monitoring in separate terminal
 ../ralph_monitor.sh
+
+# tmux session management
+tmux list-sessions
+tmux attach -t <session-name>
 ```
 
 ### System Setup
@@ -103,6 +113,7 @@ Templates in `templates/` provide starting points for new projects:
 
 Ralph integrates with:
 - **Claude Code CLI**: Uses `npx @anthropic/claude-code` as the execution engine
+- **tmux**: Terminal multiplexer for integrated monitoring sessions
 - **Git**: Expects projects to be git repositories
 - **jq**: For JSON processing of status and exit signals
 - **Standard Unix tools**: bash, grep, date, etc.
