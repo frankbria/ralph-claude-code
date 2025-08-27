@@ -307,9 +307,11 @@ cleanup() {
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM
 
+# Global variable for loop count (needed by cleanup function)
+loop_count=0
+
 # Main loop
 main() {
-    local loop_count=0
     
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
@@ -340,9 +342,11 @@ main() {
     fi
     
     log_status "INFO" "Starting main loop..."
+    log_status "INFO" "DEBUG: About to enter while loop, loop_count=$loop_count"
     
     while true; do
         ((loop_count++))
+        log_status "INFO" "DEBUG: Successfully incremented loop_count to $loop_count"
         log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
         
