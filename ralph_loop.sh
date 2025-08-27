@@ -312,9 +312,27 @@ main() {
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
     
-    # Check if prompt file exists
+    # Check if this is a Ralph project directory
     if [[ ! -f "$PROMPT_FILE" ]]; then
         log_status "ERROR" "Prompt file '$PROMPT_FILE' not found!"
+        echo ""
+        
+        # Check if this looks like a partial Ralph project
+        if [[ -f "@fix_plan.md" ]] || [[ -d "specs" ]] || [[ -f "@AGENT.md" ]]; then
+            echo "This appears to be a Ralph project but is missing PROMPT.md."
+            echo "You may need to create or restore the PROMPT.md file."
+        else
+            echo "This directory is not a Ralph project."
+        fi
+        
+        echo ""
+        echo "To fix this:"
+        echo "  1. Create a new project: ralph-setup my-project"
+        echo "  2. Import existing requirements: ralph-import requirements.md"
+        echo "  3. Navigate to an existing Ralph project directory"
+        echo "  4. Or create PROMPT.md manually in this directory"
+        echo ""
+        echo "Ralph projects should contain: PROMPT.md, @fix_plan.md, specs/, src/, etc."
         exit 1
     fi
     
@@ -371,6 +389,9 @@ Ralph Loop for Claude Code
 
 Usage: $0 [OPTIONS]
 
+IMPORTANT: This command must be run from a Ralph project directory.
+           Use 'ralph-setup project-name' to create a new project first.
+
 Options:
     -h, --help          Show this help message
     -c, --calls NUM     Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
@@ -383,8 +404,14 @@ Files created:
     - $DOCS_DIR/: Generated documentation
     - $STATUS_FILE: Current status (JSON)
 
-Example:
+Example workflow:
+    ralph-setup my-project     # Create project
+    cd my-project             # Enter project directory  
+    $0 --monitor             # Start Ralph with monitoring
+
+Examples:
     $0 --calls 50 --prompt my_prompt.md
+    $0 --monitor             # Start with integrated tmux monitoring
 
 HELPEOF
 }
