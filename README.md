@@ -4,6 +4,8 @@
 
 Ralph is an implementation of the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) specifically designed for [Claude Code](https://claude.ai/code). It enables continuous autonomous development cycles where Claude Code iteratively improves your project until completion, with built-in safeguards to prevent infinite loops and API overuse.
 
+**Install once, use everywhere** - Ralph becomes a global command available in any directory.
+
 ## 🌟 Features
 
 - **🔄 Autonomous Development Loop** - Continuously executes Claude Code with your project requirements
@@ -16,7 +18,21 @@ Ralph is an implementation of the [Ralph technique](https://github.com/paul-gaut
 
 ## 🚀 Quick Start
 
-### 1. Install Ralph Globally
+Ralph has two phases: **one-time installation** and **per-project setup**.
+
+```
+🔧 INSTALL ONCE              🚀 USE MANY TIMES
+┌─────────────────┐          ┌──────────────────────┐
+│ ./install.sh    │    →     │ ralph-setup project1 │
+│                 │          │ ralph-setup project2 │
+│ Adds global     │          │ ralph-setup project3 │
+│ commands        │          │ ...                  │
+└─────────────────┘          └──────────────────────┘
+```
+
+### 📦 Phase 1: Install Ralph (One Time Only)
+
+Install Ralph globally on your system:
 
 ```bash
 git clone https://github.com/frankbria/ralph-claude-code.git
@@ -24,30 +40,39 @@ cd ralph-claude-code
 ./install.sh
 ```
 
-### 2. Create Your First Project
+This adds `ralph`, `ralph-monitor`, and `ralph-setup` commands to your PATH.
+
+> **Note**: You only need to do this once per system. After installation, you can delete the cloned repository if desired.
+
+### 🎯 Phase 2: Initialize New Projects (Per Project)
+
+For each new project you want Ralph to work on:
 
 ```bash
-# Run from anywhere - no need to be in specific directory
+# 1. Create a new Ralph-managed project (run anywhere)
 ralph-setup my-awesome-project
 cd my-awesome-project
+
+# 2. Configure your project requirements
+# Edit PROMPT.md with your project goals
+# Edit specs/ with detailed specifications  
+# Edit @fix_plan.md with initial priorities
+
+# 3. Start autonomous development
+ralph --monitor
 ```
 
-### 3. Configure Your Project
+### 🔄 Ongoing Usage (After Setup)
 
-Edit the generated files:
-- **`PROMPT.md`** - Define your project requirements and objectives
-- **`specs/`** - Add detailed specifications and requirements
-- **`@fix_plan.md`** - Set initial priorities and tasks
-
-### 4. Start the Ralph Loop
+Once Ralph is installed and your project is initialized:
 
 ```bash
-# Recommended: Start with integrated tmux monitoring (requires tmux)
-ralph --monitor
+# Navigate to any Ralph project and run:
+ralph --monitor              # Integrated tmux monitoring (recommended)
 
-# Alternative: Manual monitoring (two separate terminals)
-ralph                    # Terminal 1: Ralph loop
-ralph-monitor           # Terminal 2: Live monitor
+# Or use separate terminals:
+ralph                        # Terminal 1: Ralph loop
+ralph-monitor               # Terminal 2: Live monitor dashboard
 ```
 
 ## 📖 How It Works
@@ -230,6 +255,32 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [Claude Code](https://claude.ai/code) - The AI coding assistant that powers Ralph
 - [Aider](https://github.com/paul-gauthier/aider) - Original Ralph technique implementation
+
+---
+
+## 📋 Command Reference
+
+### Installation Commands (Run Once)
+```bash
+./install.sh              # Install Ralph globally
+./install.sh uninstall    # Remove Ralph from system
+./install.sh --help       # Show installation help
+```
+
+### Project Commands (Per Project)
+```bash
+ralph-setup project-name  # Create new Ralph project
+ralph --monitor           # Start with integrated monitoring  
+ralph --status            # Check current loop status
+ralph-monitor             # Manual monitoring dashboard
+```
+
+### tmux Session Management
+```bash
+tmux list-sessions        # View active Ralph sessions
+tmux attach -t <name>     # Reattach to detached session
+# Ctrl+B then D           # Detach from session (keeps running)
+```
 
 ---
 
