@@ -57,10 +57,8 @@ check_dependencies() {
         exit 1
     fi
     
-    # Check Claude Code CLI
-    if ! npx @anthropic-ai/claude-code --version &> /dev/null; then
-        log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
-    fi
+    # Claude Code CLI will be downloaded automatically when first used
+    log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
     
     # Check tmux (optional)
     if ! command -v tmux &> /dev/null; then
