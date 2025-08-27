@@ -223,15 +223,15 @@ wait_for_reset() {
 
 # Check if we should gracefully exit
 should_exit_gracefully() {
-    log_status "INFO" "DEBUG: Checking exit conditions..."
+    log_status "INFO" "DEBUG: Checking exit conditions..." >&2
     
     if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
-        log_status "INFO" "DEBUG: No exit signals file found, continuing..."
+        log_status "INFO" "DEBUG: No exit signals file found, continuing..." >&2
         return 1  # Don't exit, file doesn't exist
     fi
     
     local signals=$(cat "$EXIT_SIGNALS_FILE")
-    log_status "INFO" "DEBUG: Exit signals content: $signals"
+    log_status "INFO" "DEBUG: Exit signals content: $signals" >&2
     
     # Count recent signals (last 5 loops) - with error handling
     local recent_test_loops
@@ -242,7 +242,7 @@ should_exit_gracefully() {
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
     
-    log_status "INFO" "DEBUG: Exit counts - test_loops:$recent_test_loops, done_signals:$recent_done_signals, completion:$recent_completion_indicators"
+    log_status "INFO" "DEBUG: Exit counts - test_loops:$recent_test_loops, done_signals:$recent_done_signals, completion:$recent_completion_indicators" >&2
     
     # Check for exit conditions
     
