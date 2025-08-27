@@ -4,7 +4,7 @@
 set -e
 
 # Configuration
-CLAUDE_CODE_CMD="npx @anthropic/claude-code"
+CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"
 
 # Colors
 RED='\033[0;31m'
