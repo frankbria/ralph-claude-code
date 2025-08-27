@@ -289,25 +289,62 @@ should_exit_gracefully() {
 
 # Main execution function
 execute_claude_code() {
-    local calls_made=$(increment_call_counter)
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/claude_output_${timestamp}.log"
     local loop_count=$1
+    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+    calls_made=$((calls_made + 1))
     
     log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    log_status "INFO" "⏳ Starting Claude Code execution... (this may take 30s-5min)"
     
-    # Execute Claude Code with the prompt
-    if $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1; then
-        log_status "SUCCESS" "Claude Code execution completed successfully"
+    # Execute Claude Code with the prompt, streaming output
+    if timeout 600s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 & 
+    then
+        local claude_pid=$!
+        local progress_counter=0
         
-        # Extract key information from output if possible
-        if grep -q "error\|Error\|ERROR" "$output_file"; then
-            log_status "WARN" "Errors detected in output, check: $output_file"
+        # Show progress while Claude Code is running
+        while kill -0 $claude_pid 2>/dev/null; do
+            progress_counter=$((progress_counter + 1))
+            case $((progress_counter % 4)) in
+                1) progress_indicator="⠋" ;;
+                2) progress_indicator="⠙" ;;
+                3) progress_indicator="⠹" ;;
+                0) progress_indicator="⠸" ;;
+            esac
+            
+            # Show last line from output if available
+            if [[ -f "$output_file" && -s "$output_file" ]]; then
+                local last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
+                log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
+            else
+                log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
+            fi
+            sleep 10
+        done
+        
+        # Wait for the process to finish and get exit code
+        wait $claude_pid
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ]; then
+            # Only increment counter on successful execution
+            echo "$calls_made" > "$CALL_COUNT_FILE"
+            log_status "SUCCESS" "✅ Claude Code execution completed successfully"
+            
+            # Extract key information from output if possible
+            if grep -q "error\|Error\|ERROR" "$output_file"; then
+                log_status "WARN" "Errors detected in output, check: $output_file"
+            fi
+            
+            return 0
+        else
+            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+            return 1
         fi
-        
-        return 0
     else
-        log_status "ERROR" "Claude Code execution failed, check: $output_file"
+        log_status "ERROR" "❌ Failed to start Claude Code process"
         return 1
     fi
 }
