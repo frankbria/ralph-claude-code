@@ -73,6 +73,28 @@ display_status() {
         echo
     fi
     
+    # Claude Code Progress section
+    if [[ -f "progress.json" ]]; then
+        local progress_data=$(cat "progress.json" 2>/dev/null)
+        local progress_status=$(echo "$progress_data" | jq -r '.status // "idle"' 2>/dev/null || echo "idle")
+        
+        if [[ "$progress_status" == "executing" ]]; then
+            local indicator=$(echo "$progress_data" | jq -r '.indicator // "⠋"' 2>/dev/null || echo "⠋")
+            local elapsed=$(echo "$progress_data" | jq -r '.elapsed_seconds // "0"' 2>/dev/null || echo "0")
+            local last_output=$(echo "$progress_data" | jq -r '.last_output // ""' 2>/dev/null || echo "")
+            
+            echo -e "${YELLOW}┌─ Claude Code Progress ──────────────────────────────────────────────────┐${NC}"
+            echo -e "${YELLOW}│${NC} Status:         ${indicator} Working (${elapsed}s elapsed)"
+            if [[ -n "$last_output" && "$last_output" != "" ]]; then
+                # Truncate long output for display
+                local display_output=$(echo "$last_output" | head -c 60)
+                echo -e "${YELLOW}│${NC} Output:         ${display_output}..."
+            fi
+            echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────────────┘${NC}"
+            echo
+        fi
+    fi
+    
     # Recent logs
     echo -e "${BLUE}┌─ Recent Activity ───────────────────────────────────────────────────────┐${NC}"
     if [[ -f "$LOG_FILE" ]]; then

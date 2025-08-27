@@ -10,8 +10,10 @@ PROMPT_FILE="PROMPT.md"
 LOG_DIR="logs"
 DOCS_DIR="docs/generated"
 STATUS_FILE="status.json"
+PROGRESS_FILE="progress.json"
 CLAUDE_CODE_CMD="claude"
 MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
+VERBOSE_PROGRESS=false  # Default: no verbose progress updates
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE=".call_count"
 TIMESTAMP_FILE=".last_reset"
@@ -314,13 +316,32 @@ execute_claude_code() {
                 0) progress_indicator="⠸" ;;
             esac
             
-            # Show last line from output if available
+            # Get last line from output if available
+            local last_line=""
             if [[ -f "$output_file" && -s "$output_file" ]]; then
-                local last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
-                log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
-            else
-                log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
+                last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
             fi
+            
+            # Update progress file for monitor
+            cat > "$PROGRESS_FILE" << EOF
+{
+    "status": "executing",
+    "indicator": "$progress_indicator",
+    "elapsed_seconds": $((progress_counter * 10)),
+    "last_output": "$last_line",
+    "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
+}
+EOF
+            
+            # Only log if verbose mode is enabled
+            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+                if [[ -n "$last_line" ]]; then
+                    log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
+                else
+                    log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
+                fi
+            fi
+            
             sleep 10
         done
         
@@ -331,6 +352,10 @@ execute_claude_code() {
         if [ $exit_code -eq 0 ]; then
             # Only increment counter on successful execution
             echo "$calls_made" > "$CALL_COUNT_FILE"
+            
+            # Clear progress file
+            echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+            
             log_status "SUCCESS" "✅ Claude Code execution completed successfully"
             
             # Extract key information from output if possible
@@ -340,6 +365,8 @@ execute_claude_code() {
             
             return 0
         else
+            # Clear progress file on failure
+            echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
             log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
             return 1
         fi
@@ -460,6 +487,7 @@ Options:
     -p, --prompt FILE   Set prompt file (default: $PROMPT_FILE)
     -s, --status        Show current status and exit
     -m, --monitor       Start with tmux session and live monitor (requires tmux)
+    -v, --verbose       Show detailed progress updates during execution
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -504,6 +532,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -m|--monitor)
             USE_TMUX=true
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE_PROGRESS=true
             shift
             ;;
         *)
