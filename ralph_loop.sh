@@ -374,8 +374,8 @@ main() {
         fi
         
         # Check for graceful exit conditions
-        local exit_reason=$(should_exit_gracefully)
-        if [[ $? -eq 0 ]]; then
+        if should_exit_gracefully; then
+            local exit_reason=$(should_exit_gracefully)
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
             
