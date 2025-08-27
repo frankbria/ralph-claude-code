@@ -16,18 +16,19 @@ Ralph is an implementation of the [Ralph technique](https://github.com/paul-gaut
 
 ## 🚀 Quick Start
 
-### 1. Clone and Setup
+### 1. Install Ralph Globally
 
 ```bash
 git clone https://github.com/frankbria/ralph-claude-code.git
 cd ralph-claude-code
-./create_files.sh
+./install.sh
 ```
 
 ### 2. Create Your First Project
 
 ```bash
-./setup.sh my-awesome-project
+# Run from anywhere - no need to be in specific directory
+ralph-setup my-awesome-project
 cd my-awesome-project
 ```
 
@@ -42,11 +43,11 @@ Edit the generated files:
 
 ```bash
 # Recommended: Start with integrated tmux monitoring (requires tmux)
-../ralph_loop.sh --monitor
+ralph --monitor
 
 # Alternative: Manual monitoring (two separate terminals)
-../ralph_loop.sh                # Terminal 1: Ralph loop
-../ralph_monitor.sh            # Terminal 2: Live monitor
+ralph                    # Terminal 1: Ralph loop
+ralph-monitor           # Terminal 2: Live monitor
 ```
 
 ## 📖 How It Works
@@ -73,28 +74,28 @@ Ralph automatically stops when it detects:
 
 ```bash
 # Default: 100 calls per hour
-../ralph_loop.sh --calls 50
+ralph --calls 50
 
 # With integrated monitoring
-../ralph_loop.sh --monitor --calls 50
+ralph --monitor --calls 50
 
 # Check current usage
-../ralph_loop.sh --status
+ralph --status
 ```
 
 ### Custom Prompts
 
 ```bash
 # Use custom prompt file
-../ralph_loop.sh --prompt my_custom_instructions.md
+ralph --prompt my_custom_instructions.md
 
 # With integrated monitoring
-../ralph_loop.sh --monitor --prompt my_custom_instructions.md
+ralph --monitor --prompt my_custom_instructions.md
 ```
 
 ### Exit Thresholds
 
-Modify these variables in `ralph_loop.sh`:
+Modify these variables in `~/.ralph/ralph_loop.sh`:
 ```bash
 MAX_CONSECUTIVE_TEST_LOOPS=3     # Exit after 3 test-only loops
 MAX_CONSECUTIVE_DONE_SIGNALS=2   # Exit after 2 "done" signals
@@ -136,8 +137,8 @@ my-project/
 
 ### Monitoring Progress
 
-- Use `../ralph_monitor.sh` for live status updates
-- Check logs in `logs/` for detailed execution history
+- Use `ralph-monitor` for live status updates
+- Check logs in `logs/` for detailed execution history  
 - Monitor `status.json` for programmatic access
 - Watch for exit condition signals
 
@@ -169,10 +170,10 @@ sudo yum install tmux
 
 ```bash
 # Integrated tmux monitoring (recommended)
-../ralph_loop.sh --monitor
+ralph --monitor
 
 # Manual monitoring in separate terminal
-../ralph_monitor.sh
+ralph-monitor
 ```
 
 Shows real-time:
@@ -191,7 +192,7 @@ Shows real-time:
 
 ```bash
 # JSON status output
-../ralph_loop.sh --status
+ralph --status
 
 # Manual log inspection
 tail -f logs/ralph.log
@@ -210,7 +211,7 @@ tail -f logs/ralph.log
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Test with `./create_files.sh` and sample projects
+4. Test with `./install.sh` and sample projects
 5. Commit your changes (`git commit -m 'Add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
@@ -232,4 +233,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Ready to let AI build your project?** Start with `./create_files.sh` and let Ralph take it from there! 🚀
+**Ready to let AI build your project?** Start with `./install.sh` and let Ralph take it from there! 🚀

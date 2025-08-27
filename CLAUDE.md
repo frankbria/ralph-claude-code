@@ -17,45 +17,48 @@ The system consists of four main bash scripts that work together:
 
 ## Key Commands
 
+### Installation
+```bash
+# Install Ralph globally (run once)
+./install.sh
+
+# Uninstall Ralph
+./install.sh uninstall
+```
+
 ### Setting Up a New Project
 ```bash
-# Create a new Ralph-managed project
-./setup.sh my-project-name
+# Create a new Ralph-managed project (run from anywhere)
+ralph-setup my-project-name
 cd my-project-name
 ```
 
 ### Running the Ralph Loop
 ```bash
 # Start with integrated tmux monitoring (recommended)
-../ralph_loop.sh --monitor
+ralph --monitor
 
 # Start without monitoring
-../ralph_loop.sh
+ralph
 
 # With custom parameters and monitoring
-../ralph_loop.sh --monitor --calls 50 --prompt my_custom_prompt.md
+ralph --monitor --calls 50 --prompt my_custom_prompt.md
 
 # Check current status
-../ralph_loop.sh --status
+ralph --status
 ```
 
 ### Monitoring
 ```bash
 # Integrated tmux monitoring (recommended)
-../ralph_loop.sh --monitor
+ralph --monitor
 
 # Manual monitoring in separate terminal
-../ralph_monitor.sh
+ralph-monitor
 
 # tmux session management
 tmux list-sessions
 tmux attach -t <session-name>
-```
-
-### System Setup
-```bash
-# Bootstrap the entire Ralph system (run once)
-./create_files.sh
 ```
 
 ## Ralph Loop Configuration
@@ -108,6 +111,13 @@ Templates in `templates/` provide starting points for new projects:
 - Hidden files (e.g., `.call_count`, `.exit_signals`) track loop state
 - `logs/` contains timestamped execution logs
 - `docs/generated/` for Ralph-created documentation
+
+## Global Installation
+
+Ralph installs to:
+- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup)
+- **Templates**: `~/.ralph/templates/`
+- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh)
 
 ## Integration Points
 

@@ -49,7 +49,7 @@ check_tmux_available() {
 # Setup tmux session with monitor
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
     
     log_status "INFO" "Setting up tmux session: $session_name"
     
@@ -60,10 +60,20 @@ setup_tmux_session() {
     tmux split-window -h -t "$session_name" -c "$(pwd)"
     
     # Start monitor in the right pane
-    tmux send-keys -t "$session_name:0.1" "'$script_dir/ralph_monitor.sh'" Enter
+    if command -v ralph-monitor &> /dev/null; then
+        tmux send-keys -t "$session_name:0.1" "ralph-monitor" Enter
+    else
+        tmux send-keys -t "$session_name:0.1" "'$ralph_home/ralph_monitor.sh'" Enter
+    fi
     
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
-    local ralph_cmd="'$script_dir/ralph_loop.sh'"
+    local ralph_cmd
+    if command -v ralph &> /dev/null; then
+        ralph_cmd="ralph"
+    else
+        ralph_cmd="'$ralph_home/ralph_loop.sh'"
+    fi
+    
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
