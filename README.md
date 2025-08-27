@@ -225,7 +225,7 @@ my-project/
 ## 🔧 System Requirements
 
 - **Bash 4.0+** - For script execution
-- **Claude Code CLI** - `npx @anthropic-ai/claude-code`
+- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code`
 - **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
