@@ -345,7 +345,7 @@ main() {
     log_status "INFO" "DEBUG: About to enter while loop, loop_count=$loop_count"
     
     while true; do
-        ((loop_count++))
+        loop_count=$((loop_count + 1))
         log_status "INFO" "DEBUG: Successfully incremented loop_count to $loop_count"
         log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
