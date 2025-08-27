@@ -14,6 +14,7 @@ PROGRESS_FILE="progress.json"
 CLAUDE_CODE_CMD="claude"
 MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
 VERBOSE_PROGRESS=false  # Default: no verbose progress updates
+CLAUDE_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for Claude Code execution
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE=".call_count"
 TIMESTAMP_FILE=".last_reset"
@@ -298,10 +299,11 @@ execute_claude_code() {
     calls_made=$((calls_made + 1))
     
     log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
-    log_status "INFO" "⏳ Starting Claude Code execution... (this may take 30s-5min)"
+    local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
+    log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
     
     # Execute Claude Code with the prompt, streaming output
-    if timeout 600s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 & 
+    if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 & 
     then
         local claude_pid=$!
         local progress_counter=0
@@ -488,6 +490,7 @@ Options:
     -s, --status        Show current status and exit
     -m, --monitor       Start with tmux session and live monitor (requires tmux)
     -v, --verbose       Show detailed progress updates during execution
+    -t, --timeout MIN   Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -502,6 +505,8 @@ Example workflow:
 Examples:
     $0 --calls 50 --prompt my_prompt.md
     $0 --monitor             # Start with integrated tmux monitoring
+    $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
+    $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
 
 HELPEOF
 }
@@ -537,6 +542,15 @@ while [[ $# -gt 0 ]]; do
         -v|--verbose)
             VERBOSE_PROGRESS=true
             shift
+            ;;
+        -t|--timeout)
+            if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
+                CLAUDE_TIMEOUT_MINUTES="$2"
+            else
+                echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
+                exit 1
+            fi
+            shift 2
             ;;
         *)
             echo "Unknown option: $1"
