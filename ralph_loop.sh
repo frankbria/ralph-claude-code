@@ -101,6 +101,7 @@ setup_tmux_session() {
 
 # Initialize call tracking
 init_call_tracking() {
+    log_status "INFO" "DEBUG: Entered init_call_tracking..."
     local current_hour=$(date +%Y%m%d%H)
     local last_reset_hour=""
     
@@ -119,6 +120,8 @@ init_call_tracking() {
     if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
         echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
     fi
+    
+    log_status "INFO" "DEBUG: Completed init_call_tracking successfully"
 }
 
 # Log function with timestamps and colors
@@ -336,8 +339,11 @@ main() {
         exit 1
     fi
     
+    log_status "INFO" "Starting main loop..."
+    
     while true; do
         ((loop_count++))
+        log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
