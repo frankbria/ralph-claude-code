@@ -287,7 +287,7 @@ should_exit_gracefully() {
     fi
     
     log_status "INFO" "DEBUG: No exit conditions met, continuing loop" >&2
-    return 1  # Don't exit
+    echo ""  # Return empty string instead of using return code
 }
 
 # Main execution function
@@ -440,8 +440,8 @@ main() {
         fi
         
         # Check for graceful exit conditions
-        if should_exit_gracefully; then
-            local exit_reason=$(should_exit_gracefully)
+        local exit_reason=$(should_exit_gracefully)
+        if [[ "$exit_reason" != "" ]]; then
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
             
