@@ -272,8 +272,8 @@ should_exit_gracefully() {
     
     # 4. Check fix_plan.md for completion
     if [[ -f "@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null || echo "0")
+        local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null || echo 0)
+        local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null || echo 0)
         
         log_status "INFO" "DEBUG: @fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
         
