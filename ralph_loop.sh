@@ -373,8 +373,15 @@ EOF
         else
             # Clear progress file on failure
             echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
-            return 1
+            
+            # Check if the failure is due to API 5-hour limit
+            if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
+                log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+                return 2  # Special return code for API limit
+            else
+                log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+                return 1
+            fi
         fi
     else
         log_status "ERROR" "❌ Failed to start Claude Code process"
@@ -462,11 +469,51 @@ main() {
         update_status "$loop_count" "$calls_made" "executing" "running"
         
         # Execute Claude Code
-        if execute_claude_code "$loop_count"; then
+        execute_claude_code "$loop_count"
+        local exec_result=$?
+        
+        if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
             
             # Brief pause between successful executions
             sleep 5
+        elif [ $exec_result -eq 2 ]; then
+            # API 5-hour limit reached - handle specially
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
+            log_status "WARN" "🛑 Claude API 5-hour limit reached!"
+            
+            # Ask user whether to wait or exit
+            echo -e "\n${YELLOW}The Claude API 5-hour usage limit has been reached.${NC}"
+            echo -e "${YELLOW}You can either:${NC}"
+            echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
+            echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
+            echo -e "\n${BLUE}Choose an option (1 or 2):${NC} "
+            
+            # Read user input with timeout
+            read -t 30 -n 1 user_choice
+            echo  # New line after input
+            
+            if [[ "$user_choice" == "2" ]] || [[ -z "$user_choice" ]]; then
+                log_status "INFO" "User chose to exit (or timed out). Exiting loop..."
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
+                break
+            else
+                log_status "INFO" "User chose to wait. Waiting for API limit reset..."
+                # Wait for longer period when API limit is hit
+                local wait_minutes=60
+                log_status "INFO" "Waiting $wait_minutes minutes before retrying..."
+                
+                # Countdown display
+                local wait_seconds=$((wait_minutes * 60))
+                while [[ $wait_seconds -gt 0 ]]; do
+                    local minutes=$((wait_seconds / 60))
+                    local seconds=$((wait_seconds % 60))
+                    printf "\r${YELLOW}Time until retry: %02d:%02d${NC}" $minutes $seconds
+                    sleep 1
+                    ((wait_seconds--))
+                done
+                printf "\n"
+            fi
         else
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
