@@ -2,7 +2,7 @@
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
-Ralph is an implementation of the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) specifically designed for [Claude Code](https://claude.ai/code). It enables continuous autonomous development cycles where Claude Code iteratively improves your project until completion, with built-in safeguards to prevent infinite loops and API overuse.
+Ralph is an implementation of the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) by Paul Gauthier, specifically adapted for [Claude Code](https://claude.ai/code). It enables continuous autonomous development cycles where Claude Code iteratively improves your project until completion, with built-in safeguards to prevent infinite loops and API overuse.
 
 **Install once, use everywhere** - Ralph becomes a global command available in any directory.
 
@@ -10,11 +10,14 @@ Ralph is an implementation of the [Ralph technique](https://github.com/paul-gaut
 
 - **🔄 Autonomous Development Loop** - Continuously executes Claude Code with your project requirements
 - **🛡️ Intelligent Exit Detection** - Automatically stops when project objectives are complete
-- **⚡ Rate Limiting** - Built-in API call management with hourly limits and countdown timers  
+- **⚡ Rate Limiting** - Built-in API call management with hourly limits and countdown timers
+- **🚫 5-Hour API Limit Handling** - Detects Claude's 5-hour usage limit and offers wait/exit options
 - **📊 Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
 - **🎯 Task Management** - Structured approach with prioritized task lists and progress tracking
 - **🔧 Project Templates** - Quick setup for new projects with best-practice structure
 - **📝 Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
+- **⏱️ Configurable Timeouts** - Set execution timeout for Claude Code operations (1-120 minutes)
+- **🔍 Verbose Progress Mode** - Optional detailed progress updates during execution
 
 ## 🚀 Quick Start
 
@@ -108,6 +111,7 @@ Ralph automatically stops when it detects:
 - 🎯 Multiple consecutive "done" signals from Claude Code
 - 🧪 Too many test-focused loops (indicating feature completeness)
 - 📋 Strong completion indicators in responses
+- 🚫 Claude API 5-hour usage limit reached (with user prompt to wait or exit)
 
 ## 📄 Importing Existing Requirements
 
@@ -163,6 +167,15 @@ ralph --monitor --calls 50
 ralph --status
 ```
 
+### Claude API 5-Hour Limit
+
+When Claude's 5-hour usage limit is reached, Ralph:
+1. Detects the limit error automatically
+2. Prompts you to choose:
+   - **Option 1**: Wait 60 minutes for the limit to reset (with countdown timer)
+   - **Option 2**: Exit gracefully (or auto-exits after 30-second timeout)
+3. Prevents endless retry loops that waste time
+
 ### Custom Prompts
 
 ```bash
@@ -171,6 +184,29 @@ ralph --prompt my_custom_instructions.md
 
 # With integrated monitoring
 ralph --monitor --prompt my_custom_instructions.md
+```
+
+### Execution Timeouts
+
+```bash
+# Set Claude Code execution timeout (default: 15 minutes)
+ralph --timeout 30  # 30-minute timeout for complex tasks
+
+# With monitoring and custom timeout
+ralph --monitor --timeout 60  # 60-minute timeout
+
+# Short timeout for quick iterations
+ralph --verbose --timeout 5  # 5-minute timeout with progress
+```
+
+### Verbose Mode
+
+```bash
+# Enable detailed progress updates during execution
+ralph --verbose
+
+# Combine with other options
+ralph --monitor --verbose --timeout 30
 ```
 
 ### Exit Thresholds
@@ -281,8 +317,10 @@ tail -f logs/ralph.log
 ### Common Issues
 
 - **Rate Limits** - Ralph automatically waits and displays countdown
+- **5-Hour API Limit** - Ralph detects and prompts for user action (wait or exit)
 - **Stuck Loops** - Check `@fix_plan.md` for unclear or conflicting tasks
 - **Early Exit** - Review exit thresholds if Ralph stops too soon
+- **Execution Timeouts** - Increase `--timeout` value for complex operations
 - **Missing Dependencies** - Ensure Claude Code CLI and tmux are installed
 - **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
 
@@ -302,7 +340,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Inspired by the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) from the Aider project
+- Inspired by the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) created by Paul Gauthier for the Aider project
 - Built for [Claude Code](https://claude.ai/code) by Anthropic
 - Community feedback and contributions
 
@@ -322,12 +360,27 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ./install.sh --help       # Show installation help
 ```
 
+### Ralph Loop Options
+```bash
+ralph [OPTIONS]
+  -h, --help          Show help message
+  -c, --calls NUM     Set max calls per hour (default: 100)
+  -p, --prompt FILE   Set prompt file (default: PROMPT.md)
+  -s, --status        Show current status and exit
+  -m, --monitor       Start with tmux session and live monitor
+  -v, --verbose       Show detailed progress updates during execution
+  -t, --timeout MIN   Set Claude Code execution timeout in minutes (1-120, default: 15)
+```
+
 ### Project Commands (Per Project)
 ```bash
 ralph-setup project-name     # Create new Ralph project
 ralph-import prd.md project  # Convert PRD/specs to Ralph project
-ralph --monitor              # Start with integrated monitoring  
+ralph --monitor              # Start with integrated monitoring
 ralph --status               # Check current loop status
+ralph --verbose              # Enable detailed progress updates
+ralph --timeout 30           # Set 30-minute execution timeout
+ralph --calls 50             # Limit to 50 API calls per hour
 ralph-monitor                # Manual monitoring dashboard
 ```
 
