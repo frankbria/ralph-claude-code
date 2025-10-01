@@ -1,0 +1,33 @@
+{
+  "name": "ralph-claude-code",
+  "version": "1.0.0",
+  "description": "> **Autonomous AI development loop with intelligent exit detection and rate limiting**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "bats tests/",
+    "test:unit": "bats tests/unit/",
+    "test:integration": "bats tests/integration/",
+    "test:e2e": "bats tests/e2e/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frankbria/ralph-claude-code.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/frankbria/ralph-claude-code/issues"
+  },
+  "homepage": "https://github.com/frankbria/ralph-claude-code#readme",
+  "devDependencies": {
+    "bats": "^1.12.0",
+    "bats-assert": "^2.2.0",
+    "bats-support": "^0.3.0"
+  }
+}
