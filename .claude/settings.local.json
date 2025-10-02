@@ -7,7 +7,11 @@
       "Bash(npx bats:*)",
       "Bash(npm init:*)",
       "Bash(grep:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm run test:integration:*)",
+      "Bash(test:*)"
     ],
     "deny": [],
     "ask": []

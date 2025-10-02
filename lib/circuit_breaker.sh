@@ -24,6 +24,14 @@ NC='\033[0m'
 
 # Initialize circuit breaker
 init_circuit_breaker() {
+    # Check if state file exists and is valid JSON
+    if [[ -f "$CB_STATE_FILE" ]]; then
+        if ! jq '.' "$CB_STATE_FILE" > /dev/null 2>&1; then
+            # Corrupted, recreate
+            rm -f "$CB_STATE_FILE"
+        fi
+    fi
+
     if [[ ! -f "$CB_STATE_FILE" ]]; then
         cat > "$CB_STATE_FILE" << EOF
 {
@@ -36,6 +44,14 @@ init_circuit_breaker() {
     "reason": ""
 }
 EOF
+    fi
+
+    # Check if history file exists and is valid JSON
+    if [[ -f "$CB_HISTORY_FILE" ]]; then
+        if ! jq '.' "$CB_HISTORY_FILE" > /dev/null 2>&1; then
+            # Corrupted, recreate
+            rm -f "$CB_HISTORY_FILE"
+        fi
     fi
 
     if [[ ! -f "$CB_HISTORY_FILE" ]]; then
