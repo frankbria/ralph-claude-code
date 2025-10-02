@@ -1,10 +1,42 @@
 # Ralph for Claude Code
 
+![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Status](https://img.shields.io/badge/status-active%20development-yellow)
+![Tests](https://img.shields.io/badge/tests-75%20passing-green)
+![Coverage](https://img.shields.io/badge/coverage-60%25-orange)
+
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
 Ralph is an implementation of the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) by Paul Gauthier, specifically adapted for [Claude Code](https://claude.ai/code). It enables continuous autonomous development cycles where Claude Code iteratively improves your project until completion, with built-in safeguards to prevent infinite loops and API overuse.
 
 **Install once, use everywhere** - Ralph becomes a global command available in any directory.
+
+## 📌 Project Status
+
+**Version**: v0.9.0 - Active Development
+**Core Features**: ✅ Working and tested
+**Test Coverage**: 60% (expanding to 90%+ - see [roadmap](#-development-roadmap))
+
+### What's Working Now ✅
+- Autonomous development loops with intelligent exit detection
+- Rate limiting with hourly reset (100 calls/hour, configurable)
+- Circuit breaker prevents runaway loops
+- Response analyzer with semantic understanding
+- 5-hour API limit handling with user prompts
+- tmux integration for live monitoring
+- PRD import functionality
+- 75 passing tests covering critical paths
+
+### In Progress 🚧
+- Expanding test coverage (60% → 90%+)
+- Log rotation functionality
+- Dry-run mode
+- Configuration file support (.ralphrc)
+- Metrics and analytics tracking
+- Desktop notifications
+- Git backup and rollback system
+
+**Timeline to v1.0**: ~4 weeks • [Full roadmap](IMPLEMENTATION_PLAN.md) • **Contributions welcome!**
 
 ## 🌟 Features
 
@@ -361,22 +393,94 @@ tail -f logs/ralph.log
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run the test suite: `bats tests/` (ensure all tests pass)
-5. Test with `./install.sh` and sample projects
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
+Ralph is actively seeking contributors! We're working toward v1.0.0 with clear priorities and a detailed roadmap.
+
+### Quick Start for Contributors
+
+1. **Fork and Clone**
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/ralph-claude-code.git
+   cd ralph-claude-code
+   ```
+
+2. **Install Dependencies**
+   ```bash
+   npm install -g bats bats-support bats-assert
+   ./install.sh  # Install Ralph globally for testing
+   ```
+
+3. **Run Tests**
+   ```bash
+   npm test                    # Run all tests
+   npm run test:unit          # Run unit tests only
+   npm run test:integration   # Run integration tests only
+   ```
+
+### Priority Contribution Areas
+
+**🔥 High Priority (Help Needed!)**
+1. **Test Implementation** - We need 65+ more tests to reach 90% coverage
+   - See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed test specifications
+   - Week 3-4: Installation, CLI, tmux tests (58 tests)
+   - Week 5-6: Features and E2E tests (42 tests)
+
+2. **Feature Development**
+   - Log rotation functionality (Week 5, Day 3)
+   - Dry-run mode (Week 5, Day 4)
+   - Config file support (Week 5, Day 5)
+   - Metrics tracking (Week 6, Day 1)
+   - Notifications (Week 6, Day 2)
+   - Backup/rollback (Week 6, Day 3)
+
+3. **Documentation**
+   - TESTING.md guide
+   - CONTRIBUTING.md (expand this section)
+   - Usage tutorials and examples
+   - Troubleshooting guides
+
+4. **Real-World Testing**
+   - Use Ralph on your projects
+   - Report bugs and edge cases
+   - Share your experience
 
 ### Development Guidelines
 
-- All new features should include tests
-- Maintain or improve test coverage (currently 60%, target 90%+)
-- Follow existing code patterns and conventions
-- Update documentation for user-facing changes
-- See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for development roadmap
+- **Tests Required**: All new features must include tests
+- **Coverage Goal**: Maintain or improve coverage (currently 60%, target 90%+)
+- **Code Style**: Follow existing bash patterns and conventions
+- **Documentation**: Update README and relevant docs for user-facing changes
+- **Commit Messages**: Clear, descriptive commit messages
+- **Branch Naming**: `feature/feature-name` or `fix/bug-description`
+
+### Pull Request Process
+
+1. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Make your changes with tests
+3. Run full test suite: `npm test` (must pass 100%)
+4. Update documentation if needed
+5. Commit changes (`git commit -m 'Add amazing feature'`)
+6. Push to your fork (`git push origin feature/amazing-feature`)
+7. Open a Pull Request with:
+   - Clear description of changes
+   - Link to related issues
+   - Test results
+   - Screenshots (if UI/output changes)
+
+### Development Roadmap Reference
+
+See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete 6-week plan including:
+- Detailed test specifications
+- Feature implementation guides
+- Code examples for new functionality
+- Success metrics and milestones
+
+### Questions or Ideas?
+
+- Open an issue for discussion
+- Check existing issues for planned work
+- Join discussions on pull requests
+
+**Every contribution matters** - from fixing typos to implementing major features. Thank you for helping make Ralph better! 🙏
 
 ## 📄 License
 
@@ -439,26 +543,55 @@ tmux attach -t <name>     # Reattach to detached session
 
 ## 🗺️ Development Roadmap
 
-Ralph is under active development. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
+Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete 6-week roadmap.
 
-### Current Status (v0.9.0)
-- ✅ Core loop functionality complete
-- ✅ Rate limiting and circuit breaker
+### Current Status: v0.9.0 (Week 1-2 Complete)
+**What's Delivered:**
+- ✅ Core loop functionality with intelligent exit detection
+- ✅ Rate limiting (100 calls/hour) and circuit breaker pattern
 - ✅ Response analyzer with semantic understanding
-- ✅ 75 tests (60% coverage)
-- ✅ tmux integration and monitoring
+- ✅ 75 comprehensive tests (100% pass rate, 60% coverage)
+- ✅ tmux integration and live monitoring
 - ✅ PRD import functionality
+- ✅ Installation system and project templates
+- ✅ Comprehensive documentation (2,300+ lines)
 
-### Planned Features (v1.0.0)
-- ⏳ Additional 65+ tests for 90%+ coverage
-- ⏳ Log rotation functionality
-- ⏳ Dry-run mode
-- ⏳ Configuration file support (.ralphrc)
-- ⏳ Metrics and analytics tracking
-- ⏳ Desktop notifications
-- ⏳ Git backup and rollback system
+**Test Coverage Breakdown:**
+- Unit Tests: 35 (rate limiting, exit detection)
+- Integration Tests: 40 (loop execution, edge cases)
+- Coverage: ~60% of critical code paths
 
-See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed progress tracking.
+### Path to v1.0.0 (~4 weeks)
+**Week 3-4: Enhanced Testing**
+- ⏳ Installation and setup workflow tests (28 tests)
+- ⏳ CLI argument parsing tests (10 tests)
+- ⏳ tmux integration tests (12 tests)
+- ⏳ Monitor dashboard tests (8 tests)
+
+**Week 5: Core Features**
+- ⏳ Log rotation functionality (5 tests)
+- ⏳ Dry-run mode (4 tests)
+- ⏳ Configuration file support - .ralphrc (6 tests)
+
+**Week 6: Advanced Features & Polish**
+- ⏳ Metrics and analytics tracking (4 tests)
+- ⏳ Desktop notifications (3 tests)
+- ⏳ Git backup and rollback system (5 tests)
+- ⏳ End-to-end tests (10 tests)
+- ⏳ Final documentation and release prep
+
+**Target:** 140+ tests, 90%+ coverage, all planned features implemented
+
+See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed week-by-week progress tracking.
+
+### How to Contribute
+Ralph is seeking contributors! Priority areas:
+1. **Test Implementation** - Help reach 90%+ coverage ([see plan](IMPLEMENTATION_PLAN.md))
+2. **Feature Development** - Log rotation, dry-run mode, config files
+3. **Documentation** - Usage examples, tutorials, troubleshooting guides
+4. **Bug Reports** - Real-world usage feedback and edge cases
+
+See [Contributing](#-contributing) section below for guidelines.
 
 ---
 
