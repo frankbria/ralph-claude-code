@@ -18,6 +18,9 @@ Ralph is an implementation of the [Ralph technique](https://github.com/paul-gaut
 - **📝 Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
 - **⏱️ Configurable Timeouts** - Set execution timeout for Claude Code operations (1-120 minutes)
 - **🔍 Verbose Progress Mode** - Optional detailed progress updates during execution
+- **🧠 Response Analyzer** - AI-powered analysis of Claude Code responses with semantic understanding
+- **🔌 Circuit Breaker** - Smart error detection and recovery with automatic retry logic
+- **✅ Test Coverage** - 75 comprehensive tests with 60%+ code coverage (target: 90%+)
 
 ## 🚀 Quick Start
 
@@ -154,7 +157,9 @@ The conversion is intelligent and preserves your original requirements while mak
 
 ## 🛠️ Configuration
 
-### Rate Limiting
+### Rate Limiting & Circuit Breaker
+
+Ralph includes intelligent rate limiting and circuit breaker functionality:
 
 ```bash
 # Default: 100 calls per hour
@@ -166,6 +171,12 @@ ralph --monitor --calls 50
 # Check current usage
 ralph --status
 ```
+
+The circuit breaker automatically:
+- Detects API errors and rate limit issues
+- Opens circuit after 5 consecutive failures
+- Gradually recovers with half-open state
+- Provides detailed error tracking and logging
 
 ### Claude API 5-Hour Limit
 
@@ -267,6 +278,30 @@ my-project/
 - **Git** - Version control (projects are initialized as git repos)
 - **Standard Unix tools** - grep, date, etc.
 
+### Testing Requirements (Development)
+
+If you want to run the test suite:
+
+```bash
+# Install BATS testing framework
+npm install -g bats bats-support bats-assert
+
+# Run all tests (75 tests)
+bats tests/
+
+# Run specific test suites
+bats tests/unit/test_rate_limiting.bats
+bats tests/unit/test_exit_detection.bats
+bats tests/integration/test_loop_execution.bats
+bats tests/integration/test_edge_cases.bats
+```
+
+Current test status:
+- **75 tests** across 4 test files
+- **100% pass rate** (75/75 passing)
+- **~60% code coverage** (target: 90%+)
+- Comprehensive unit and integration tests
+
 ### Installing tmux
 
 ```bash
@@ -329,10 +364,19 @@ tail -f logs/ralph.log
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Test with `./install.sh` and sample projects
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+4. Run the test suite: `bats tests/` (ensure all tests pass)
+5. Test with `./install.sh` and sample projects
+6. Commit your changes (`git commit -m 'Add amazing feature'`)
+7. Push to the branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
+
+### Development Guidelines
+
+- All new features should include tests
+- Maintain or improve test coverage (currently 60%, target 90%+)
+- Follow existing code patterns and conventions
+- Update documentation for user-facing changes
+- See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for development roadmap
 
 ## 📄 License
 
@@ -390,6 +434,31 @@ tmux list-sessions        # View active Ralph sessions
 tmux attach -t <name>     # Reattach to detached session
 # Ctrl+B then D           # Detach from session (keeps running)
 ```
+
+---
+
+## 🗺️ Development Roadmap
+
+Ralph is under active development. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
+
+### Current Status (v0.9.0)
+- ✅ Core loop functionality complete
+- ✅ Rate limiting and circuit breaker
+- ✅ Response analyzer with semantic understanding
+- ✅ 75 tests (60% coverage)
+- ✅ tmux integration and monitoring
+- ✅ PRD import functionality
+
+### Planned Features (v1.0.0)
+- ⏳ Additional 65+ tests for 90%+ coverage
+- ⏳ Log rotation functionality
+- ⏳ Dry-run mode
+- ⏳ Configuration file support (.ralphrc)
+- ⏳ Metrics and analytics tracking
+- ⏳ Desktop notifications
+- ⏳ Git backup and rollback system
+
+See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed progress tracking.
 
 ---
 
