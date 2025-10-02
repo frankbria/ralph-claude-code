@@ -5,6 +5,11 @@
 
 set -e  # Exit on any error
 
+# Source library components
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+source "$SCRIPT_DIR/lib/response_analyzer.sh"
+source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+
 # Configuration
 PROMPT_FILE="PROMPT.md"
 LOG_DIR="logs"
@@ -107,23 +112,26 @@ init_call_tracking() {
     log_status "INFO" "DEBUG: Entered init_call_tracking..."
     local current_hour=$(date +%Y%m%d%H)
     local last_reset_hour=""
-    
+
     if [[ -f "$TIMESTAMP_FILE" ]]; then
         last_reset_hour=$(cat "$TIMESTAMP_FILE")
     fi
-    
+
     # Reset counter if it's a new hour
     if [[ "$current_hour" != "$last_reset_hour" ]]; then
         echo "0" > "$CALL_COUNT_FILE"
         echo "$current_hour" > "$TIMESTAMP_FILE"
         log_status "INFO" "Call counter reset for new hour: $current_hour"
     fi
-    
+
     # Initialize exit signals tracking if it doesn't exist
     if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
         echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
     fi
-    
+
+    # Initialize circuit breaker
+    init_circuit_breaker
+
     log_status "INFO" "DEBUG: Completed init_call_tracking successfully"
 }
 
@@ -363,12 +371,36 @@ EOF
             echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
             
             log_status "SUCCESS" "✅ Claude Code execution completed successfully"
-            
-            # Extract key information from output if possible
+
+            # Analyze the response
+            log_status "INFO" "🔍 Analyzing Claude Code response..."
+            analyze_response "$output_file" "$loop_count"
+            local analysis_exit_code=$?
+
+            # Update exit signals based on analysis
+            update_exit_signals
+
+            # Log analysis summary
+            log_analysis_summary
+
+            # Get file change count for circuit breaker
+            local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+            local has_errors="false"
             if grep -q "error\|Error\|ERROR" "$output_file"; then
+                has_errors="true"
                 log_status "WARN" "Errors detected in output, check: $output_file"
             fi
-            
+            local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+
+            # Record result in circuit breaker
+            record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
+            local circuit_result=$?
+
+            if [[ $circuit_result -ne 0 ]]; then
+                log_status "WARN" "Circuit breaker opened - halting execution"
+                return 3  # Special code for circuit breaker trip
+            fi
+
             return 0
         else
             # Clear progress file on failure
@@ -444,12 +476,19 @@ main() {
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
         
+        # Check circuit breaker before attempting execution
+        if should_halt_execution; then
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
+            log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
+            break
+        fi
+
         # Check rate limits
         if ! can_make_call; then
             wait_for_reset
             continue
         fi
-        
+
         # Check for graceful exit conditions
         local exit_reason=$(should_exit_gracefully)
         if [[ "$exit_reason" != "" ]]; then
@@ -474,9 +513,15 @@ main() {
         
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
-            
+
             # Brief pause between successful executions
             sleep 5
+        elif [ $exec_result -eq 3 ]; then
+            # Circuit breaker opened
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
+            log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
+            log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
+            break
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
@@ -535,13 +580,15 @@ IMPORTANT: This command must be run from a Ralph project directory.
            Use 'ralph-setup project-name' to create a new project first.
 
 Options:
-    -h, --help          Show this help message
-    -c, --calls NUM     Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
-    -p, --prompt FILE   Set prompt file (default: $PROMPT_FILE)
-    -s, --status        Show current status and exit
-    -m, --monitor       Start with tmux session and live monitor (requires tmux)
-    -v, --verbose       Show detailed progress updates during execution
-    -t, --timeout MIN   Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
+    -h, --help              Show this help message
+    -c, --calls NUM         Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
+    -p, --prompt FILE       Set prompt file (default: $PROMPT_FILE)
+    -s, --status            Show current status and exit
+    -m, --monitor           Start with tmux session and live monitor (requires tmux)
+    -v, --verbose           Show detailed progress updates during execution
+    -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
+    --reset-circuit         Reset circuit breaker to CLOSED state
+    --circuit-status        Show circuit breaker status and exit
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -602,6 +649,20 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             shift 2
+            ;;
+        --reset-circuit)
+            # Source the circuit breaker library
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+            reset_circuit_breaker "Manual reset via command line"
+            exit 0
+            ;;
+        --circuit-status)
+            # Source the circuit breaker library
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+            show_circuit_status
+            exit 0
             ;;
         *)
             echo "Unknown option: $1"
