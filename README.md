@@ -596,3 +596,6 @@ See [Contributing](#-contributing) section below for guidelines.
 ---
 
 **Ready to let AI build your project?** Start with `./install.sh` and let Ralph take it from there! 🚀
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=frankbria/ralph-claude-code&type=date&legend=top-left)](https://www.star-history.com/#frankbria/ralph-claude-code&type=date&legend=top-left)
