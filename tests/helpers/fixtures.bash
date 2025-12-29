@@ -3,8 +3,8 @@
 
 # Sample PRD Document (Markdown)
 create_sample_prd_md() {
-    local file=${1:-"sample_prd.md"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"sample_prd.md"}
+	cat >"$file" <<'EOF'
 # Task Management Web App - Product Requirements Document
 
 ## Overview
@@ -65,8 +65,8 @@ EOF
 
 # Sample PRD Document (JSON)
 create_sample_prd_json() {
-    local file=${1:-"sample_prd.json"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"sample_prd.json"}
+	cat >"$file" <<'EOF'
 {
   "project": "Task Management App",
   "overview": "Build a modern task management web application",
@@ -88,8 +88,8 @@ EOF
 
 # Sample PROMPT.md
 create_sample_prompt() {
-    local file=${1:-"PROMPT.md"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"PROMPT.md"}
+	cat >"$file" <<'EOF'
 # Ralph Development Instructions
 
 ## Context
@@ -125,47 +125,47 @@ EOF
 
 # Sample @fix_plan.md
 create_sample_fix_plan() {
-    local file=${1:-"@fix_plan.md"}
-    local total=${2:-10}
-    local completed=${3:-3}
+	local file=${1:-"@fix_plan.md"}
+	local total=${2:-10}
+	local completed=${3:-3}
 
-    cat > "$file" << 'EOF'
+	cat >"$file" <<'EOF'
 # Ralph Fix Plan
 
 ## High Priority
 EOF
 
-    # Add completed items
-    for ((i=1; i<=completed && i<=total; i++)); do
-        echo "- [x] Task $i - Completed" >> "$file"
-    done
+	# Add completed items
+	for ((i = 1; i <= completed && i <= total; i++)); do
+		echo "- [x] Task $i - Completed" >>"$file"
+	done
 
-    # Add pending high priority items
-    for ((i=completed+1; i<=total/2 && i<=total; i++)); do
-        echo "- [ ] Task $i - High priority pending" >> "$file"
-    done
+	# Add pending high priority items
+	for ((i = completed + 1; i <= total / 2 && i <= total; i++)); do
+		echo "- [ ] Task $i - High priority pending" >>"$file"
+	done
 
-    cat >> "$file" << 'EOF'
+	cat >>"$file" <<'EOF'
 
 ## Medium Priority
 EOF
 
-    # Add medium priority items
-    for ((i=total/2+1; i<=total*3/4 && i<=total; i++)); do
-        echo "- [ ] Task $i - Medium priority pending" >> "$file"
-    done
+	# Add medium priority items
+	for ((i = total / 2 + 1; i <= total * 3 / 4 && i <= total; i++)); do
+		echo "- [ ] Task $i - Medium priority pending" >>"$file"
+	done
 
-    cat >> "$file" << 'EOF'
+	cat >>"$file" <<'EOF'
 
 ## Low Priority
 EOF
 
-    # Add low priority items
-    for ((i=total*3/4+1; i<=total; i++)); do
-        echo "- [ ] Task $i - Low priority pending" >> "$file"
-    done
+	# Add low priority items
+	for ((i = total * 3 / 4 + 1; i <= total; i++)); do
+		echo "- [ ] Task $i - Low priority pending" >>"$file"
+	done
 
-    cat >> "$file" << 'EOF'
+	cat >>"$file" <<'EOF'
 
 ## Completed
 - [x] Project initialization
@@ -179,35 +179,35 @@ EOF
 
 # Sample @AGENT.md
 create_sample_agent_md() {
-    local file=${1:-"@AGENT.md"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"@AGENT.md"}
+	cat >"$file" <<'EOF'
 # Agent Build Instructions
 
 ## Project Setup
 ```bash
 # Install dependencies
-npm install
+bun install
 ```
 
 ## Running Tests
 ```bash
 # Run all tests
-npm test
+bun test
 
 # Run specific test file
-npm test -- tests/unit/test_rate_limiting.bats
+bun test -- tests/unit/test_rate_limiting.bats
 ```
 
 ## Build Commands
 ```bash
 # Production build
-npm run build
+bun run build
 ```
 
 ## Development Server
 ```bash
 # Start development server
-npm run dev
+bun run dev
 ```
 
 ## Key Learnings
@@ -219,8 +219,8 @@ EOF
 
 # Sample Claude Code Output (Success)
 create_sample_claude_output_success() {
-    local file=${1:-"claude_output.log"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"claude_output.log"}
+	cat >"$file" <<'EOF'
 Reading PROMPT.md...
 Analyzing project requirements...
 
@@ -243,8 +243,8 @@ EOF
 
 # Sample Claude Code Output (Error)
 create_sample_claude_output_error() {
-    local file=${1:-"claude_output.log"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"claude_output.log"}
+	cat >"$file" <<'EOF'
 Reading PROMPT.md...
 Analyzing project requirements...
 
@@ -258,8 +258,8 @@ EOF
 
 # Sample Claude Code Output (5-hour limit)
 create_sample_claude_output_limit() {
-    local file=${1:-"claude_output.log"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"claude_output.log"}
+	cat >"$file" <<'EOF'
 Error: You've reached your 5-hour usage limit for Claude.
 Please try again in about an hour when your limit resets.
 
@@ -270,8 +270,8 @@ EOF
 
 # Sample status.json (Running)
 create_sample_status_running() {
-    local file=${1:-"status.json"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"status.json"}
+	cat >"$file" <<'EOF'
 {
     "timestamp": "2025-09-30T12:00:00-04:00",
     "loop_count": 5,
@@ -286,8 +286,8 @@ EOF
 
 # Sample status.json (Completed)
 create_sample_status_completed() {
-    local file=${1:-"status.json"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"status.json"}
+	cat >"$file" <<'EOF'
 {
     "timestamp": "2025-09-30T15:30:00-04:00",
     "loop_count": 25,
@@ -302,8 +302,8 @@ EOF
 
 # Sample progress.json (Executing)
 create_sample_progress_executing() {
-    local file=${1:-"progress.json"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"progress.json"}
+	cat >"$file" <<'EOF'
 {
     "status": "executing",
     "indicator": "⠋",
@@ -316,8 +316,8 @@ EOF
 
 # Sample metrics.jsonl
 create_sample_metrics() {
-    local file=${1:-"metrics.jsonl"}
-    cat > "$file" << 'EOF'
+	local file=${1:-"metrics.jsonl"}
+	cat >"$file" <<'EOF'
 {"timestamp":"2025-09-30T12:00:00-04:00","loop":1,"duration":45,"success":true,"calls":1}
 {"timestamp":"2025-09-30T12:01:30-04:00","loop":2,"duration":52,"success":true,"calls":2}
 {"timestamp":"2025-09-30T12:03:00-04:00","loop":3,"duration":38,"success":true,"calls":3}
@@ -328,19 +328,19 @@ EOF
 
 # Create complete test project structure
 create_test_project() {
-    local project_dir=${1:-"test_project"}
+	local project_dir=${1:-"test_project"}
 
-    mkdir -p "$project_dir"/{specs/stdlib,src,examples,logs,docs/generated}
+	mkdir -p "$project_dir"/{specs/stdlib,src,examples,logs,docs/generated}
 
-    cd "$project_dir" || return 1
+	cd "$project_dir" || return 1
 
-    create_sample_prompt "PROMPT.md"
-    create_sample_fix_plan "@fix_plan.md" 10 3
-    create_sample_agent_md "@AGENT.md"
+	create_sample_prompt "PROMPT.md"
+	create_sample_fix_plan "@fix_plan.md" 10 3
+	create_sample_agent_md "@AGENT.md"
 
-    echo "0" > .call_count
-    echo "$(date +%Y%m%d%H)" > .last_reset
-    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > .exit_signals
+	echo "0" >.call_count
+	echo "$(date +%Y%m%d%H)" >.last_reset
+	echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' >.exit_signals
 
-    cd - > /dev/null || return 1
+	cd - >/dev/null || return 1
 }
