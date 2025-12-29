@@ -1,0 +1,59 @@
+# ShellCheck configuration for Ralph
+
+# === Production Code ===
+
+# SC2016 - Expressions don't expand in single quotes
+# (Intentional in sed patterns and echo statements for shell config)
+disable=SC2016
+
+# SC2155 - Declare and assign separately to avoid masking return values
+# (Consistent style choice throughout codebase - failures caught by error handling)
+disable=SC2155
+
+# SC2162 - read without -r
+# (Acceptable for simple user input)
+disable=SC2162
+
+# SC2012 - Use find instead of ls
+# (ls is acceptable for simple time-sorted listings)
+disable=SC2012
+
+# SC2035 - Use ./*glob*
+# (chmod is safe in our context)
+disable=SC2035
+
+# === Test Code ===
+
+# SC1091 - Not following sourced files
+# (Test helpers are sourced dynamically, paths are correct)
+disable=SC1091
+
+# SC2030 - Modification of variable is local
+# SC2031 - Variable was modified in a subshell
+# (Expected behavior in test subshells and setup/teardown)
+disable=SC2030
+disable=SC2031
+
+# SC2034 - Variable appears unused
+# (Test fixtures and mocks define variables for external use)
+disable=SC2034
+
+# SC2086 - Double quote to prevent globbing and word splitting
+# (Intentional in test assertions and mock functions)
+disable=SC2086
+
+# SC2154 - Variable is referenced but not assigned
+# (BATS framework provides variables like $status, $output, $lines)
+disable=SC2154
+
+# SC2164 - Use 'cd ... || exit' or 'cd ... || return'
+# (Test code uses cd within controlled teardown context)
+disable=SC2164
+
+# SC2329 - Function is never invoked
+# (Mock functions are invoked indirectly by test framework)
+disable=SC2329
+
+# SC2005 - Useless echo? Instead of 'echo $(cmd)', just use 'cmd'
+# (Style preference in test fixtures for clarity)
+disable=SC2005
