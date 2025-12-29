@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "ralph-claude-code",
+      "devDependencies": {
+        "bats": "^1.12.0",
+        "bats-assert": "^2.2.0",
+        "bats-support": "^0.3.0",
+      },
+    },
+  },
+  "packages": {
+    "bats": ["bats@1.12.0", "", { "bin": "bin/bats" }, "sha512-1HTv2n+fjn3bmY9SNDgmzS6bjoKtVlSK2pIHON5aSA2xaqGkZFoCCWP46/G6jm9zZ7MCi84mD+3Byw4t3KGwBg=="],
+
+    "bats-assert": ["bats-assert@2.2.0", "", { "peerDependencies": { "bats": "0.4 || ^1", "bats-support": "^0.3" } }, "sha512-UwS5N8JItn8gCiFl5LegBgVzSAy4Wpj241FebQXpiF+17yzeuMGLF/n9mUze4fmRUXryF/8nb3aAh+C7sTfQ2g=="],
+
+    "bats-support": ["bats-support@0.3.0", "", { "peerDependencies": { "bats": "0.4 || ^1" } }, "sha512-z+2WzXbI4OZgLnynydqH8GpI3+DcOtepO66PlK47SfEzTkiuV9hxn9eIQX+uLVFbt2Oqoc7Ky3TJ/N83lqD+cg=="],
+  }
+}
