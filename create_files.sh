@@ -9,7 +9,7 @@ echo "🚀 Creating Ralph for Claude Code repository structure..."
 mkdir -p {logs,docs/generated,specs/stdlib,src,examples,templates/specs}
 
 # Create main scripts
-cat > ralph_loop.sh << 'EOF'
+cat >ralph_loop.sh <<'EOF'
 #!/bin/bash
 
 # Claude Code Ralph Loop with Rate Limiting and Documentation
@@ -22,7 +22,7 @@ PROMPT_FILE="PROMPT.md"
 LOG_DIR="logs"
 DOCS_DIR="docs/generated"
 STATUS_FILE="status.json"
-CLAUDE_CODE_CMD="npx @anthropic/claude-code"
+CLAUDE_CODE_CMD="bunx @anthropic/claude-code"
 MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE=".call_count"
@@ -44,6 +44,18 @@ NC='\033[0m' # No Color
 
 # Initialize directories
 mkdir -p "$LOG_DIR" "$DOCS_DIR"
+
+# Cross-platform date function for calculating future times
+# Works on both macOS (BSD date) and Linux (GNU date)
+get_next_hour_time() {
+    if date -v+1H &>/dev/null 2>&1; then
+        # macOS / BSD date
+        date -v+1H -Iseconds | cut -d'T' -f2 | cut -d'+' -f1
+    else
+        # GNU date (Linux)
+        date -d '+1 hour' -Iseconds | cut -d'T' -f2 | cut -d'+' -f1
+    fi
+}
 
 # Initialize call tracking
 init_call_tracking() {
@@ -103,7 +115,7 @@ update_status() {
     "last_action": "$last_action",
     "status": "$status",
     "exit_reason": "$exit_reason",
-    "next_reset": "$(date -d '+1 hour' -Iseconds | cut -d'T' -f2 | cut -d'+' -f1)"
+    "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
 }
@@ -371,7 +383,7 @@ main
 EOF
 
 # Create monitor script (simplified for brevity)
-cat > ralph_monitor.sh << 'EOF'
+cat >ralph_monitor.sh <<'EOF'
 #!/bin/bash
 
 # Ralph Status Monitor - Live terminal dashboard for the Ralph loop
@@ -478,7 +490,7 @@ main
 EOF
 
 # Create setup script
-cat > setup.sh << 'EOF'
+cat >setup.sh <<'EOF'
 #!/bin/bash
 
 # Ralph Project Setup Script
@@ -518,7 +530,7 @@ EOF
 # Create template files
 mkdir -p templates/specs
 
-cat > templates/PROMPT.md << 'EOF'
+cat >templates/PROMPT.md <<'EOF'
 # Ralph Development Instructions
 
 ## Context
@@ -578,7 +590,7 @@ Use your judgment to prioritize what will have the biggest impact on project pro
 Remember: Quality over speed. Build it right the first time. Know when you're done.
 EOF
 
-cat > templates/fix_plan.md << 'EOF'
+cat >templates/fix_plan.md <<'EOF'
 # Ralph Fix Plan
 
 ## High Priority
@@ -608,13 +620,13 @@ cat > templates/fix_plan.md << 'EOF'
 - Update this file after each major milestone
 EOF
 
-cat > templates/AGENT.md << 'EOF'
+cat >templates/AGENT.md <<'EOF'
 # Agent Build Instructions
 
 ## Project Setup
 ```bash
 # Install dependencies (example for Node.js project)
-npm install
+bun install
 
 # Or for Python project
 pip install -r requirements.txt
@@ -626,7 +638,7 @@ cargo build
 ## Running Tests
 ```bash
 # Node.js
-npm test
+bun test
 
 # Python
 pytest
@@ -638,7 +650,7 @@ cargo test
 ## Build Commands
 ```bash
 # Production build
-npm run build
+bun run build
 # or
 cargo build --release
 ```
@@ -646,7 +658,7 @@ cargo build --release
 ## Development Server
 ```bash
 # Start development server
-npm run dev
+bun run dev
 # or
 cargo run
 ```
@@ -658,7 +670,7 @@ cargo run
 EOF
 
 # Create gitignore
-cat > .gitignore << 'EOF'
+cat >.gitignore <<'EOF'
 # Ralph generated files
 .call_count
 .last_reset

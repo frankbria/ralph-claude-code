@@ -1,3 +1,0 @@
-# This file ensures the docs/generated/ directory is tracked by git
-# Note: Generated documentation files are ignored by .gitignore
-# This directory is needed for Ralph loop execution

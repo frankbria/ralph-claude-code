@@ -1,21 +1,23 @@
 # Agent Build Instructions
 
 ## Project Setup
+
 ```bash
 # Install dependencies (example for Node.js project)
-npm install
+bun install
 
 # Or for Python project
 pip install -r requirements.txt
 
-# Or for Rust project  
+# Or for Rust project
 cargo build
 ```
 
 ## Running Tests
+
 ```bash
 # Node.js
-npm test
+bun test
 
 # Python
 pytest
@@ -25,22 +27,25 @@ cargo test
 ```
 
 ## Build Commands
+
 ```bash
 # Production build
-npm run build
+bun run build
 # or
 cargo build --release
 ```
 
 ## Development Server
+
 ```bash
 # Start development server
-npm run dev
+bun run dev
 # or
 cargo run
 ```
 
 ## Key Learnings
+
 - Update this section when you learn new build optimizations
 - Document any gotchas or special setup requirements
 - Keep track of the fastest test/build cycle
@@ -58,12 +63,14 @@ cargo run
   - Integration tests for API endpoints or main functionality
   - End-to-end tests for critical user workflows
 - **Coverage Validation**: Run coverage reports before marking features complete:
+
   ```bash
   # Examples by language/framework
-  npm run test:coverage
+  bun run test:coverage
   pytest --cov=src tests/ --cov-report=term-missing
   cargo tarpaulin --out Html
   ```
+
 - **Test Quality**: Tests must validate behavior, not just achieve coverage metrics
 - **Test Documentation**: Complex test scenarios must include comments explaining the test strategy
 
@@ -72,18 +79,22 @@ cargo run
 Before moving to the next feature, ALL changes must be:
 
 1. **Committed with Clear Messages**:
+
    ```bash
    git add .
    git commit -m "feat(module): descriptive message following conventional commits"
    ```
+
    - Use conventional commit format: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, etc.
    - Include scope when applicable: `feat(api):`, `fix(ui):`, `test(auth):`
    - Write descriptive messages that explain WHAT changed and WHY
 
 2. **Pushed to Remote Repository**:
+
    ```bash
    git push origin <branch-name>
    ```
+
    - Never leave completed features uncommitted
    - Push regularly to maintain backup and enable collaboration
    - Ensure CI/CD pipelines pass before considering feature complete
@@ -148,6 +159,7 @@ Before marking ANY feature as complete, verify:
 ### Rationale
 
 These standards ensure:
+
 - **Quality**: High test coverage and pass rates prevent regressions
 - **Traceability**: Git commits and @fix_plan.md provide clear history of changes
 - **Maintainability**: Current documentation reduces onboarding time and prevents knowledge loss

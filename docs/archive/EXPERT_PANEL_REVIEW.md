@@ -9,20 +9,24 @@
 ## 📋 Expert Panel Composition
 
 **Architecture & Design**
+
 - **Martin Fowler** - Software Architecture & Design Patterns
 - **Michael Nygard** - Production Systems & Operational Excellence
 - **Sam Newman** - Distributed Systems & Service Boundaries
 
 **Requirements & Specifications**
+
 - **Karl Wiegers** - Requirements Engineering
 - **Gojko Adzic** - Specification by Example
 - **Alistair Cockburn** - Use Cases & Agile Requirements
 
 **Quality & Testing**
+
 - **Lisa Crispin** - Agile Testing & Quality Requirements
 - **Janet Gregory** - Collaborative Testing & Quality Practices
 
 **Modern Operations**
+
 - **Kelsey Hightower** - Cloud Native & Operational Observability
 
 ---
@@ -32,6 +36,7 @@
 ### Issue 1: Missing Feedback Loop Architecture
 
 **MARTIN FOWLER** - Architecture Analysis:
+
 ```
 ❌ VIOLATION: Single Responsibility Principle
 
@@ -63,6 +68,7 @@ IMPACT: Fixes root cause of infinite loops
 ```
 
 **MICHAEL NYGARD** - Production Resilience:
+
 ```
 ❌ CRITICAL: No Circuit Breaker for Unproductive Loops
 
@@ -103,7 +109,8 @@ IMPACT: Saves thousands of wasted tokens, provides clear failure signal
 ```
 
 **SAM NEWMAN** - Service Integration:
-```
+
+````
 ❌ MISSING: Contract Definition Between Ralph and Claude
 
 In microservices, we define explicit contracts between services. Ralph and
@@ -147,9 +154,10 @@ if [[ "$exit_signal" == "true" ]]; then
     log_status "SUCCESS" "Claude signaled completion"
     exit 0
 fi
-```
+````
 
 RECOMMENDATION:
+
 1. Define JSON schema for Claude's responses
 2. Update PROMPT.md to request structured output
 3. Add response parser in execute_claude_code()
@@ -159,6 +167,7 @@ RECOMMENDATION:
 PRIORITY: 🔴 CRITICAL - Enables all other improvements
 EFFORT: Medium (schema design + parser implementation)
 IMPACT: Makes Ralph's outputs parseable and actionable
+
 ```
 
 ---
@@ -169,27 +178,32 @@ IMPACT: Makes Ralph's outputs parseable and actionable
 
 **KARL WIEGERS** - Requirements Quality:
 ```
+
 ⚠️ MAJOR: Non-Testable Completion Requirements
 
 From PROMPT.md lines 38-45:
 "If you believe the project is complete or nearly complete:
- - Update @fix_plan.md to reflect completion status"
+
+- Update @fix_plan.md to reflect completion status"
 
 This requirement violates SMART criteria:
+
 - Specific: ❌ "believe" is subjective
 - Measurable: ❌ No metric for "complete"
-- Achievable: ⚠️  Requires manual action
+- Achievable: ⚠️ Requires manual action
 - Relevant: ✅ Yes
 - Timely: ❌ No timeframe
 
 Better requirement:
 "When all tasks in @fix_plan.md are marked [x] AND no errors are present
- in the last test run AND you have nothing left to implement from specs/:
- - Output: EXIT_SIGNAL=true
- - Update @fix_plan.md with completion summary
- - List any deferred items in ## Deferred section"
+in the last test run AND you have nothing left to implement from specs/:
+
+- Output: EXIT_SIGNAL=true
+- Update @fix_plan.md with completion summary
+- List any deferred items in ## Deferred section"
 
 This is:
+
 - Specific: Three clear conditions
 - Measurable: Boolean checks
 - Achievable: Automated detection possible
@@ -198,12 +212,14 @@ This is:
 
 RECOMMENDATION:
 Rewrite completion requirements with:
+
 1. Clear exit conditions (3 measurable criteria)
 2. Structured output format (JSON or key=value)
 3. Validation checklist Claude must verify
 4. Explicit "DONE" signal in parseable format
 
 Example structured output requirement:
+
 ```
 When ready to exit, output this exact format:
 ---RALPH_STATUS---
@@ -219,10 +235,12 @@ EXIT_SIGNAL: true
 PRIORITY: 🟡 HIGH - Required for automated exit detection
 EFFORT: Low (documentation update)
 IMPACT: Provides clear contract for completion
+
 ```
 
 **GOJKO ADZIC** - Specification by Example:
 ```
+
 ⚠️ MISSING: Concrete Examples of Exit Scenarios
 
 The PROMPT.md tells Claude WHAT to do but not HOW. Let's use Given/When/Then
@@ -233,34 +251,35 @@ Required state: Concrete examples
 
 Example 1: Successful Completion
 Given: All @fix_plan.md items are checked [x]
-  And: Last test run shows 100% passing
-  And: No errors in logs/
+And: Last test run shows 100% passing
+And: No errors in logs/
 When: Claude evaluates project status
 Then: Claude outputs EXIT_SIGNAL=true
-  And: Provides completion summary
-  And: Ralph detects signal and exits loop
+And: Provides completion summary
+And: Ralph detects signal and exits loop
 
 Example 2: Detected Test-Only Loop
 Given: Last 3 loops only executed tests
-  And: No files were modified
-  And: No new test files were created
+And: No files were modified
+And: No new test files were created
 When: Claude starts loop iteration
 Then: Claude outputs TEST_ONLY=true
-  And: Ralph increments test_only_loops counter
-  And: After 3 consecutive, Ralph exits with "test_saturation"
+And: Ralph increments test_only_loops counter
+And: After 3 consecutive, Ralph exits with "test_saturation"
 
 Example 3: Stuck on Error
 Given: Same error appears in last 5 loops
-  And: No progress on fixing the error
+And: No progress on fixing the error
 When: Claude attempts same fix repeatedly
 Then: Claude outputs STUCK=true
-  And: Provides error description
-  And: Recommends human intervention
-  And: Ralph exits with "needs_human_help"
+And: Provides error description
+And: Recommends human intervention
+And: Ralph exits with "needs_human_help"
 
 RECOMMENDATION:
 Add "## Exit Scenarios" section to PROMPT.md with 5-10 concrete examples.
 Each example should show:
+
 - Initial state
 - Expected detection
 - Required output format
@@ -271,13 +290,16 @@ This makes the contract explicit and testable.
 PRIORITY: 🟡 HIGH - Clarity prevents misunderstandings
 EFFORT: Low (documentation)
 IMPACT: Claude understands exactly what Ralph needs
+
 ```
 
 **ALISTAIR COCKBURN** - Use Case Analysis:
 ```
+
 ⚠️ MISSING: Primary Actor and Goal Definition
 
 Who is the primary actor in Ralph's system?
+
 - The human developer? (initiated Ralph but isn't actively involved)
 - Ralph script? (executor but not decision maker)
 - Claude Code? (does the work but doesn't control the loop)
@@ -287,18 +309,18 @@ This ambiguity causes the infinite loop problem!
 Required: Clear goal hierarchy
 
 SYSTEM GOAL: Complete project implementation with minimal token waste
-  ↓
+↓
 SUB-GOAL 1: Execute Claude Code to make progress
-  SUCCESS: Files changed, tests pass, tasks completed
-  FAILURE: No files changed, tests fail, no progress
-  ↓
+SUCCESS: Files changed, tests pass, tasks completed
+FAILURE: No files changed, tests fail, no progress
+↓
 SUB-GOAL 2: Detect when no more progress is possible
-  SUCCESS: Exit gracefully with completion summary
-  FAILURE: Loop forever (CURRENT STATE)
-  ↓
+SUCCESS: Exit gracefully with completion summary
+FAILURE: Loop forever (CURRENT STATE)
+↓
 SUB-GOAL 3: Minimize token consumption
-  SUCCESS: Exit when work is done
-  FAILURE: Continue executing when nothing to do (CURRENT STATE)
+SUCCESS: Exit when work is done
+FAILURE: Continue executing when nothing to do (CURRENT STATE)
 
 Primary Use Case: Autonomous Development
 Primary Actor: Ralph (autonomous agent)
@@ -308,6 +330,7 @@ Success: All tasks complete, exit loop with summary
 Failure: Infinite loop, token waste, manual interruption required
 
 Main Success Scenario:
+
 1. Ralph loads PROMPT.md
 2. Ralph executes Claude Code
 3. Claude performs work and reports status
@@ -317,21 +340,13 @@ Main Success Scenario:
 7. If not complete: go to step 2
 
 Extensions (Error Handling):
-3a. Claude reports completion
-    1. Ralph verifies all tasks complete
-    2. Ralph exits (avoid unnecessary loops)
+3a. Claude reports completion 1. Ralph verifies all tasks complete 2. Ralph exits (avoid unnecessary loops)
 
-3b. Claude reports stuck on error
-    1. Ralph increments stuck_counter
-    2. If stuck_counter > 3: exit with "needs_help"
+3b. Claude reports stuck on error 1. Ralph increments stuck_counter 2. If stuck_counter > 3: exit with "needs_help"
 
-4a. Response analysis fails (unparseable output)
-    1. Ralph logs warning
-    2. Ralph continues (graceful degradation)
+4a. Response analysis fails (unparseable output) 1. Ralph logs warning 2. Ralph continues (graceful degradation)
 
-5a. No progress detected for 3 loops
-    1. Ralph opens circuit breaker
-    2. Ralph exits with "no_progress" signal
+5a. No progress detected for 3 loops 1. Ralph opens circuit breaker 2. Ralph exits with "no_progress" signal
 
 RECOMMENDATION:
 Document use cases in @AGENT.md or new USE_CASES.md file.
@@ -341,6 +356,7 @@ This provides design clarity and testing scenarios.
 PRIORITY: 🟡 HIGH - Clarifies system purpose
 EFFORT: Low (documentation)
 IMPACT: Design clarity prevents ambiguity
+
 ```
 
 ---
@@ -351,6 +367,7 @@ IMPACT: Design clarity prevents ambiguity
 
 **LISA CRISPIN** - Testing Strategy:
 ```
+
 ⚠️ TESTING GAP: No Integration Tests for Loop Logic
 
 Current test coverage:
@@ -363,13 +380,14 @@ Current test coverage:
 The CRITICAL gap: No tests for the main loop execution path!
 
 Required test scenarios:
+
 1. Loop with successful completion
    - Mock Claude output with EXIT_SIGNAL=true
    - Verify Ralph detects signal and exits
    - Verify exit_reason="completion_signals"
 
 2. Loop with test saturation
-   - Mock 4 consecutive outputs with only "npm test"
+   - Mock 4 consecutive outputs with only "bun test"
    - Verify test_only_loops array populates
    - Verify exit_reason="test_saturation"
 
@@ -390,6 +408,7 @@ Required test scenarios:
 
 RECOMMENDATION:
 Create tests/integration/test_loop_execution.bats with:
+
 - Mock Claude Code that returns pre-defined responses
 - Verification of signal detection and updates
 - Validation of exit conditions triggering correctly
@@ -398,13 +417,16 @@ Create tests/integration/test_loop_execution.bats with:
 PRIORITY: 🟠 MEDIUM - Required for safe refactoring
 EFFORT: High (complex integration tests)
 IMPACT: Ensures fixes don't break existing behavior
+
 ```
 
 **JANET GREGORY** - Quality Conversations:
 ```
+
 ⚠️ COLLABORATION GAP: No "Three Amigos" for Exit Detection
 
 The exit detection logic was implemented without involving:
+
 - Developer (you) ✅
 - Tester (who would ask "how do we test this?") ❌
 - Product owner (who would ask "what's the business value?") ❌
@@ -427,6 +449,7 @@ This would have prioritized the feedback loop implementation.
 RECOMMENDATION:
 For remaining work (response analysis, circuit breaker), conduct
 specification workshops with:
+
 - Developer: How to implement
 - Tester: How to verify
 - User: What's the expected behavior
@@ -436,6 +459,7 @@ Document the conversation in specs/ before implementing.
 PRIORITY: 🟠 MEDIUM - Process improvement
 EFFORT: Low (better planning)
 IMPACT: Better requirements, fewer bugs
+
 ```
 
 ---
@@ -446,6 +470,7 @@ IMPACT: Better requirements, fewer bugs
 
 **KELSEY HIGHTOWER** - Operational Excellence:
 ```
+
 💡 ENHANCEMENT: Insufficient Observability and Metrics
 
 Cloud-native principle: "If you can't measure it, you can't improve it."
@@ -461,28 +486,29 @@ Current metrics:
 ❌ Efficiency trends
 
 Required observability:
+
 1. Per-loop metrics (in logs/metrics.jsonl):
    {
-     "loop": 42,
-     "timestamp": "2025-09-30T12:00:00Z",
-     "duration_seconds": 45,
-     "tokens_estimated": 3500,
-     "files_changed": 2,
-     "tests_run": 15,
-     "tests_passed": 15,
-     "exit_signals_detected": ["none"],
-     "progress_score": 0.8,
-     "efficiency": "high"
+   "loop": 42,
+   "timestamp": "2025-09-30T12:00:00Z",
+   "duration_seconds": 45,
+   "tokens_estimated": 3500,
+   "files_changed": 2,
+   "tests_run": 15,
+   "tests_passed": 15,
+   "exit_signals_detected": ["none"],
+   "progress_score": 0.8,
+   "efficiency": "high"
    }
 
 2. Dashboard (ralph-monitor enhancement):
    ┌─ Ralph Efficiency Dashboard ──────────────┐
-   │ Loop: #42                                  │
-   │ Avg tokens/loop: 3,200                     │
-   │ Progress velocity: 2.5 tasks/hour          │
-   │ Loops since last file change: 0            │
-   │ Estimated completion: 8 loops              │
-   │ Efficiency trend: ↗ improving              │
+   │ Loop: #42 │
+   │ Avg tokens/loop: 3,200 │
+   │ Progress velocity: 2.5 tasks/hour │
+   │ Loops since last file change: 0 │
+   │ Estimated completion: 8 loops │
+   │ Efficiency trend: ↗ improving │
    └────────────────────────────────────────────┘
 
 3. Alerting (optional but valuable):
@@ -492,6 +518,7 @@ Required observability:
 
 RECOMMENDATION:
 Add metrics collection to execute_claude_code():
+
 - Measure tokens (estimate from output length)
 - Track file changes (git diff --stat)
 - Record test results (parse output)
@@ -499,6 +526,7 @@ Add metrics collection to execute_claude_code():
 - Write to metrics.jsonl
 
 Enhance ralph-monitor to show:
+
 - Current efficiency trend
 - Token consumption rate
 - Progress velocity
@@ -507,41 +535,44 @@ Enhance ralph-monitor to show:
 PRIORITY: 🟢 LOW - Nice to have, not critical
 EFFORT: Medium (metrics collection + dashboard)
 IMPACT: Better visibility, optimization opportunities
+
 ```
 
 **MICHAEL NYGARD** - Operational Monitoring:
 ```
+
 💡 ENHANCEMENT: Add Health Checks and Status Endpoints
 
 Production systems need health checks. Ralph should too.
 
 Proposed health check (ralph --health):
 {
-  "status": "healthy",
-  "loop_count": 42,
-  "last_progress": "2 loops ago",
-  "circuit_breaker": "closed",
-  "efficiency": "85%",
-  "estimated_completion": "10 loops",
-  "issues": []
+"status": "healthy",
+"loop_count": 42,
+"last_progress": "2 loops ago",
+"circuit_breaker": "closed",
+"efficiency": "85%",
+"estimated_completion": "10 loops",
+"issues": []
 }
 
 When unhealthy:
 {
-  "status": "degraded",
-  "loop_count": 55,
-  "last_progress": "12 loops ago",
-  "circuit_breaker": "half-open",
-  "efficiency": "35%",
-  "estimated_completion": "unknown",
-  "issues": [
-    "No file changes in 12 loops",
-    "Efficiency below 50%",
-    "Test saturation detected"
-  ]
+"status": "degraded",
+"loop_count": 55,
+"last_progress": "12 loops ago",
+"circuit_breaker": "half-open",
+"efficiency": "35%",
+"estimated_completion": "unknown",
+"issues": [
+"No file changes in 12 loops",
+"Efficiency below 50%",
+"Test saturation detected"
+]
 }
 
 This enables:
+
 - Monitoring from CI/CD systems
 - Integration with alerting tools
 - Health-based auto-restart
@@ -555,6 +586,7 @@ Document for CI/CD integration.
 PRIORITY: 🟢 LOW - Operational improvement
 EFFORT: Low (status aggregation)
 IMPACT: Better monitoring and integration
+
 ```
 
 ---
@@ -703,3 +735,4 @@ IMPACT: Better monitoring and integration
 **Review Completed**: 2025-09-30
 **Next Action**: Prioritize Phase 1 implementation
 **Expected Impact**: Transform Ralph from "unreliable prototype" to "production-ready tool"
+```

@@ -23,11 +23,12 @@ A specification workshop brings together three perspectives ("Three Amigos") to 
 ### Feature: [Name]
 
 **Participants**:
+
 - Developer: [Name]
 - Tester: [Name]
 - Product Owner: [Name]
-**Date**: YYYY-MM-DD
-**Duration**: 30-60 minutes
+  **Date**: YYYY-MM-DD
+  **Duration**: 30-60 minutes
 
 ---
 
@@ -38,6 +39,7 @@ A specification workshop brings together three perspectives ("Three Amigos") to 
 **So that** [benefit]
 
 **Example**:
+
 > As a Ralph user
 > I want circuit breaker auto-recovery
 > So that temporary issues don't require manual intervention
@@ -49,11 +51,13 @@ A specification workshop brings together three perspectives ("Three Amigos") to 
 What makes this feature "done" and valuable?
 
 **Criteria**:
+
 - [ ] [Measurable criterion 1]
 - [ ] [Measurable criterion 2]
 - [ ] [Measurable criterion 3]
 
 **Example**:
+
 - [x] Circuit breaker auto-recovers when progress resumes
 - [x] User is notified of recovery via log message
 - [x] Recovery happens within 1 loop iteration
@@ -65,11 +69,13 @@ What makes this feature "done" and valuable?
 What needs clarification? What could go wrong?
 
 **Tester Questions**:
+
 1. What happens if [edge case 1]?
 2. How do we verify [behavior 2]?
 3. What's the expected behavior when [scenario 3]?
 
 **Answers**:
+
 1. [Answer to question 1]
 2. [Answer to question 2]
 3. [Answer to question 3]
@@ -88,21 +94,25 @@ What needs clarification? What could go wrong?
 How will this be built? What are the technical constraints?
 
 **Approach**:
+
 - [High-level implementation strategy]
 - [Key components to modify]
 - [Dependencies or prerequisites]
 
 **Constraints**:
+
 - [Technical limitation 1]
 - [Technical limitation 2]
 
 **Example**:
 **Approach**:
+
 - Modify `record_loop_result()` to track recovery attempts
 - Add `recovery_count` field to circuit breaker state
 - Implement recovery validation logic in state transitions
 
 **Constraints**:
+
 - Must maintain backward compatibility with existing state files
 - Recovery logic must not slow down normal loop execution
 
@@ -115,16 +125,19 @@ Concrete scenarios using Given/When/Then format.
 ### Scenario 1: [Scenario Name]
 
 **Given**:
+
 - [Initial condition 1]
 - [Initial condition 2]
 
 **When**: [Action or trigger]
 
 **Then**:
+
 - [Expected outcome 1]
 - [Expected outcome 2]
 
 **And**:
+
 - [Additional verification]
 
 **Example**:
@@ -132,6 +145,7 @@ Concrete scenarios using Given/When/Then format.
 ### Scenario 1: Auto-Recovery from HALF_OPEN
 
 **Given**:
+
 - Circuit breaker is in HALF_OPEN state
 - consecutive_no_progress is 2
 - last_progress_loop was loop #10
@@ -139,12 +153,14 @@ Concrete scenarios using Given/When/Then format.
 **When**: Loop #13 completes with 3 files changed
 
 **Then**:
+
 - Circuit breaker transitions to CLOSED state
 - consecutive_no_progress resets to 0
 - last_progress_loop updates to 13
 - Log message: "✅ CIRCUIT BREAKER: Normal Operation - Progress detected, circuit recovered"
 
 **And**:
+
 - Circuit breaker history records the HALF_OPEN → CLOSED transition
 - .circuit_breaker_state file contains state: "CLOSED"
 
@@ -161,22 +177,26 @@ Concrete scenarios using Given/When/Then format.
 What unusual situations must be handled?
 
 **Edge Cases**:
+
 1. [Edge case 1] → [Expected behavior]
 2. [Edge case 2] → [Expected behavior]
 3. [Edge case 3] → [Expected behavior]
 
 **Error Conditions**:
+
 1. [Error condition 1] → [Error handling strategy]
 2. [Error condition 2] → [Error handling strategy]
 
 **Example**:
 
 **Edge Cases**:
+
 1. Circuit opens and closes in same second → Track transitions, no timestamp collision
 2. Recovery during rate limit wait → Allow recovery, don't block on rate limit
 3. File changes detected but tests fail → Don't consider full recovery, stay in HALF_OPEN
 
 **Error Conditions**:
+
 1. Circuit state file corrupted → Reinitialize to CLOSED, log warning
 2. jq command not available → Fallback to manual parsing or disable circuit breaker
 
@@ -187,28 +207,34 @@ What unusual situations must be handled?
 How will we verify this works?
 
 **Unit Tests**:
+
 - [ ] [Unit test 1]
 - [ ] [Unit test 2]
 
 **Integration Tests**:
+
 - [ ] [Integration test 1]
 - [ ] [Integration test 2]
 
 **Manual Tests**:
+
 - [ ] [Manual verification 1]
 
 **Example**:
 
 **Unit Tests**:
+
 - [x] Test state transition logic: HALF_OPEN + progress → CLOSED
 - [x] Test state persistence across function calls
 
 **Integration Tests**:
+
 - [x] Full loop cycle: trigger HALF_OPEN, simulate recovery, verify CLOSED
 - [x] Verify log messages appear with correct formatting
 - [x] Test recovery with real file changes via git
 
 **Manual Tests**:
+
 - [ ] Run ralph-monitor during recovery and observe state changes
 - [ ] Verify .circuit_breaker_history contains transition records
 
@@ -219,26 +245,32 @@ How will we verify this works?
 Performance, security, usability considerations.
 
 **Performance**:
+
 - [Requirement 1]
 - [Requirement 2]
 
 **Security**:
+
 - [Requirement 1]
 
 **Usability**:
+
 - [Requirement 1]
 
 **Example**:
 
 **Performance**:
+
 - Recovery detection must complete in < 100ms
 - No memory leaks from repeated state transitions
 
 **Security**:
+
 - State files must not expose sensitive project information
 - Circuit breaker must not bypass API rate limits
 
 **Usability**:
+
 - Recovery messages must be clear and actionable
 - User should understand why recovery occurred
 
@@ -249,6 +281,7 @@ Performance, security, usability considerations.
 When can we consider this feature complete?
 
 **Checklist**:
+
 - [ ] Code implemented and reviewed
 - [ ] All unit tests passing
 - [ ] All integration tests passing
@@ -265,10 +298,12 @@ When can we consider this feature complete?
 What needs to happen next?
 
 **Action Items**:
+
 - [ ] [Person] - [Action] - [Deadline]
 - [ ] [Person] - [Action] - [Deadline]
 
 **Example**:
+
 - [x] Developer - Implement recovery logic - 2025-10-02
 - [x] Tester - Write integration tests - 2025-10-02
 - [x] Product Owner - Review and approve scenarios - 2025-10-03
@@ -307,12 +342,14 @@ What needs to happen next?
 ### 4. Implementation Approach
 
 **Approach**:
+
 - Add retry logic to `execute_claude_code()` function
 - Implement exponential backoff (5 min → 10 min → 15 min)
 - Store retry state in `.retry_state` file
 - Add retry counter to status.json
 
 **Constraints**:
+
 - Must work with existing rate limit tracking
 - Cannot bypass circuit breaker
 - Retries must respect API 5-hour limit
@@ -322,6 +359,7 @@ What needs to happen next?
 **Scenario 1: Successful Retry**
 
 **Given**:
+
 - Ralph executes Claude Code at loop #5
 - Claude returns "rate_limit_error: please retry"
 - Retry count is 0
@@ -329,6 +367,7 @@ What needs to happen next?
 **When**: Ralph detects the rate limit error
 
 **Then**:
+
 - Ralph logs "Rate limit detected, attempt 1/3. Waiting 5 minutes..."
 - Ralph sleeps for 300 seconds
 - Ralph retries Claude Code execution
@@ -337,12 +376,14 @@ What needs to happen next?
 **Scenario 2: Persistent Failure**
 
 **Given**:
+
 - Ralph has retried 3 times already
 - Each retry resulted in "rate_limit_error"
 
 **When**: 4th execution also returns rate limit error
 
 **Then**:
+
 - Ralph logs "Retry limit exceeded (3 attempts)"
 - Ralph prompts user: "Continue waiting? (y/n)"
 - User decision determines next action (exit or continue)
@@ -357,11 +398,13 @@ What needs to happen next?
 ### 7. Test Strategy
 
 **Unit Tests**:
+
 - [x] Test retry detection logic
 - [x] Test exponential backoff calculation
 - [x] Test retry limit enforcement
 
 **Integration Tests**:
+
 - [x] Mock rate limit error, verify retry happens
 - [x] Mock 3 failures, verify fallback to user prompt
 - [x] Verify retry state persists across restarts
@@ -380,22 +423,26 @@ What needs to happen next?
 ## Workshop Best Practices
 
 ### Before the Workshop
+
 1. **Prepare**: Send user story to participants 24 hours ahead
 2. **Context**: Provide relevant background (why this feature now?)
 3. **Time-box**: Schedule 30-60 minutes max
 
 ### During the Workshop
+
 1. **Focus**: One feature at a time
 2. **Concrete**: Use real examples, not abstract descriptions
 3. **Questions**: Encourage tester to ask "what could go wrong?"
 4. **Document**: Capture decisions in real-time
 
 ### After the Workshop
+
 1. **Summarize**: Send notes to all participants
 2. **Track**: Create tasks for action items
 3. **Reference**: Use scenarios for test cases
 
 ### Red Flags
+
 ❌ "We'll figure it out during implementation"
 ❌ "That's edge case, we'll handle it later"
 ❌ Vague acceptance criteria
@@ -403,6 +450,7 @@ What needs to happen next?
 ❌ Skipping tester perspective
 
 ### Success Indicators
+
 ✅ Clear, testable scenarios
 ✅ Edge cases identified before coding
 ✅ All three perspectives represented
@@ -421,18 +469,22 @@ What needs to happen next?
 **User Story**: As [role], I want [capability] so that [benefit]
 
 **Key Scenarios**:
+
 1. Given [state], When [action], Then [outcome]
 2. Given [state], When [action], Then [outcome]
 
 **Edge Cases**:
+
 - [Case 1] → [Behavior]
 - [Case 2] → [Behavior]
 
 **Tests**:
+
 - [ ] [Test 1]
 - [ ] [Test 2]
 
 **Done When**:
+
 - [ ] Implemented
 - [ ] Tested
 - [ ] Documented
@@ -442,7 +494,7 @@ What needs to happen next?
 
 ## Resources
 
-- **Three Amigos**: https://www.agilealliance.org/glossary/three-amigos/
+- **Three Amigos**: <https://www.agilealliance.org/glossary/three-amigos/>
 - **Specification by Example** - Gojko Adzic
 - **Agile Testing** - Lisa Crispin, Janet Gregory
 

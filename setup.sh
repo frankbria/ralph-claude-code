@@ -22,13 +22,13 @@ cp -r ../templates/specs/* specs/ 2>/dev/null || true
 
 # Initialize git
 git init
-echo "# $PROJECT_NAME" > README.md
+echo "# $PROJECT_NAME" >README.md
 git add .
 git commit -m "Initial Ralph project setup"
 
 echo "✅ Project $PROJECT_NAME created!"
 echo "Next steps:"
 echo "  1. Edit PROMPT.md with your project requirements"
-echo "  2. Update specs/ with your project specifications"  
+echo "  2. Update specs/ with your project specifications"
 echo "  3. Run: ../ralph_loop.sh"
 echo "  4. Monitor: ../ralph_monitor.sh"

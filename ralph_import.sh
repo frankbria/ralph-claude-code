@@ -14,22 +14,22 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 log() {
-    local level=$1
-    local message=$2
-    local color=""
-    
-    case $level in
-        "INFO")  color=$BLUE ;;
-        "WARN")  color=$YELLOW ;;
-        "ERROR") color=$RED ;;
-        "SUCCESS") color=$GREEN ;;
-    esac
-    
-    echo -e "${color}[$(date '+%H:%M:%S')] [$level] $message${NC}"
+	local level=$1
+	local message=$2
+	local color=""
+
+	case $level in
+	"INFO") color=$BLUE ;;
+	"WARN") color=$YELLOW ;;
+	"ERROR") color=$RED ;;
+	"SUCCESS") color=$GREEN ;;
+	esac
+
+	echo -e "${color}[$(date '+%H:%M:%S')] [$level] $message${NC}"
 }
 
 show_help() {
-    cat << HELPEOF
+	cat <<HELPEOF
 Ralph Import - Convert PRDs to Ralph Format
 
 Usage: $0 <source-file> [project-name]
@@ -64,25 +64,25 @@ HELPEOF
 
 # Check dependencies
 check_dependencies() {
-    if ! command -v ralph-setup &> /dev/null; then
-        log "ERROR" "Ralph not installed. Run ./install.sh first"
-        exit 1
-    fi
-    
-    if ! npx @anthropic/claude-code --version &> /dev/null 2>&1; then
-        log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
-    fi
+	if ! command -v ralph-setup &>/dev/null; then
+		log "ERROR" "Ralph not installed. Run ./install.sh first"
+		exit 1
+	fi
+
+	if ! bunx @anthropic/claude-code --version &>/dev/null 2>&1; then
+		log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
+	fi
 }
 
 # Convert PRD using Claude Code
 convert_prd() {
-    local source_file=$1
-    local project_name=$2
-    
-    log "INFO" "Converting PRD to Ralph format using Claude Code..."
-    
-    # Create conversion prompt
-    cat > .ralph_conversion_prompt.md << 'PROMPTEOF'
+	local source_file=$1
+	local project_name=$2
+
+	log "INFO" "Converting PRD to Ralph format using Claude Code..."
+
+	# Create conversion prompt
+	cat >.ralph_conversion_prompt.md <<'PROMPTEOF'
 # PRD to Ralph Conversion Task
 
 You are tasked with converting a Product Requirements Document (PRD) or specification into Ralph for Claude Code format.
@@ -185,89 +185,89 @@ Create detailed technical specifications:
 
 PROMPTEOF
 
-    # Run Claude Code with the source file and prompt
-    if $CLAUDE_CODE_CMD < .ralph_conversion_prompt.md; then
-        log "SUCCESS" "PRD conversion completed"
-        
-        # Clean up temp file
-        rm -f .ralph_conversion_prompt.md
-        
-        # Verify files were created
-        local missing_files=()
-        if [[ ! -f "PROMPT.md" ]]; then missing_files+=("PROMPT.md"); fi
-        if [[ ! -f "@fix_plan.md" ]]; then missing_files+=("@fix_plan.md"); fi
-        if [[ ! -f "specs/requirements.md" ]]; then missing_files+=("specs/requirements.md"); fi
-        
-        if [[ ${#missing_files[@]} -ne 0 ]]; then
-            log "WARN" "Some files were not created: ${missing_files[*]}"
-            log "INFO" "You may need to create these files manually or run the conversion again"
-        fi
-        
-    else
-        log "ERROR" "PRD conversion failed"
-        rm -f .ralph_conversion_prompt.md
-        exit 1
-    fi
+	# Run Claude Code with the source file and prompt
+	if $CLAUDE_CODE_CMD <.ralph_conversion_prompt.md; then
+		log "SUCCESS" "PRD conversion completed"
+
+		# Clean up temp file
+		rm -f .ralph_conversion_prompt.md
+
+		# Verify files were created
+		local missing_files=()
+		if [[ ! -f "PROMPT.md" ]]; then missing_files+=("PROMPT.md"); fi
+		if [[ ! -f "@fix_plan.md" ]]; then missing_files+=("@fix_plan.md"); fi
+		if [[ ! -f "specs/requirements.md" ]]; then missing_files+=("specs/requirements.md"); fi
+
+		if [[ ${#missing_files[@]} -ne 0 ]]; then
+			log "WARN" "Some files were not created: ${missing_files[*]}"
+			log "INFO" "You may need to create these files manually or run the conversion again"
+		fi
+
+	else
+		log "ERROR" "PRD conversion failed"
+		rm -f .ralph_conversion_prompt.md
+		exit 1
+	fi
 }
 
 # Main function
 main() {
-    local source_file="$1"
-    local project_name="$2"
-    
-    # Validate arguments
-    if [[ -z "$source_file" ]]; then
-        log "ERROR" "Source file is required"
-        show_help
-        exit 1
-    fi
-    
-    if [[ ! -f "$source_file" ]]; then
-        log "ERROR" "Source file does not exist: $source_file"
-        exit 1
-    fi
-    
-    # Default project name from filename
-    if [[ -z "$project_name" ]]; then
-        project_name=$(basename "$source_file" | sed 's/\.[^.]*$//')
-    fi
-    
-    log "INFO" "Converting PRD: $source_file"
-    log "INFO" "Project name: $project_name"
-    
-    check_dependencies
-    
-    # Create project directory
-    log "INFO" "Creating Ralph project: $project_name"
-    ralph-setup "$project_name"
-    cd "$project_name"
-    
-    # Copy source file to project
-    cp "../$source_file" .
-    
-    # Run conversion
-    convert_prd "$source_file" "$project_name"
-    
-    log "SUCCESS" "🎉 PRD imported successfully!"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Review and edit the generated files:"
-    echo "     - PROMPT.md (Ralph instructions)"  
-    echo "     - @fix_plan.md (task priorities)"
-    echo "     - specs/requirements.md (technical specs)"
-    echo "  2. Start autonomous development:"
-    echo "     ralph --monitor"
-    echo ""
-    echo "Project created in: $(pwd)"
+	local source_file="$1"
+	local project_name="$2"
+
+	# Validate arguments
+	if [[ -z $source_file ]]; then
+		log "ERROR" "Source file is required"
+		show_help
+		exit 1
+	fi
+
+	if [[ ! -f $source_file ]]; then
+		log "ERROR" "Source file does not exist: $source_file"
+		exit 1
+	fi
+
+	# Default project name from filename
+	if [[ -z $project_name ]]; then
+		project_name=$(basename "$source_file" | sed 's/\.[^.]*$//')
+	fi
+
+	log "INFO" "Converting PRD: $source_file"
+	log "INFO" "Project name: $project_name"
+
+	check_dependencies
+
+	# Create project directory
+	log "INFO" "Creating Ralph project: $project_name"
+	ralph-setup "$project_name"
+	cd "$project_name"
+
+	# Copy source file to project
+	cp "../$source_file" .
+
+	# Run conversion
+	convert_prd "$source_file" "$project_name"
+
+	log "SUCCESS" "🎉 PRD imported successfully!"
+	echo ""
+	echo "Next steps:"
+	echo "  1. Review and edit the generated files:"
+	echo "     - PROMPT.md (Ralph instructions)"
+	echo "     - @fix_plan.md (task priorities)"
+	echo "     - specs/requirements.md (technical specs)"
+	echo "  2. Start autonomous development:"
+	echo "     ralph --monitor"
+	echo ""
+	echo "Project created in: $(pwd)"
 }
 
 # Handle command line arguments
 case "${1:-}" in
-    -h|--help|"")
-        show_help
-        exit 0
-        ;;
-    *)
-        main "$@"
-        ;;
+-h | --help | "")
+	show_help
+	exit 0
+	;;
+*)
+	main "$@"
+	;;
 esac

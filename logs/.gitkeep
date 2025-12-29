@@ -1,3 +1,0 @@
-# This file ensures the logs/ directory is tracked by git
-# Note: Actual log files are ignored by .gitignore
-# This directory is needed for Ralph loop execution
