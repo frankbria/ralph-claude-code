@@ -20,12 +20,22 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 ### What's Working Now ✅
 - Autonomous development loops with intelligent exit detection
 - Rate limiting with hourly reset (100 calls/hour, configurable)
-- Circuit breaker prevents runaway loops
-- Response analyzer with semantic understanding
+- Circuit breaker with advanced error detection (prevents runaway loops)
+- Response analyzer with semantic understanding and two-stage error filtering
+- Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
-- 75 passing tests covering critical paths
+- 97 passing tests covering critical paths (13 error detection + 9 stuck loop + 75 core tests)
+
+### Recent Improvements 🎉
+
+**v0.9.0 - Circuit Breaker Enhancements**
+- ✅ Fixed multi-line error matching in stuck loop detection
+- ✅ Eliminated JSON field false positives (e.g., `"is_error": false`)
+- ✅ Added two-stage error filtering for accurate detection
+- ✅ Comprehensive test suite: 22 new tests for error detection
+- ✅ Fixed installation to include lib/ directory components
 
 ### In Progress 🚧
 - Expanding test coverage (60% → 90%+)
@@ -51,7 +61,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **⏱️ Configurable Timeouts** - Set execution timeout for Claude Code operations (1-120 minutes)
 - **🔍 Verbose Progress Mode** - Optional detailed progress updates during execution
 - **🧠 Response Analyzer** - AI-powered analysis of Claude Code responses with semantic understanding
-- **🔌 Circuit Breaker** - Smart error detection and recovery with automatic retry logic
+- **🔌 Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
 - **✅ Test Coverage** - 75 comprehensive tests with 60%+ code coverage (target: 90%+)
 
 ## 🚀 Quick Start
@@ -205,10 +215,12 @@ ralph --status
 ```
 
 The circuit breaker automatically:
-- Detects API errors and rate limit issues
-- Opens circuit after 5 consecutive failures
-- Gradually recovers with half-open state
-- Provides detailed error tracking and logging
+- Detects API errors and rate limit issues with advanced two-stage filtering
+- Opens circuit after 3 loops with no progress or 5 loops with same errors
+- Eliminates false positives from JSON fields containing "error"
+- Accurately detects stuck loops with multi-line error matching
+- Gradually recovers with half-open monitoring state
+- Provides detailed error tracking and logging with state history
 
 ### Claude API 5-Hour Limit
 
@@ -255,10 +267,19 @@ ralph --monitor --verbose --timeout 30
 ### Exit Thresholds
 
 Modify these variables in `~/.ralph/ralph_loop.sh`:
+
+**Exit Detection Thresholds:**
 ```bash
 MAX_CONSECUTIVE_TEST_LOOPS=3     # Exit after 3 test-only loops
 MAX_CONSECUTIVE_DONE_SIGNALS=2   # Exit after 2 "done" signals
 TEST_PERCENTAGE_THRESHOLD=30     # Flag if 30%+ loops are test-only
+```
+
+**Circuit Breaker Thresholds:**
+```bash
+CB_NO_PROGRESS_THRESHOLD=3       # Open circuit after 3 loops with no file changes
+CB_SAME_ERROR_THRESHOLD=5        # Open circuit after 5 loops with repeated errors
+CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
 ```
 
 ## 📁 Project Structure
@@ -318,7 +339,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (75 tests)
+# Run all tests (97 tests)
 bats tests/
 
 # Run specific test suites
@@ -326,13 +347,18 @@ bats tests/unit/test_rate_limiting.bats
 bats tests/unit/test_exit_detection.bats
 bats tests/integration/test_loop_execution.bats
 bats tests/integration/test_edge_cases.bats
+
+# Run error detection and circuit breaker tests
+./tests/test_error_detection.sh
+./tests/test_stuck_loop_detection.sh
 ```
 
 Current test status:
-- **75 tests** across 4 test files
-- **100% pass rate** (75/75 passing)
+- **97 tests** across 6 test files (75 core + 13 error detection + 9 stuck loop)
+- **100% pass rate** (97/97 passing)
 - **~60% code coverage** (target: 90%+)
 - Comprehensive unit and integration tests
+- Specialized tests for error detection and circuit breaker functionality
 
 ### Installing tmux
 
