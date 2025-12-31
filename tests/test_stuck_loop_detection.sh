@@ -183,6 +183,47 @@ EOF
 done
 run_test "Type annotations should not trigger stuck detection" 1
 
+# Test 8: Multiple distinct errors - ALL must appear in history to be stuck
+cat > "$TEST_DIR/current_output.log" << 'EOF'
+Build process started
+Error: Failed to compile src/main.ts
+Fatal: Database connection lost
+Exception: NullPointerException at line 123
+EOF
+# Create history where ALL three errors appear in all files
+for i in 1 2 3; do
+    sleep 0.1
+    cat > "$HISTORY_DIR/claude_output_00${i}.log" << 'EOF'
+Build process started
+Error: Failed to compile src/main.ts
+Fatal: Database connection lost
+Exception: NullPointerException at line 123
+EOF
+done
+run_test "Multiple distinct errors - all repeated (stuck)" 0
+
+# Test 9: Multiple errors but not all appear in history - should NOT be stuck
+cat > "$TEST_DIR/current_output.log" << 'EOF'
+Error: Failed to compile src/main.ts
+Fatal: Database connection lost
+EOF
+# Create history where only the first error appears consistently
+cat > "$HISTORY_DIR/claude_output_001.log" << 'EOF'
+Error: Failed to compile src/main.ts
+Warning: Memory usage high
+EOF
+sleep 0.1
+cat > "$HISTORY_DIR/claude_output_002.log" << 'EOF'
+Error: Failed to compile src/main.ts
+Different issue here
+EOF
+sleep 0.1
+cat > "$HISTORY_DIR/claude_output_003.log" << 'EOF'
+Error: Failed to compile src/main.ts
+Another different error
+EOF
+run_test "Multiple errors but not all repeated (not stuck)" 1
+
 # Print summary
 echo ""
 echo "========================================"
