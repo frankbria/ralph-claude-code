@@ -2,6 +2,9 @@
 # Response Analyzer Component for Ralph
 # Analyzes Claude Code output to detect completion signals, test-only loops, and progress
 
+# Source date utilities for cross-platform compatibility
+source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
+
 # Response Analysis Functions
 # Based on expert recommendations from Martin Fowler, Michael Nygard, Sam Newman
 
@@ -152,7 +155,7 @@ analyze_response() {
     cat > "$analysis_result_file" << EOF
 {
     "loop_number": $loop_number,
-    "timestamp": "$(date -Iseconds)",
+    "timestamp": "$(get_iso_timestamp)",
     "output_file": "$output_file",
     "analysis": {
         "has_completion_signal": $has_completion_signal,
