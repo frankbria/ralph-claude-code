@@ -90,10 +90,11 @@ analyze_response() {
 
     # 4. Detect stuck/error loops
     # Use two-stage filtering to avoid counting JSON field names as errors
-    # Stage 1: Filter out JSON field patterns
-    # Stage 2: Count actual error messages (avoid type annotations like "error: Error")
-    error_count=$(grep -v '"[^"]*\(error\|failed\)"[^"]*":' "$output_file" 2>/dev/null | \
-                  grep -cE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL|cannot|unable to)' \
+    # Stage 1: Filter out JSON field patterns like "is_error": false
+    # Stage 2: Count actual error messages in specific contexts
+    # Pattern aligned with ralph_loop.sh to ensure consistent behavior
+    error_count=$(grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+                  grep -cE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' \
                   2>/dev/null || echo "0")
     error_count=$(echo "$error_count" | tr -d '[:space:]')
     error_count=${error_count:-0}

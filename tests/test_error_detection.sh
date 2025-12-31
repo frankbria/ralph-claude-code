@@ -1,6 +1,31 @@
 #!/bin/bash
 # Test script for error detection fix
 # Validates that JSON field names don't trigger false positives
+#
+# TEST STRATEGY:
+# This suite validates the two-stage error detection implemented in ralph_loop.sh
+# and lib/response_analyzer.sh to prevent circuit breaker false positives from
+# JSON output and other structured data formats.
+#
+# Two-Stage Filtering Approach:
+#   Stage 1: Filter out JSON field patterns (e.g., "is_error": false, "error": null)
+#            Pattern: grep -v '"[^"]*error[^"]*":'
+#
+#   Stage 2: Detect actual errors using context-specific patterns
+#            Patterns: ^Error:, ^ERROR:, ]: error, Exception, Fatal, etc.
+#            Avoids: Type annotations (error: Error), bare words (cannot, unable)
+#
+# Test Coverage (13 scenarios):
+#   - JSON fields with "error" keyword (tests 1, 2, 8)
+#   - Actual error messages with context (tests 3, 4, 7, 9)
+#   - Mixed JSON + real errors (test 5)
+#   - Benign content that should NOT trigger (tests 6, 10a, 11)
+#   - Code/diffs with error keywords (test 12)
+#   - Edge cases and pattern validation (test 10)
+#
+# Pattern Consistency:
+# Both ralph_loop.sh and lib/response_analyzer.sh use identical patterns to ensure
+# consistent behavior across the codebase. This test suite validates both implementations.
 
 set -e
 
@@ -133,13 +158,21 @@ Retrying...
 EOF
 run_test "Uppercase ERROR message" "$TEST_DIR/test9.txt" "true"
 
-# Test 10: Words "cannot" and "unable" in actual error context SHOULD trigger
+# Test 10: Error message with descriptive text SHOULD trigger
 cat > "$TEST_DIR/test10.txt" << 'EOF'
 Build process started
 Error: unable to access file system
-cannot proceed with deployment
+Deployment failed
 EOF
-run_test "Cannot/unable in error context" "$TEST_DIR/test10.txt" "true"
+run_test "Error prefix with descriptive message" "$TEST_DIR/test10.txt" "true"
+
+# Test 10a: Bare "cannot" and "unable" without error prefix should NOT trigger
+cat > "$TEST_DIR/test10a.txt" << 'EOF'
+This feature cannot be enabled in demo mode.
+The user is unable to access this resource due to permissions.
+Configuration cannot be modified at runtime.
+EOF
+run_test "Bare cannot/unable without error context" "$TEST_DIR/test10a.txt" "false"
 
 # Test 11: Documentation mentioning "error" should NOT trigger
 cat > "$TEST_DIR/test11.txt" << 'EOF'
