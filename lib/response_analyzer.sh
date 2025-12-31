@@ -15,7 +15,6 @@ NC='\033[0m'
 # Analysis configuration
 COMPLETION_KEYWORDS=("done" "complete" "finished" "all tasks complete" "project complete" "ready for review")
 TEST_ONLY_PATTERNS=("npm test" "bats" "pytest" "jest" "cargo test" "go test" "running tests")
-STUCK_INDICATORS=("error" "failed" "cannot" "unable to" "blocked")
 NO_WORK_PATTERNS=("nothing to do" "no changes" "already implemented" "up to date")
 
 # Analyze Claude Code response and extract signals
@@ -263,8 +262,12 @@ detect_stuck_loop() {
         return 1  # Not enough history
     fi
 
-    # Extract key errors from current output
-    local current_errors=$(grep -i "error\|failed" "$current_output" 2>/dev/null | sort | uniq)
+    # Extract key errors from current output using two-stage filtering
+    # Stage 1: Filter out JSON field patterns to avoid false positives
+    # Stage 2: Extract actual error messages
+    local current_errors=$(grep -v '"[^"]*error[^"]*":' "$current_output" 2>/dev/null | \
+                          grep -E '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' 2>/dev/null | \
+                          sort | uniq)
 
     if [[ -z "$current_errors" ]]; then
         return 1  # No errors
