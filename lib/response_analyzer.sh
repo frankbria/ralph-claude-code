@@ -15,7 +15,6 @@ NC='\033[0m'
 # Analysis configuration
 COMPLETION_KEYWORDS=("done" "complete" "finished" "all tasks complete" "project complete" "ready for review")
 TEST_ONLY_PATTERNS=("npm test" "bats" "pytest" "jest" "cargo test" "go test" "running tests")
-STUCK_INDICATORS=("error" "failed" "cannot" "unable to" "blocked")
 NO_WORK_PATTERNS=("nothing to do" "no changes" "already implemented" "up to date")
 
 # Analyze Claude Code response and extract signals
@@ -89,7 +88,13 @@ analyze_response() {
     fi
 
     # 4. Detect stuck/error loops
-    error_count=$(grep -c -i "error\|failed\|cannot\|unable" "$output_file" 2>/dev/null | head -1 || echo "0")
+    # Use two-stage filtering to avoid counting JSON field names as errors
+    # Stage 1: Filter out JSON field patterns like "is_error": false
+    # Stage 2: Count actual error messages in specific contexts
+    # Pattern aligned with ralph_loop.sh to ensure consistent behavior
+    error_count=$(grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+                  grep -cE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' \
+                  2>/dev/null || echo "0")
     error_count=$(echo "$error_count" | tr -d '[:space:]')
     error_count=${error_count:-0}
     error_count=$((error_count + 0))
@@ -257,23 +262,38 @@ detect_stuck_loop() {
         return 1  # Not enough history
     fi
 
-    # Extract key errors from current output
-    local current_errors=$(grep -i "error\|failed" "$current_output" 2>/dev/null | sort | uniq)
+    # Extract key errors from current output using two-stage filtering
+    # Stage 1: Filter out JSON field patterns to avoid false positives
+    # Stage 2: Extract actual error messages
+    local current_errors=$(grep -v '"[^"]*error[^"]*":' "$current_output" 2>/dev/null | \
+                          grep -E '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' 2>/dev/null | \
+                          sort | uniq)
 
     if [[ -z "$current_errors" ]]; then
         return 1  # No errors
     fi
 
     # Check if same errors appear in all recent outputs
-    local stuck_count=0
+    # For multi-line errors, verify ALL error lines appear in ALL history files
+    local all_files_match=true
     while IFS= read -r output_file; do
-        if grep -q "$current_errors" "$output_file" 2>/dev/null; then
-            ((stuck_count++))
+        local file_matches_all=true
+        while IFS= read -r error_line; do
+            # Use -F for literal fixed-string matching (not regex)
+            if ! grep -qF "$error_line" "$output_file" 2>/dev/null; then
+                file_matches_all=false
+                break
+            fi
+        done <<< "$current_errors"
+
+        if [[ "$file_matches_all" != "true" ]]; then
+            all_files_match=false
+            break
         fi
     done <<< "$recent_outputs"
 
-    if [[ $stuck_count -ge 3 ]]; then
-        return 0  # Stuck on same error
+    if [[ "$all_files_match" == "true" ]]; then
+        return 0  # Stuck on same error(s)
     else
         return 1  # Making progress or different errors
     fi
