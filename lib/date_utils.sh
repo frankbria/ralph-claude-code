@@ -14,8 +14,8 @@ get_iso_timestamp() {
         # Use manual formatting and add colon to timezone offset
         date -u +"%Y-%m-%dT%H:%M:%S%z" | sed 's/\(..\)$/:\1/'
     else
-        # Linux (GNU date)
-        date -Iseconds
+        # Linux (GNU date) - use -u flag for UTC
+        date -u -Iseconds
     fi
 }
 
