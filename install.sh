@@ -75,7 +75,8 @@ create_install_dirs() {
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$RALPH_HOME"
     mkdir -p "$RALPH_HOME/templates"
-    
+    mkdir -p "$RALPH_HOME/lib"
+
     log "SUCCESS" "Directories created: $INSTALL_DIR, $RALPH_HOME"
 }
 
@@ -85,6 +86,9 @@ install_scripts() {
     
     # Copy templates to Ralph home
     cp -r "$SCRIPT_DIR/templates/"* "$RALPH_HOME/templates/"
+
+    # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh)
+    cp -r "$SCRIPT_DIR/lib/"* "$RALPH_HOME/lib/"
     
     # Create the main ralph command
     cat > "$INSTALL_DIR/ralph" << 'EOF'
@@ -141,7 +145,8 @@ EOF
     chmod +x "$INSTALL_DIR/ralph-import"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
-    
+    chmod +x "$RALPH_HOME/lib/"*.sh
+
     log "SUCCESS" "Ralph scripts installed to $INSTALL_DIR"
 }
 
