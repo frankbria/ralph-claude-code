@@ -89,7 +89,12 @@ analyze_response() {
     fi
 
     # 4. Detect stuck/error loops
-    error_count=$(grep -c -i "error\|failed\|cannot\|unable" "$output_file" 2>/dev/null | head -1 || echo "0")
+    # Use two-stage filtering to avoid counting JSON field names as errors
+    # Stage 1: Filter out JSON field patterns
+    # Stage 2: Count actual error messages (avoid type annotations like "error: Error")
+    error_count=$(grep -v '"[^"]*\(error\|failed\)"[^"]*":' "$output_file" 2>/dev/null | \
+                  grep -cE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL|cannot|unable to)' \
+                  2>/dev/null || echo "0")
     error_count=$(echo "$error_count" | tr -d '[:space:]')
     error_count=${error_count:-0}
     error_count=$((error_count + 0))
