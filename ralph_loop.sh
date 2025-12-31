@@ -7,6 +7,7 @@ set -e  # Exit on any error
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 
@@ -164,14 +165,14 @@ update_status() {
     
     cat > "$STATUS_FILE" << STATUSEOF
 {
-    "timestamp": "$(date -Iseconds)",
+    "timestamp": "$(get_iso_timestamp)",
     "loop_count": $loop_count,
     "calls_made_this_hour": $calls_made,
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
     "last_action": "$last_action",
     "status": "$status",
     "exit_reason": "$exit_reason",
-    "next_reset": "$(date -d '+1 hour' -Iseconds | cut -d'T' -f2 | cut -d'+' -f1)"
+    "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
 }
