@@ -8,12 +8,32 @@ This is the Ralph for Claude Code repository - an autonomous AI development loop
 
 ## Core Architecture
 
-The system consists of four main bash scripts that work together:
+The system consists of four main bash scripts and a modular library system:
+
+### Main Scripts
 
 1. **ralph_loop.sh** - The main autonomous loop that executes Claude Code repeatedly
 2. **ralph_monitor.sh** - Live monitoring dashboard for tracking loop status
 3. **setup.sh** - Project initialization script for new Ralph projects
 4. **create_files.sh** - Bootstrap script that creates the entire Ralph system
+5. **ralph_import.sh** - PRD/specification import tool that converts documents to Ralph format
+
+### Library Components (lib/)
+
+The system uses a modular architecture with reusable components in the `lib/` directory:
+
+1. **lib/circuit_breaker.sh** - Circuit breaker pattern implementation
+   - Prevents runaway loops by detecting stagnation
+   - Three states: CLOSED (normal), HALF_OPEN (monitoring), OPEN (halted)
+   - Configurable thresholds for no-progress and error detection
+   - Automatic state transitions and recovery
+
+2. **lib/response_analyzer.sh** - Intelligent response analysis
+   - Analyzes Claude Code output for completion signals
+   - Detects test-only loops and stuck error patterns
+   - Two-stage error filtering to eliminate false positives
+   - Multi-line error matching for accurate stuck loop detection
+   - Confidence scoring for exit decisions
 
 ## Key Commands
 
@@ -115,9 +135,16 @@ Templates in `templates/` provide starting points for new projects:
 ## Global Installation
 
 Ralph installs to:
-- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup)
+- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import)
 - **Templates**: `~/.ralph/templates/`
-- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh)
+- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh)
+
+After installation, the following global commands are available:
+- `ralph` - Start the autonomous development loop
+- `ralph-monitor` - Launch the monitoring dashboard
+- `ralph-setup` - Create a new Ralph-managed project
+- `ralph-import` - Import PRD/specification documents to Ralph format
 
 ## Integration Points
 
@@ -130,10 +157,65 @@ Ralph integrates with:
 
 ## Exit Conditions and Thresholds
 
+Ralph uses multiple mechanisms to detect when to exit:
+
+### Exit Detection Thresholds
 - `MAX_CONSECUTIVE_TEST_LOOPS=3` - Exit if too many test-only iterations
 - `MAX_CONSECUTIVE_DONE_SIGNALS=2` - Exit on repeated completion signals
 - `TEST_PERCENTAGE_THRESHOLD=30%` - Flag if testing dominates recent loops
 - Completion detection via @fix_plan.md checklist items
+
+### Circuit Breaker Thresholds
+- `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
+- `CB_SAME_ERROR_THRESHOLD=5` - Open circuit after 5 loops with repeated errors
+- `CB_OUTPUT_DECLINE_THRESHOLD=70%` - Open circuit if output declines by >70%
+
+### Error Detection
+
+Ralph uses advanced error detection with two-stage filtering to eliminate false positives:
+
+**Stage 1: JSON Field Filtering**
+- Filters out JSON field patterns like `"is_error": false` that contain the word "error" but aren't actual errors
+- Pattern: `grep -v '"[^"]*error[^"]*":'`
+
+**Stage 2: Actual Error Detection**
+- Detects real error messages in specific contexts:
+  - Error prefixes: `Error:`, `ERROR:`, `error:`
+  - Context-specific errors: `]: error`, `Link: error`
+  - Error occurrences: `Error occurred`, `failed with error`
+  - Exceptions: `Exception`, `Fatal`, `FATAL`
+- Pattern: `grep -cE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'`
+
+**Multi-line Error Matching**
+- Detects stuck loops by verifying ALL error lines appear in ALL recent history files
+- Uses literal fixed-string matching (`grep -qF`) to avoid regex edge cases
+- Prevents false negatives when multiple distinct errors occur simultaneously
+
+## Recent Improvements
+
+### Circuit Breaker Enhancements (v0.9.0)
+
+**Multi-line Error Matching Fix**
+- Fixed critical bug in `detect_stuck_loop` function where only the first error line was checked when multiple distinct errors occurred
+- Now verifies ALL error lines appear in ALL recent history files for accurate stuck loop detection
+- Uses nested loop checking with `grep -qF` for literal fixed-string matching
+
+**JSON Field False Positive Elimination**
+- Implemented two-stage error filtering to avoid counting JSON field names as errors
+- Stage 1 filters out patterns like `"is_error": false` that contain "error" as a field name
+- Stage 2 detects actual error messages in specific contexts
+- Aligned patterns between `response_analyzer.sh` and `ralph_loop.sh` for consistent behavior
+
+**Test Coverage**
+- Added comprehensive test suite for error detection and stuck loop scenarios
+- 13/13 error detection tests passing
+- 9/9 stuck loop detection tests passing (including multi-error scenarios)
+- Tests validate both single and multiple simultaneous recurring errors
+
+### Installation Improvements
+- Added `lib/` directory to installation process for modular architecture
+- Fixed issue where `response_analyzer.sh` and `circuit_breaker.sh` were not being copied during global installation
+- All library components now properly installed to `~/.ralph/lib/`
 
 ## Feature Development Quality Standards
 
