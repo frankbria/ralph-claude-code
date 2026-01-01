@@ -13,7 +13,9 @@
       "Bash(npm run test:integration:*)",
       "Bash(test:*)",
       "Bash(awk:*)",
-      "Bash(bats:*)"
+      "Bash(bats:*)",
+      "Bash(./tests/test_error_detection.sh:*)",
+      "Bash(./tests/test_stuck_loop_detection.sh:*)"
     ],
     "deny": [],
     "ask": []
