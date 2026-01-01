@@ -15,7 +15,8 @@
       "Bash(awk:*)",
       "Bash(bats:*)",
       "Bash(./tests/test_error_detection.sh:*)",
-      "Bash(./tests/test_stuck_loop_detection.sh:*)"
+      "Bash(./tests/test_stuck_loop_detection.sh:*)",
+      "Bash(git mv:*)"
     ],
     "deny": [],
     "ask": []
