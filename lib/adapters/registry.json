@@ -1,0 +1,51 @@
+{
+    "version": "1.0.0",
+    "default_adapter": "claude",
+    "adapters": {
+        "claude": {
+            "file": "claude.sh",
+            "display_name": "Claude Code",
+            "description": "Anthropic's Claude Code CLI - AI-powered coding assistant",
+            "install_command": "npm install -g @anthropic-ai/claude-code",
+            "documentation": "https://docs.anthropic.com/en/docs/claude-code",
+            "requirements": ["Node.js 18+", "Anthropic API key or Claude Code auth"],
+            "features": ["streaming", "tools", "vision", "200k context"],
+            "supported_models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet", "claude-3-opus"],
+            "default": true
+        },
+        "aider": {
+            "file": "aider.sh",
+            "display_name": "Aider",
+            "description": "AI pair programming in your terminal",
+            "install_command": "pip install aider-chat",
+            "documentation": "https://aider.chat",
+            "requirements": ["Python 3.8+", "API key for chosen model"],
+            "features": ["multi-model", "git-integration", "code-editing", "local-models"],
+            "supported_models": ["gpt-4-turbo", "gpt-4o", "claude-3-5-sonnet", "ollama/*"],
+            "default": false
+        },
+        "ollama": {
+            "file": "ollama.sh",
+            "display_name": "Ollama",
+            "description": "Run large language models locally - fully offline capable",
+            "install_command": "curl -fsSL https://ollama.ai/install.sh | sh",
+            "documentation": "https://ollama.ai",
+            "requirements": ["Ollama installed", "At least one model pulled"],
+            "features": ["local", "offline", "no-rate-limit", "multi-model"],
+            "supported_models": ["codellama", "deepseek-coder", "llama3", "mistral", "phi3"],
+            "default": false
+        }
+    },
+    "feature_descriptions": {
+        "streaming": "Real-time token streaming output",
+        "tools": "Tool/function calling support",
+        "vision": "Image input and analysis",
+        "multi-model": "Support for multiple AI models",
+        "git-integration": "Automatic git commits and history",
+        "code-editing": "Direct file editing capabilities",
+        "local-models": "Support for locally running models",
+        "local": "Runs entirely on local hardware",
+        "offline": "Works without internet connection",
+        "no-rate-limit": "No API rate limits"
+    }
+}
