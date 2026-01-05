@@ -74,6 +74,21 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **🔔 Desktop Notifications** - Get alerts for completions, errors, and important events
 - **💾 Backup & Rollback** - Git branch-based snapshots for safe recovery
 
+### New in v1.1.0 - Multi-CLI Adapter Support 🔌
+- **🔄 Adapter Pattern** - Support for multiple AI CLI tools through a pluggable adapter system
+- **🤖 Built-in Adapters** - Claude Code (default), Aider (GPT-4/Claude/local), Ollama (fully offline)
+- **🛠️ Custom Adapters** - Easy-to-create adapters for any CLI tool
+- **🔀 Auto-Detection** - Automatically detects and uses available adapters
+- **📋 Fallback Support** - Graceful fallback when primary adapter unavailable
+
+```bash
+# Use different AI CLI tools with Ralph
+ralph --adapter claude --monitor     # Claude Code (default)
+ralph --adapter aider --monitor      # Aider with GPT-4
+ralph --adapter ollama --monitor     # Local LLMs with Ollama
+ralph --list-adapters                # See all available adapters
+```
+
 ### Testing & Quality
 - **✅ 177 Comprehensive Tests** - Unit, integration, and end-to-end test coverage
 - **📊 90%+ Code Coverage** - All critical paths thoroughly tested
