@@ -13,6 +13,18 @@
             "supported_models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet", "claude-3-opus"],
             "default": true
         },
+        "ocode": {
+            "file": "ocode.sh",
+            "display_name": "O-Code",
+            "description": "The open source AI coding agent - multi-provider, multi-model support",
+            "install_command": "bun add -g opencode-ai",
+            "documentation": "https://github.com/pt-act/o-code",
+            "requirements": ["Bun or Node.js 18+", "API key for chosen provider"],
+            "features": ["streaming", "tools", "multi-model", "multi-provider", "session-management", "agents", "code-editing", "file-access"],
+            "supported_models": ["anthropic/claude-*", "openai/gpt-*", "openai/o1", "google/gemini-*", "ollama/*"],
+            "available_agents": ["build", "plan"],
+            "default": false
+        },
         "aider": {
             "file": "aider.sh",
             "display_name": "Aider",
@@ -41,11 +53,15 @@
         "tools": "Tool/function calling support",
         "vision": "Image input and analysis",
         "multi-model": "Support for multiple AI models",
+        "multi-provider": "Support for multiple AI providers (OpenAI, Anthropic, Google, etc.)",
         "git-integration": "Automatic git commits and history",
         "code-editing": "Direct file editing capabilities",
         "local-models": "Support for locally running models",
         "local": "Runs entirely on local hardware",
         "offline": "Works without internet connection",
-        "no-rate-limit": "No API rate limits"
+        "no-rate-limit": "No API rate limits",
+        "session-management": "Persistent session support for multi-turn conversations",
+        "agents": "Built-in agent modes (build, plan, etc.)",
+        "file-access": "Full file system read/write access"
     }
 }
