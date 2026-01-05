@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Claude Code Ralph Loop with Rate Limiting and Documentation
-# Adaptation of the Ralph technique for Claude Code with usage management
+# Ralph Loop - Multi-CLI Autonomous Development Loop
+# Supports multiple AI CLI clients through an adapter pattern
+# Default adapter: Claude Code | Also supports: Aider, Ollama, custom adapters
 
 set -e  # Exit on any error
 
@@ -10,6 +11,7 @@ SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+source "$SCRIPT_DIR/lib/adapters/adapter_interface.sh"
 
 # Configuration
 PROMPT_FILE="PROMPT.md"
@@ -17,14 +19,18 @@ LOG_DIR="logs"
 DOCS_DIR="docs/generated"
 STATUS_FILE="status.json"
 PROGRESS_FILE="progress.json"
-CLAUDE_CODE_CMD="claude"
 MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
 VERBOSE_PROGRESS=false  # Default: no verbose progress updates
-CLAUDE_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for Claude Code execution
+EXECUTION_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for execution
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE=".call_count"
 TIMESTAMP_FILE=".last_reset"
 USE_TMUX=false
+
+# Adapter configuration
+RALPH_ADAPTER="${RALPH_ADAPTER:-claude}"  # Default adapter
+DRY_RUN_MODE=false
+ADAPTER_EXTRA_ARGS=""
 
 # Exit detection configuration
 EXIT_SIGNALS_FILE=".exit_signals"
@@ -42,6 +48,93 @@ NC='\033[0m' # No Color
 
 # Initialize directories
 mkdir -p "$LOG_DIR" "$DOCS_DIR"
+
+# Load and verify the selected adapter
+init_adapter() {
+    log_status "INFO" "Initializing adapter: $RALPH_ADAPTER"
+    
+    if ! load_adapter "$RALPH_ADAPTER"; then
+        log_status "ERROR" "Failed to load adapter: $RALPH_ADAPTER"
+        log_status "INFO" "Available adapters:"
+        list_available_adapters | while read -r adapter; do
+            echo "  - $adapter"
+        done
+        exit 1
+    fi
+    
+    # Verify adapter is available
+    if ! adapter_check; then
+        log_status "ERROR" "Adapter '$RALPH_ADAPTER' check failed"
+        log_status "INFO" "Install with: $(adapter_get_install_command)"
+        exit 1
+    fi
+    
+    log_status "SUCCESS" "Adapter loaded: $(adapter_name) v$(adapter_version)"
+    log_status "INFO" "Supported features: $(adapter_supports)"
+}
+
+# List available adapters
+show_adapters() {
+    echo "Available CLI Adapters:"
+    echo "========================"
+    echo ""
+    
+    local adapters
+    adapters=$(list_available_adapters)
+    
+    for adapter in $adapters; do
+        local info
+        info=$(get_adapter_info "$adapter" 2>/dev/null)
+        
+        if [[ -n "$info" && "$info" != *"error"* ]]; then
+            local name version available supports
+            name=$(echo "$info" | jq -r '.name // "Unknown"')
+            version=$(echo "$info" | jq -r '.version // "0.0.0"')
+            available=$(echo "$info" | jq -r '.available // false')
+            supports=$(echo "$info" | jq -r '.supports // "basic"')
+            
+            local status_icon="❌"
+            [[ "$available" == "true" ]] && status_icon="✅"
+            
+            local default_marker=""
+            [[ "$adapter" == "claude" ]] && default_marker=" (default)"
+            
+            echo "  $status_icon $adapter$default_marker"
+            echo "     Name: $name v$version"
+            echo "     Features: $supports"
+            echo ""
+        else
+            echo "  ❓ $adapter (unable to load)"
+            echo ""
+        fi
+    done
+    
+    echo "Usage: ralph --adapter <name>"
+    echo "Example: ralph --adapter aider --monitor"
+}
+
+# Show detailed adapter info
+show_adapter_info() {
+    local adapter_name="$1"
+    
+    local info
+    info=$(get_adapter_info "$adapter_name" 2>/dev/null)
+    
+    if [[ -z "$info" || "$info" == *"error"* ]]; then
+        echo "Error: Adapter '$adapter_name' not found"
+        return 1
+    fi
+    
+    echo "Adapter: $(echo "$info" | jq -r '.name')"
+    echo "Version: $(echo "$info" | jq -r '.version')"
+    echo "Available: $(echo "$info" | jq -r '.available')"
+    echo "Features: $(echo "$info" | jq -r '.supports')"
+    echo "Install: $(echo "$info" | jq -r '.install_command')"
+    echo "Documentation: $(echo "$info" | jq -r '.documentation')"
+    echo ""
+    echo "Configuration:"
+    echo "$info" | jq '.config'
+}
 
 # Check if tmux is available
 check_tmux_available() {
@@ -303,140 +396,163 @@ should_exit_gracefully() {
     echo ""  # Return empty string instead of using return code
 }
 
-# Main execution function
-execute_claude_code() {
+# Main execution function - Uses adapter pattern for CLI abstraction
+execute_with_adapter() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
-    local output_file="$LOG_DIR/claude_output_${timestamp}.log"
+    local adapter_id=$(adapter_id)
+    local output_file="$LOG_DIR/${adapter_id}_output_${timestamp}.log"
     local loop_count=$1
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
     
-    log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
-    local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
-    log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
+    local adapter_display=$(adapter_name)
+    log_status "LOOP" "Executing $adapter_display (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    log_status "INFO" "⏳ Starting $adapter_display execution... (timeout: ${EXECUTION_TIMEOUT_MINUTES}m)"
     
-    # Execute Claude Code with the prompt, streaming output
-    if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 & 
-    then
-        local claude_pid=$!
-        local progress_counter=0
+    # Dry run mode - show what would happen without executing
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_status "INFO" "🔬 DRY RUN MODE - No actual execution"
+        log_status "INFO" "Would execute: $(adapter_name)"
+        log_status "INFO" "Prompt file: $PROMPT_FILE"
+        log_status "INFO" "Timeout: ${EXECUTION_TIMEOUT_MINUTES} minutes"
+        log_status "INFO" "Adapter features: $(adapter_supports)"
+        echo '{"dry_run": true, "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        return 0
+    fi
+    
+    # Execute using the adapter in background to allow progress monitoring
+    adapter_execute "$PROMPT_FILE" "$EXECUTION_TIMEOUT_MINUTES" "$VERBOSE_PROGRESS" "$ADAPTER_EXTRA_ARGS" > "$output_file" 2>&1 &
+    local adapter_pid=$!
+    local progress_counter=0
+    
+    # Show progress while adapter is running
+    while kill -0 $adapter_pid 2>/dev/null; do
+        progress_counter=$((progress_counter + 1))
+        case $((progress_counter % 4)) in
+            1) progress_indicator="⠋" ;;
+            2) progress_indicator="⠙" ;;
+            3) progress_indicator="⠹" ;;
+            0) progress_indicator="⠸" ;;
+        esac
         
-        # Show progress while Claude Code is running
-        while kill -0 $claude_pid 2>/dev/null; do
-            progress_counter=$((progress_counter + 1))
-            case $((progress_counter % 4)) in
-                1) progress_indicator="⠋" ;;
-                2) progress_indicator="⠙" ;;
-                3) progress_indicator="⠹" ;;
-                0) progress_indicator="⠸" ;;
-            esac
-            
-            # Get last line from output if available
-            local last_line=""
-            if [[ -f "$output_file" && -s "$output_file" ]]; then
-                last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
-            fi
-            
-            # Update progress file for monitor
-            cat > "$PROGRESS_FILE" << EOF
+        # Get last line from output if available
+        local last_line=""
+        if [[ -f "$output_file" && -s "$output_file" ]]; then
+            last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
+        fi
+        
+        # Update progress file for monitor
+        cat > "$PROGRESS_FILE" << EOF
 {
     "status": "executing",
+    "adapter": "$adapter_id",
     "indicator": "$progress_indicator",
     "elapsed_seconds": $((progress_counter * 10)),
     "last_output": "$last_line",
     "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
 }
 EOF
-            
-            # Only log if verbose mode is enabled
-            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-                if [[ -n "$last_line" ]]; then
-                    log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
-                else
-                    log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
-                fi
-            fi
-            
-            sleep 10
-        done
         
-        # Wait for the process to finish and get exit code
-        wait $claude_pid
-        local exit_code=$?
-        
-        if [ $exit_code -eq 0 ]; then
-            # Only increment counter on successful execution
-            echo "$calls_made" > "$CALL_COUNT_FILE"
-            
-            # Clear progress file
-            echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-            
-            log_status "SUCCESS" "✅ Claude Code execution completed successfully"
-
-            # Analyze the response
-            log_status "INFO" "🔍 Analyzing Claude Code response..."
-            analyze_response "$output_file" "$loop_count"
-            local analysis_exit_code=$?
-
-            # Update exit signals based on analysis
-            update_exit_signals
-
-            # Log analysis summary
-            log_analysis_summary
-
-            # Get file change count for circuit breaker
-            local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
-            local has_errors="false"
-
-            # Two-stage error detection to avoid JSON field false positives
-            # Stage 1: Filter out JSON field patterns like "is_error": false
-            # Stage 2: Look for actual error messages in specific contexts
-            # Avoid type annotations like "error: Error" by requiring lowercase after ": error"
-            if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
-               grep -qE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
-                has_errors="true"
-
-                # Debug logging: show what triggered error detection
-                if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-                    log_status "DEBUG" "Error patterns found:"
-                    grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
-                        grep -nE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' | \
-                        head -3 | while IFS= read -r line; do
-                        log_status "DEBUG" "  $line"
-                    done
-                fi
-
-                log_status "WARN" "Errors detected in output, check: $output_file"
-            fi
-            local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
-
-            # Record result in circuit breaker
-            record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
-            local circuit_result=$?
-
-            if [[ $circuit_result -ne 0 ]]; then
-                log_status "WARN" "Circuit breaker opened - halting execution"
-                return 3  # Special code for circuit breaker trip
-            fi
-
-            return 0
-        else
-            # Clear progress file on failure
-            echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-            
-            # Check if the failure is due to API 5-hour limit
-            if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
-                log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
-                return 2  # Special return code for API limit
+        # Only log if verbose mode is enabled
+        if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            if [[ -n "$last_line" ]]; then
+                log_status "INFO" "$progress_indicator $adapter_display: $last_line... (${progress_counter}0s)"
             else
-                log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
-                return 1
+                log_status "INFO" "$progress_indicator $adapter_display working... (${progress_counter}0s elapsed)"
             fi
         fi
+        
+        sleep 10
+    done
+    
+    # Wait for the process to finish and get exit code
+    wait $adapter_pid
+    local exit_code=$?
+    
+    # Parse the output using adapter-specific logic
+    local output_content
+    output_content=$(cat "$output_file" 2>/dev/null)
+    local parse_result
+    parse_result=$(adapter_parse_output "$output_content")
+    
+    if [ $exit_code -eq 0 ] || [[ "$parse_result" == "COMPLETE" ]] || [[ "$parse_result" == "CONTINUE" ]]; then
+        # Only increment counter on successful execution
+        echo "$calls_made" > "$CALL_COUNT_FILE"
+        
+        # Clear progress file
+        echo '{"status": "completed", "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        
+        log_status "SUCCESS" "✅ $adapter_display execution completed successfully"
+
+        # Analyze the response
+        log_status "INFO" "🔍 Analyzing $adapter_display response..."
+        analyze_response "$output_file" "$loop_count"
+        local analysis_exit_code=$?
+
+        # Update exit signals based on analysis
+        update_exit_signals
+
+        # Log analysis summary
+        log_analysis_summary
+
+        # Get file change count for circuit breaker
+        local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+        local has_errors="false"
+
+        # Two-stage error detection to avoid JSON field false positives
+        if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+           grep -qE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
+            has_errors="true"
+
+            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+                log_status "DEBUG" "Error patterns found:"
+                grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+                    grep -nE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' | \
+                    head -3 | while IFS= read -r line; do
+                    log_status "DEBUG" "  $line"
+                done
+            fi
+
+            log_status "WARN" "Errors detected in output, check: $output_file"
+        fi
+        local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+
+        # Record result in circuit breaker
+        record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
+        local circuit_result=$?
+
+        if [[ $circuit_result -ne 0 ]]; then
+            log_status "WARN" "Circuit breaker opened - halting execution"
+            return 3  # Special code for circuit breaker trip
+        fi
+        
+        # Perform adapter cleanup
+        adapter_cleanup
+
+        return 0
+    elif [[ "$parse_result" == "RATE_LIMITED" ]]; then
+        # Rate limit detected by adapter
+        echo '{"status": "rate_limited", "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        log_status "ERROR" "🚫 Rate limit reached for $adapter_display"
+        return 2  # Special return code for rate limit
     else
-        log_status "ERROR" "❌ Failed to start Claude Code process"
-        return 1
+        # Clear progress file on failure
+        echo '{"status": "failed", "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        
+        # Check if the failure is due to API rate/usage limit
+        if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached\|rate.limit\|quota" "$output_file"; then
+            log_status "ERROR" "🚫 API usage/rate limit reached"
+            return 2  # Special return code for API limit
+        else
+            log_status "ERROR" "❌ $adapter_display execution failed, check: $output_file"
+            return 1
+        fi
     fi
+}
+
+# Backward compatibility wrapper
+execute_claude_code() {
+    execute_with_adapter "$@"
 }
 
 # Cleanup function
@@ -454,9 +570,12 @@ loop_count=0
 
 # Main loop
 main() {
+    # Initialize the adapter first
+    init_adapter
     
-    log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
-    log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
+    local adapter_display=$(adapter_name)
+    log_status "SUCCESS" "🚀 Ralph loop starting with $adapter_display"
+    log_status "INFO" "Adapter: $RALPH_ADAPTER | Max calls/hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
     
     # Check if this is a Ralph project directory
@@ -590,7 +709,7 @@ main() {
 # Help function
 show_help() {
     cat << HELPEOF
-Ralph Loop for Claude Code
+Ralph Loop - Multi-CLI Autonomous Development Loop
 
 Usage: $0 [OPTIONS]
 
@@ -604,9 +723,23 @@ Options:
     -s, --status            Show current status and exit
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
-    -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
+    -t, --timeout MIN       Set execution timeout in minutes (default: $EXECUTION_TIMEOUT_MINUTES)
+    -d, --dry-run           Preview what would be executed without running
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
+
+Adapter Options:
+    -a, --adapter NAME      Select CLI adapter (default: claude)
+                            Available: claude, aider, ollama, or custom adapters
+    --list-adapters         List all available adapters and their status
+    --adapter-info NAME     Show detailed information about an adapter
+    --adapter-check         Verify the current adapter is properly configured
+
+Adapter-Specific Settings (via environment or .ralphrc):
+    RALPH_ADAPTER           Default adapter to use
+    RALPH_CLAUDE_TOOLS      Claude Code allowed tools
+    RALPH_AIDER_MODEL       Aider model (e.g., gpt-4-turbo, claude-3-opus)
+    RALPH_OLLAMA_MODEL      Ollama model (e.g., codellama, deepseek-coder)
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -614,15 +747,18 @@ Files created:
     - $STATUS_FILE: Current status (JSON)
 
 Example workflow:
-    ralph-setup my-project     # Create project
-    cd my-project             # Enter project directory  
-    $0 --monitor             # Start Ralph with monitoring
+    ralph-setup my-project        # Create project
+    cd my-project                 # Enter project directory  
+    $0 --monitor                  # Start Ralph with monitoring (uses Claude Code)
 
 Examples:
     $0 --calls 50 --prompt my_prompt.md
-    $0 --monitor             # Start with integrated tmux monitoring
-    $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
-    $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
+    $0 --monitor                        # Start with integrated tmux monitoring
+    $0 --adapter aider --monitor        # Use Aider instead of Claude Code
+    $0 --adapter ollama --timeout 30    # Use local Ollama with 30-min timeout
+    $0 --dry-run                        # Preview without executing
+    $0 --list-adapters                  # See available adapters
+    $0 --verbose --timeout 5            # 5-minute timeout with detailed progress
 
 HELPEOF
 }
@@ -661,12 +797,33 @@ while [[ $# -gt 0 ]]; do
             ;;
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
-                CLAUDE_TIMEOUT_MINUTES="$2"
+                EXECUTION_TIMEOUT_MINUTES="$2"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
             fi
             shift 2
+            ;;
+        -d|--dry-run)
+            DRY_RUN_MODE=true
+            shift
+            ;;
+        -a|--adapter)
+            RALPH_ADAPTER="$2"
+            shift 2
+            ;;
+        --list-adapters)
+            show_adapters
+            exit 0
+            ;;
+        --adapter-info)
+            show_adapter_info "$2"
+            exit 0
+            ;;
+        --adapter-check)
+            init_adapter
+            echo "✅ Adapter '$RALPH_ADAPTER' is ready"
+            exit 0
             ;;
         --reset-circuit)
             # Source the circuit breaker library
