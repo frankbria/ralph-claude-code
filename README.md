@@ -1,4 +1,4 @@
-# Ralph for Claude Code
+# Ralph Loop
 
 ![Version](https://img.shields.io/badge/version-0.9.0-blue)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
