@@ -14,6 +14,12 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Log a message with timestamp and color coding
+# Arguments:
+#   $1 - Log level (INFO, WARN, ERROR, SUCCESS)
+#   $2 - Message to log
+# Output: Writes colored, timestamped message to stdout
+# Uses: Color variables (RED, GREEN, YELLOW, BLUE, NC)
 log() {
     local level=$1
     local message=$2
@@ -29,24 +35,39 @@ log() {
     echo -e "${color}[$(date '+%H:%M:%S')] [$level] $message${NC}"
 }
 
-# Check if Ralph is installed
+# Check if Ralph is installed by verifying commands or home directory exist
+# Uses: INSTALL_DIR, RALPH_HOME environment variables
+# Behavior: Checks for any Ralph command or home directory
+# Exit: Exits with status 0 if not installed, displaying checked locations
 check_installation() {
     local installed=false
 
-    if [ -f "$INSTALL_DIR/ralph" ] || [ -d "$RALPH_HOME" ]; then
+    # Check for any of the Ralph commands
+    for cmd in ralph ralph-monitor ralph-setup ralph-import; do
+        if [ -f "$INSTALL_DIR/$cmd" ]; then
+            installed=true
+            break
+        fi
+    done
+
+    # Also check for Ralph home directory
+    if [ "$installed" = false ] && [ -d "$RALPH_HOME" ]; then
         installed=true
     fi
 
     if [ "$installed" = false ]; then
         log "WARN" "Ralph does not appear to be installed"
         echo "Checked locations:"
-        echo "  - $INSTALL_DIR/ralph"
+        echo "  - $INSTALL_DIR/{ralph,ralph-monitor,ralph-setup,ralph-import}"
         echo "  - $RALPH_HOME"
         exit 0
     fi
 }
 
-# Show what will be removed
+# Display a plan of what will be removed during uninstallation
+# Uses: INSTALL_DIR, RALPH_HOME environment variables
+# Output: Prints list of Ralph commands and home directory to stdout
+# Behavior: Shows only items that actually exist on the system
 show_removal_plan() {
     echo ""
     log "INFO" "The following will be removed:"
@@ -70,7 +91,11 @@ show_removal_plan() {
     echo ""
 }
 
-# Confirm uninstallation
+# Prompt user to confirm uninstallation
+# Arguments:
+#   $1 - Optional flag (-y or --yes) to skip confirmation prompt
+# Behavior: Returns 0 if confirmed, exits with 0 if cancelled
+# Exit: Exits with status 0 if user declines confirmation
 confirm_uninstall() {
     if [ "${1:-}" = "-y" ] || [ "${1:-}" = "--yes" ]; then
         return 0
@@ -85,7 +110,10 @@ confirm_uninstall() {
     fi
 }
 
-# Remove commands
+# Remove Ralph commands from INSTALL_DIR
+# Removes: ralph, ralph-monitor, ralph-setup, ralph-import
+# Uses: INSTALL_DIR environment variable
+# Output: Logs success with count of removed commands, or info if none found
 remove_commands() {
     log "INFO" "Removing Ralph commands..."
 
@@ -104,7 +132,10 @@ remove_commands() {
     fi
 }
 
-# Remove Ralph home directory
+# Remove Ralph home directory containing templates, scripts, and libraries
+# Uses: RALPH_HOME environment variable
+# Behavior: Removes directory recursively if it exists
+# Output: Logs success if removed, or info if directory not found
 remove_ralph_home() {
     log "INFO" "Removing Ralph home directory..."
 
@@ -116,7 +147,11 @@ remove_ralph_home() {
     fi
 }
 
-# Main uninstallation
+# Main uninstallation flow for Ralph for Claude Code
+# Arguments:
+#   $1 - Optional flag passed to confirm_uninstall (-y/--yes)
+# Behavior: Orchestrates full uninstall by calling check, plan, confirm, and remove functions
+# Note: Does not remove project directories created with ralph-setup
 main() {
     echo "🗑️  Uninstalling Ralph for Claude Code..."
 
