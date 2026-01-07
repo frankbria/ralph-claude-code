@@ -121,7 +121,7 @@ remove_commands() {
     for cmd in ralph ralph-monitor ralph-setup ralph-import; do
         if [ -f "$INSTALL_DIR/$cmd" ]; then
             rm -f "$INSTALL_DIR/$cmd"
-            ((removed++))
+            removed=$((removed + 1))
         fi
     done
 
