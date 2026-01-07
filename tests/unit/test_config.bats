@@ -19,6 +19,8 @@ setup() {
         echo "[$level] $message" >> "$LOG_DIR/ralph.log"
     }
     export -f log_status
+    # Source the shared config implementation
+    source "${BATS_TEST_DIRNAME}/../../lib/config.sh"
 }
 
 teardown() {
@@ -27,16 +29,7 @@ teardown() {
     rm -rf "$TEST_TEMP_DIR"
 }
 
-load_config() {
-    if [[ -f "$HOME/.ralphrc" ]]; then
-        source "$HOME/.ralphrc"
-        log_status "INFO" "Loaded global config: ~/.ralphrc"
-    fi
-    if [[ -f "./.ralphrc" ]]; then
-        source "./.ralphrc"
-        log_status "INFO" "Loaded project config: .ralphrc"
-    fi
-}
+
 
 @test "load_config loads global config from ~/.ralphrc" {
     echo "MAX_CALLS_PER_HOUR=50" > "$HOME/.ralphrc"

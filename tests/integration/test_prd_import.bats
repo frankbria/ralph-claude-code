@@ -10,6 +10,16 @@ setup() {
     export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-import-test.XXXXXX)"
     cd "$TEST_TEMP_DIR"
     export RALPH_IMPORT="${BATS_TEST_DIRNAME}/../../ralph_import.sh"
+
+    # Provide a lightweight ralph-setup stub so ralph_import can create projects
+    mkdir -p "$TEST_TEMP_DIR/bin"
+    cat > "$TEST_TEMP_DIR/bin/ralph-setup" << 'EOF'
+#!/bin/bash
+project_name="${1:-my-project}"
+mkdir -p "$project_name/specs" "$project_name/src" "$project_name/examples" "$project_name/logs" "$project_name/docs/generated"
+EOF
+    chmod +x "$TEST_TEMP_DIR/bin/ralph-setup"
+    export PATH="$TEST_TEMP_DIR/bin:$PATH"
 }
 
 teardown() {
@@ -17,59 +27,45 @@ teardown() {
     rm -rf "$TEST_TEMP_DIR"
 }
 
-@test "ralph-import accepts .md file" {
-    run bash "$RALPH_IMPORT" --help
+@test "ralph-import creates project structure from markdown PRD" {
+    create_sample_prd_md "sample-prd.md"
+
+    run bash "$RALPH_IMPORT" sample-prd.md task-app
     assert_success
-    [[ "$output" == *".md"* ]]
+
+    assert_dir_exists "task-app"
+    assert_file_exists "task-app/PROMPT.md"
+    assert_file_exists "task-app/@fix_plan.md"
+    assert_dir_exists "task-app/specs"
+
+    run grep "Task Management Web App" "task-app/@fix_plan.md"
+    assert_success
 }
 
-@test "ralph-import accepts .txt file" {
-    run bash "$RALPH_IMPORT" --help
+@test "ralph-import uses filename as default project name" {
+    create_sample_prd_md "project-doc.md"
+
+    run bash "$RALPH_IMPORT" project-doc.md
     assert_success
-    [[ "$output" == *".txt"* ]]
+
+    assert_dir_exists "project-doc"
+    assert_file_exists "project-doc/PROMPT.md"
+    assert_file_exists "project-doc/@fix_plan.md"
 }
 
-@test "ralph-import accepts .json file" {
-    run bash "$RALPH_IMPORT" --help
-    assert_success
-    [[ "$output" == *".json"* ]]
-}
+@test "ralph-import supports JSON PRD files" {
+    create_sample_prd_json "sample-prd.json"
 
-@test "ralph-import help describes PROMPT.md creation" {
-    run bash "$RALPH_IMPORT" --help
+    run bash "$RALPH_IMPORT" sample-prd.json json-project
     assert_success
-    [[ "$output" == *"PROMPT.md"* ]]
-}
 
-@test "ralph-import help describes @fix_plan.md creation" {
-    run bash "$RALPH_IMPORT" --help
-    assert_success
-    [[ "$output" == *"fix_plan"* ]]
-}
-
-@test "ralph-import help describes specs creation" {
-    run bash "$RALPH_IMPORT" --help
-    assert_success
-    [[ "$output" == *"specs"* ]]
-}
-
-@test "ralph-import accepts custom project name in help" {
-    run bash "$RALPH_IMPORT" --help
-    assert_success
-    [[ "$output" == *"project-name"* ]]
-}
-
-@test "ralph-import defaults project name from filename" {
-    run bash "$RALPH_IMPORT" --help
+    assert_dir_exists "json-project"
+    assert_file_exists "json-project/specs/requirements.md"
+    run grep "Task Management App" "json-project/specs/requirements.md"
     assert_success
 }
 
 @test "ralph-import errors on missing source file" {
     run bash "$RALPH_IMPORT" nonexistent-file.md
     assert_failure
-}
-
-@test "ralph-import dependency check mentioned" {
-    run bash "$RALPH_IMPORT" --help
-    assert_success
 }

@@ -12,6 +12,10 @@ source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 source "$SCRIPT_DIR/lib/adapters/adapter_interface.sh"
+source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/lib/metrics.sh"
+source "$SCRIPT_DIR/lib/notifications.sh"
+source "$SCRIPT_DIR/lib/backup.sh"
 
 # Configuration
 PROMPT_FILE="PROMPT.md"
@@ -26,6 +30,10 @@ SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE=".call_count"
 TIMESTAMP_FILE=".last_reset"
 USE_TMUX=false
+
+# Feature toggles
+ENABLE_BACKUP="${ENABLE_BACKUP:-false}"
+ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"
 
 # Adapter configuration
 RALPH_ADAPTER="${RALPH_ADAPTER:-claude}"  # Default adapter
@@ -398,17 +406,41 @@ should_exit_gracefully() {
 
 # Main execution function - Uses adapter pattern for CLI abstraction
 execute_with_adapter() {
-    local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
-    local adapter_id=$(adapter_id)
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d_%H-%M-%S') || {
+        log_status "ERROR" "Failed to determine timestamp for adapter execution"
+        return 1
+    }
+
+    local adapter_id
+    if ! adapter_id=$(adapter_id); then
+        log_status "ERROR" "Failed to resolve adapter id"
+        return 1
+    fi
+
     local output_file="$LOG_DIR/${adapter_id}_output_${timestamp}.log"
     local loop_count=$1
-    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+
+    local calls_made
+    if [[ -f "$CALL_COUNT_FILE" ]]; then
+        if ! calls_made=$(cat "$CALL_COUNT_FILE"); then
+            log_status "WARN" "Failed to read call count; defaulting to 0"
+            calls_made=0
+        fi
+    else
+        calls_made=0
+    fi
     calls_made=$((calls_made + 1))
-    
-    local adapter_display=$(adapter_name)
+
+    local adapter_display
+    if ! adapter_display=$(adapter_name); then
+        log_status "ERROR" "Failed to resolve adapter display name"
+        return 1
+    fi
+
     log_status "LOOP" "Executing $adapter_display (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     log_status "INFO" "⏳ Starting $adapter_display execution... (timeout: ${EXECUTION_TIMEOUT_MINUTES}m)"
-    
+
     # Dry run mode - show what would happen without executing
     if [[ "$DRY_RUN_MODE" == "true" ]]; then
         log_status "INFO" "🔬 DRY RUN MODE - No actual execution"
@@ -416,31 +448,33 @@ execute_with_adapter() {
         log_status "INFO" "Prompt file: $PROMPT_FILE"
         log_status "INFO" "Timeout: ${EXECUTION_TIMEOUT_MINUTES} minutes"
         log_status "INFO" "Adapter features: $(adapter_supports)"
-        echo '{"dry_run": true, "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        printf '{"dry_run":true,"adapter":"%s","timestamp":"%s"}\n' \
+            "$adapter_id" "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROGRESS_FILE"
         return 0
     fi
-    
+
     # Execute using the adapter in background to allow progress monitoring
     adapter_execute "$PROMPT_FILE" "$EXECUTION_TIMEOUT_MINUTES" "$VERBOSE_PROGRESS" "$ADAPTER_EXTRA_ARGS" > "$output_file" 2>&1 &
     local adapter_pid=$!
     local progress_counter=0
-    
+
     # Show progress while adapter is running
-    while kill -0 $adapter_pid 2>/dev/null; do
+    while kill -0 "$adapter_pid" 2>/dev/null; do
         progress_counter=$((progress_counter + 1))
+        local progress_indicator
         case $((progress_counter % 4)) in
             1) progress_indicator="⠋" ;;
             2) progress_indicator="⠙" ;;
             3) progress_indicator="⠹" ;;
             0) progress_indicator="⠸" ;;
         esac
-        
+
         # Get last line from output if available
         local last_line=""
         if [[ -f "$output_file" && -s "$output_file" ]]; then
             last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
         fi
-        
+
         # Update progress file for monitor
         cat > "$PROGRESS_FILE" << EOF
 {
@@ -452,7 +486,7 @@ execute_with_adapter() {
     "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
 }
 EOF
-        
+
         # Only log if verbose mode is enabled
         if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
             if [[ -n "$last_line" ]]; then
@@ -461,33 +495,37 @@ EOF
                 log_status "INFO" "$progress_indicator $adapter_display working... (${progress_counter}0s elapsed)"
             fi
         fi
-        
+
         sleep 10
     done
-    
+
     # Wait for the process to finish and get exit code
-    wait $adapter_pid
+    wait "$adapter_pid"
     local exit_code=$?
-    
+
     # Parse the output using adapter-specific logic
     local output_content
     output_content=$(cat "$output_file" 2>/dev/null)
     local parse_result
     parse_result=$(adapter_parse_output "$output_content")
-    
+
     if [ $exit_code -eq 0 ] || [[ "$parse_result" == "COMPLETE" ]] || [[ "$parse_result" == "CONTINUE" ]]; then
         # Only increment counter on successful execution
         echo "$calls_made" > "$CALL_COUNT_FILE"
-        
+
         # Clear progress file
-        echo '{"status": "completed", "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-        
+        printf '{"status":"completed","adapter":"%s","timestamp":"%s"}\n' \
+            "$adapter_id" "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROGRESS_FILE"
+
         log_status "SUCCESS" "✅ $adapter_display execution completed successfully"
 
         # Analyze the response
         log_status "INFO" "🔍 Analyzing $adapter_display response..."
         analyze_response "$output_file" "$loop_count"
         local analysis_exit_code=$?
+        if [[ $analysis_exit_code -ne 0 ]]; then
+            log_status "WARN" "Response analysis returned non-zero exit code ($analysis_exit_code)"
+        fi
 
         # Update exit signals based on analysis
         update_exit_signals
@@ -496,7 +534,8 @@ EOF
         log_analysis_summary
 
         # Get file change count for circuit breaker
-        local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+        local files_changed
+        files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
         local has_errors="false"
 
         # Two-stage error detection to avoid JSON field false positives
@@ -515,7 +554,8 @@ EOF
 
             log_status "WARN" "Errors detected in output, check: $output_file"
         fi
-        local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+        local output_length
+        output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
 
         # Record result in circuit breaker
         record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
@@ -525,20 +565,22 @@ EOF
             log_status "WARN" "Circuit breaker opened - halting execution"
             return 3  # Special code for circuit breaker trip
         fi
-        
+
         # Perform adapter cleanup
         adapter_cleanup
 
         return 0
     elif [[ "$parse_result" == "RATE_LIMITED" ]]; then
         # Rate limit detected by adapter
-        echo '{"status": "rate_limited", "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        printf '{"status":"rate_limited","adapter":"%s","timestamp":"%s"}\n' \
+            "$adapter_id" "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROGRESS_FILE"
         log_status "ERROR" "🚫 Rate limit reached for $adapter_display"
         return 2  # Special return code for rate limit
     else
         # Clear progress file on failure
-        echo '{"status": "failed", "adapter": "'$adapter_id'", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-        
+        printf '{"status":"failed","adapter":"%s","timestamp":"%s"}\n' \
+            "$adapter_id" "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROGRESS_FILE"
+
         # Check if the failure is due to API rate/usage limit
         if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached\|rate.limit\|quota" "$output_file"; then
             log_status "ERROR" "🚫 API usage/rate limit reached"
@@ -627,27 +669,58 @@ main() {
         fi
 
         # Check for graceful exit conditions
-        local exit_reason=$(should_exit_gracefully)
+        local exit_reason
+        exit_reason=$(should_exit_gracefully)
         if [[ "$exit_reason" != "" ]]; then
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
-            
+
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
             log_status "INFO" "  - Total loops: $loop_count"
             log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
             log_status "INFO" "  - Exit reason: $exit_reason"
-            
+
+            if [[ "${ENABLE_NOTIFICATIONS:-false}" == "true" ]]; then
+                send_notification "Ralph loop completed" "Exit reason: $exit_reason (loops: $loop_count)"
+            fi
+
             break
         fi
-        
+
+        # Create backup before executing, if enabled
+        if [[ "${ENABLE_BACKUP:-false}" == "true" ]]; then
+            create_backup "$loop_count" || log_status "ERROR" "Backup failed for loop #$loop_count"
+        fi
+
         # Update status
-        local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        local calls_made
+        calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
-        
-        # Execute Claude Code
+
+        # Track loop duration for metrics
+        local loop_start loop_end loop_duration
+        loop_start=$(date +%s || echo 0)
+
+        # Execute Claude Code (via adapter)
         execute_claude_code "$loop_count"
         local exec_result=$?
-        
+
+        loop_end=$(date +%s || echo 0)
+        if [[ "$loop_start" =~ ^[0-9]+$ ]] && [[ "$loop_end" =~ ^[0-9]+$ ]] && [[ $loop_end -ge $loop_start ]]; then
+            loop_duration=$((loop_end - loop_start))
+        else
+            loop_duration=0
+        fi
+
+        # Record metrics if helper is available
+        if declare -f track_metrics >/dev/null 2>&1; then
+            local calls_after
+            calls_after=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+            local success_flag="false"
+            [[ $exec_result -eq 0 ]] && success_flag="true"
+            track_metrics "$loop_count" "$loop_duration" "$success_flag" "$calls_after"
+        fi
+
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
 
@@ -725,6 +798,8 @@ Options:
     -v, --verbose           Show detailed progress updates during execution
     -t, --timeout MIN       Set execution timeout in minutes (default: $EXECUTION_TIMEOUT_MINUTES)
     -d, --dry-run           Preview what would be executed without running
+    -n, --notify            Enable desktop/terminal notifications (best-effort)
+    -b, --backup            Enable automatic git backups before each loop
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
 
@@ -763,6 +838,11 @@ Examples:
 HELPEOF
 }
 
+# Load configuration before parsing CLI so flags can override config values
+if declare -f load_config >/dev/null 2>&1; then
+    load_config
+fi
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -781,7 +861,7 @@ while [[ $# -gt 0 ]]; do
         -s|--status)
             if [[ -f "$STATUS_FILE" ]]; then
                 echo "Current Status:"
-                cat "$STATUS_FILE" | jq . 2>/dev/null || cat "$STATUS_FILE"
+                jq . "$STATUS_FILE" 2>/dev/null || cat "$STATUS_FILE"
             else
                 echo "No status file found. Ralph may not be running."
             fi
@@ -811,6 +891,14 @@ while [[ $# -gt 0 ]]; do
         -a|--adapter)
             RALPH_ADAPTER="$2"
             shift 2
+            ;;
+        -n|--notify)
+            ENABLE_NOTIFICATIONS=true
+            shift
+            ;;
+        -b|--backup)
+            ENABLE_BACKUP=true
+            shift
             ;;
         --list-adapters)
             show_adapters

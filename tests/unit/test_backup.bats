@@ -21,27 +21,13 @@ setup() {
         echo "[$level] $message" >> "$LOG_DIR/ralph.log"
     }
     export -f log_status
+    # Source the real backup implementation
+    source "${BATS_TEST_DIRNAME}/../../lib/backup.sh"
 }
 
 teardown() {
     cd /
     rm -rf "$TEST_TEMP_DIR"
-}
-
-create_backup() {
-    local loop_num=$1
-    if [[ "$ENABLE_BACKUP" != "true" ]]; then return 0; fi
-    if ! git rev-parse --git-dir &>/dev/null; then
-        log_status "WARN" "Not a git repository, skipping backup"
-        return 0
-    fi
-    local timestamp=$(date +%s)
-    local backup_branch="ralph-backup-loop-${loop_num}-${timestamp}"
-    git add -A 2>/dev/null || true
-    git commit -m "Ralph backup before loop #$loop_num" --allow-empty 2>/dev/null || true
-    git branch "$backup_branch" 2>/dev/null || true
-    LAST_BACKUP_BRANCH="$backup_branch"
-    log_status "INFO" "Backup created: $backup_branch"
 }
 
 @test "create_backup creates backup branch when enabled" {
@@ -73,10 +59,30 @@ create_backup() {
 
 @test "rollback_to_backup restores expected HEAD" {
     export ENABLE_BACKUP=true
+
+    # Create a file and commit it
     echo "file1" > test.txt
     git add test.txt && git commit -m "Add test.txt" > /dev/null 2>&1
+
+    # Create a backup branch at this point
     create_backup 1
-    [[ -n "$LAST_BACKUP_BRANCH" ]]
+    local backup_branch="$LAST_BACKUP_BRANCH"
+    [[ -n "$backup_branch" ]]
+
+    local backup_commit
+    backup_commit=$(git rev-parse "$backup_branch")
+
+    # Make another commit
+    echo "file2" > test2.txt
+    git add test2.txt && git commit -m "Add test2.txt" > /dev/null 2>&1
+
+    # Roll back to the backup branch
+    rollback_to_backup
+
+    local current_commit
+    current_commit=$(git rev-parse HEAD)
+
+    assert_equal "$backup_commit" "$current_commit"
 }
 
 @test "backup is skipped when ENABLE_BACKUP is false" {

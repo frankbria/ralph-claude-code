@@ -2,8 +2,8 @@
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
-![Tests](https://img.shields.io/badge/tests-177%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen)
+![Tests](https://img.shields.io/badge/tests-218-blue)
+![Coverage](https://img.shields.io/badge/coverage-~70%25-(est.)-yellow)
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
@@ -13,9 +13,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## 📌 Project Status
 
-**Version**: v1.0.0 - Stable Release
-**Core Features**: ✅ Complete and fully tested
-**Test Coverage**: 90%+ (177 tests passing)
+**Version**: v1.0.0 - Stable Release  
+**Core Features**: ✅ Complete and exercised by unit/integration tests  
+**Test Coverage**: ~70% (218 tests across unit, integration, and e2e suites – see `IMPLEMENTATION_STATUS.md` for details)
 
 ### What's Working Now ✅
 - Autonomous development loops with intelligent exit detection
@@ -25,24 +25,24 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
-- PRD import functionality
-- **Dry-run mode** - Preview operations without executing
-- **Configuration file support** - ~/.ralphrc and .ralphrc
-- **Metrics and analytics tracking** - JSONL format logging
-- **Desktop notifications** - Cross-platform alerts (macOS, Linux, fallback)
-- **Git backup and rollback** - Branch-based project state management
-- 177 passing tests covering all critical paths
+- PRD import functionality (deterministic, CLI-free by default)
+- **Dry-run mode** – Preview operations without executing
+- **Configuration file support** – `~/.ralphrc` and `.ralphrc`
+- **Metrics and analytics tracking** – JSONL format logging and `ralph-stats`
+- **Desktop notifications** – Cross-platform alerts (macOS, Linux, fallback)
+- **Git backup and rollback** – Branch-based project state management
+- 218 tests covering all critical paths (unit, integration, and e2e)
 
 ### Release Highlights 🎉
 
 **v1.0.0 - Complete Implementation**
 - ✅ Dry-run mode (`--dry-run`) for safe operation previews
-- ✅ Configuration file support (~/.ralphrc and .ralphrc with override precedence)
-- ✅ Metrics tracking with JSONL format and analytics dashboard
-- ✅ Cross-platform desktop notifications (--notify flag)
-- ✅ Git-based backup and rollback system (--backup flag)
-- ✅ Comprehensive test suite: 177 tests (79 unit + 88 integration + 10 e2e)
-- ✅ 90%+ code coverage across all modules
+- ✅ Configuration file support (`~/.ralphrc` and `.ralphrc` with proper override precedence)
+- ✅ Metrics tracking with JSONL format and `ralph-stats` summary CLI
+- ✅ Cross-platform desktop notifications (`--notify` flag)
+- ✅ Git-based backup and rollback system (`--backup` flag)
+- ✅ Comprehensive test suite: 218 tests (120 unit + 88 integration + 10 e2e)
+- ✅ Solid coverage of core modules (coverage still improving; target 85–90%)
 - ✅ Full documentation and examples
 
 **v0.9.0 - Circuit Breaker Enhancements**
@@ -74,12 +74,12 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **🔔 Desktop Notifications** - Get alerts for completions, errors, and important events
 - **💾 Backup & Rollback** - Git branch-based snapshots for safe recovery
 
-### New in v1.1.0 - Multi-CLI Adapter Support 🔌
-- **🔄 Adapter Pattern** - Support for multiple AI CLI tools through a pluggable adapter system
-- **🤖 Built-in Adapters** - Claude Code (default), Aider (GPT-4/Claude/local), Ollama (fully offline)
-- **🛠️ Custom Adapters** - Easy-to-create adapters for any CLI tool
-- **🔀 Auto-Detection** - Automatically detects and uses available adapters
-- **📋 Fallback Support** - Graceful fallback when primary adapter unavailable
+### New in v1.0.0 - Multi-CLI Adapter Support 🔌
+- **🔄 Adapter Pattern** – Support for multiple AI CLI tools through a pluggable adapter system
+- **🤖 Built-in Adapters** – Claude Code (default), Aider (GPT-4/Claude/local), Ollama (fully offline)
+- **🛠️ Custom Adapters** – Easy-to-create adapters for any CLI tool
+- **🔀 Auto-Detection** – Automatically detects and uses available adapters
+- **📋 Fallback Support** – Graceful fallback when primary adapter unavailable
 
 ```bash
 # Use different AI CLI tools with Ralph
@@ -90,9 +90,9 @@ ralph --list-adapters                # See all available adapters
 ```
 
 ### Testing & Quality
-- **✅ 177 Comprehensive Tests** - Unit, integration, and end-to-end test coverage
-- **📊 90%+ Code Coverage** - All critical paths thoroughly tested
-- **🔄 CI/CD Ready** - Tests designed for continuous integration workflows
+- **✅ 218 Tests** – Unit, integration, and end-to-end coverage of core paths
+- **📊 ~70% Code Coverage (estimated)** – Critical paths thoroughly exercised; coverage still increasing
+- **🔄 CI/CD Ready** – Tests designed for continuous integration workflows (see `IMPLEMENTATION_STATUS.md` for CI caveats)
 
 ## 🚀 Quick Start
 
@@ -284,22 +284,15 @@ Dry-run mode shows:
 Track loop performance and usage patterns:
 
 ```bash
-# Enable metrics tracking
-ralph --metrics
-
-# View metrics dashboard
-ralph --metrics-view
-
-# Export metrics data
-ralph --metrics-export
+# Metrics are always written to logs/metrics.jsonl by the main loop.
+# Use the helper CLI to summarize them:
+ralph-stats logs/metrics.jsonl
 ```
 
-Metrics are stored in JSONL format at `~/.ralph/metrics/`:
+Metrics are stored in JSONL format at `logs/metrics.jsonl` in each project:
 - Loop duration and count
-- API call patterns
-- Success/failure rates
-- Error frequencies
-- Performance trends
+- Call counts per loop
+- Success/failure flags
 
 ### Desktop Notifications
 
@@ -317,36 +310,33 @@ ralph --notify
 ```
 
 Supported platforms:
-- **macOS**: Native osascript notifications
-- **Linux**: notify-send (libnotify)
-- **Fallback**: Terminal bell and log messages
+- **macOS**: Native `osascript` notifications
+- **Linux**: `notify-send` (libnotify)
+- **Fallback**: Terminal bell and log messages when neither is available
 
 ### Backup and Rollback
 
 Protect your project with git-based snapshots:
 
 ```bash
-# Enable automatic backups
+# Enable automatic backups before each loop iteration
 ralph --backup
-
-# Create manual backup
-ralph --backup-create "before-major-change"
-
-# List available backups
-ralph --backup-list
-
-# Rollback to previous state
-ralph --backup-rollback
-
-# Rollback to specific backup
-ralph --backup-rollback "backup-2024-01-05-143022"
 ```
 
-Backups are stored as git branches:
-- Automatic backups before each loop iteration
-- Named with timestamps for easy identification
-- Full project state preserved
-- Easy comparison with git diff
+Backups are stored as git branches named like:
+
+```text
+ralph-backup-loop-<loop_number>-<unix_timestamp>
+```
+
+Each backup:
+- Creates an (allow-empty) commit to capture the current state
+- Adds a branch at that commit for easy inspection and comparison
+- Allows manual rollback using standard git commands:
+
+```bash
+git reset --hard ralph-backup-loop-3-1704643200
+```
 
 ### Rate Limiting & Circuit Breaker
 
@@ -501,13 +491,13 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (177 tests)
+# Run all tests
 bats tests/
 
 # Run specific test categories
-bats tests/unit/           # 79 unit tests
-bats tests/integration/    # 88 integration tests  
-bats tests/e2e/            # 10 end-to-end tests
+bats tests/unit/           # Unit tests
+bats tests/integration/    # Integration tests  
+bats tests/e2e/            # End-to-end tests
 
 # Run specific test files
 bats tests/unit/test_cli_parsing.bats      # CLI argument tests
@@ -520,11 +510,11 @@ bats tests/integration/test_tmux_integration.bats  # tmux tests
 bats tests/e2e/test_full_loop.bats         # Full workflow tests
 ```
 
-**Test Status:**
-- **177 tests** across 15 test files
-- **100% pass rate** (177/177 passing)
-- **90%+ code coverage**
-- Comprehensive unit, integration, and end-to-end tests
+**Test Status (see `IMPLEMENTATION_STATUS.md` for details):**
+- **218 tests** across unit, integration, and e2e suites
+- **Unit tests**: 100% pass rate
+- **Integration/E2E tests**: run in CI but currently not enforced as build blockers (some steps use `|| true`)
+- Code coverage is **~70% (estimated)** and continues to improve
 
 ### Installing tmux
 
@@ -701,16 +691,12 @@ ralph [OPTIONS]
   -s, --status            Show current status and exit
   -m, --monitor           Start with tmux session and live monitor
   -v, --verbose           Show detailed progress updates during execution
-  -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
+  -t, --timeout MIN       Set execution timeout in minutes (1-120, default: 15)
   -d, --dry-run           Preview operations without executing
   -n, --notify            Enable desktop notifications
   -b, --backup            Enable automatic git backups
-  --metrics               Enable metrics tracking
-  --metrics-view          View metrics dashboard
-  --metrics-export        Export metrics data
-  --backup-create NAME    Create named backup
-  --backup-list           List available backups
-  --backup-rollback [NAME] Rollback to previous or named backup
+  --reset-circuit         Reset the circuit breaker state
+  --circuit-status        Show circuit breaker status and exit
 ```
 
 ### Project Commands (Per Project)
@@ -725,7 +711,6 @@ ralph --calls 50             # Limit to 50 API calls per hour
 ralph --dry-run              # Preview without executing
 ralph --notify               # Enable desktop notifications
 ralph --backup               # Enable automatic backups
-ralph --metrics              # Enable metrics tracking
 ralph-monitor                # Manual monitoring dashboard
 ```
 
@@ -742,12 +727,11 @@ tmux attach -t <name>     # Reattach to detached session
 
 ### v1.0.0 (Current) - Complete Implementation
 - ✅ Dry-run mode for safe previews
-- ✅ Configuration file support (.ralphrc)
-- ✅ Metrics and analytics tracking
+- ✅ Configuration file support (`~/.ralphrc` and `.ralphrc`)
+- ✅ Metrics and analytics tracking (`logs/metrics.jsonl` + `ralph-stats`)
 - ✅ Desktop notifications (cross-platform)
 - ✅ Git backup and rollback system
-- ✅ 177 tests with 90%+ coverage
-- ✅ Full documentation
+- ✅ 218 tests across unit, integration, and e2e suites
 
 ### v0.9.0 - Circuit Breaker Enhancements
 - Fixed multi-line error matching

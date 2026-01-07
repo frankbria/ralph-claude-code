@@ -21,7 +21,7 @@ Ralph Loop uses an adapter pattern to support multiple AI CLI tools. Each adapte
 
 ### Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                     Ralph Loop                          │
 │                         │                               │

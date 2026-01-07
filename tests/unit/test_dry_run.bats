@@ -27,15 +27,20 @@ teardown() {
 }
 
 execute_claude_code() {
-    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+    local calls_made
+    calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
+
     if [[ "$DRY_RUN" == "true" ]]; then
         log_status "INFO" "[DRY RUN] Would execute command"
         log_status "INFO" "[DRY RUN] Would increment counter to $calls_made"
         sleep 2
         return 0
     fi
+
     echo "$calls_made" > "$CALL_COUNT_FILE"
+    # In non-dry-run mode, simulate that Claude was actually invoked
+    touch /tmp/claude_was_called
     return 0
 }
 

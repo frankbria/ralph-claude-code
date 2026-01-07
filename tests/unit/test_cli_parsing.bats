@@ -26,10 +26,10 @@ teardown() {
     [[ "$output" == *"Options:"* ]]
 }
 
-@test "--calls NUM flag sets MAX_CALLS_PER_HOUR" {
+@test "--calls NUM flag is documented in help output" {
     run bash "$RALPH_SCRIPT" --help
-    run bash -c "source '$RALPH_SCRIPT' --calls 50 --help 2>&1 || true"
-    [[ "$output" == *"50"* ]] || [[ "$output" == *"Usage"* ]]
+    assert_success
+    [[ "$output" == *"--calls"* ]]
 }
 
 @test "--prompt FILE flag is recognized" {
