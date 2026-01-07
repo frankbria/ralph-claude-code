@@ -1,0 +1,38 @@
+#!/bin/bash
+# =============================================================================
+# Ralph Stats - Metrics Summary Tool
+# =============================================================================
+# Reads a metrics.jsonl file (produced by track_metrics) and prints a compact
+# JSON summary with:
+#   - total_loops
+#   - successful
+#   - avg_duration
+#   - total_calls
+#
+# Usage:
+#   ralph-stats [metrics_file]
+#
+# If no file is provided, defaults to: logs/metrics.jsonl
+# =============================================================================
+
+set -e
+
+METRICS_FILE="${1:-logs/metrics.jsonl}"
+
+if [[ ! -f "$METRICS_FILE" ]]; then
+    echo "Metrics file not found: $METRICS_FILE" >&2
+    exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required to run ralph-stats" >&2
+    exit 1
+fi
+
+jq -s '
+  {
+    total_loops: length,
+    successful: (map(select(.success == true)) | length),
+    avg_duration: (if length > 0 then (map(.duration) | add / length) else 0 end),
+    total_calls: (if length > 0 then (map(.calls) | add) else 0 end)
+  }' "$METRICS_FILE"

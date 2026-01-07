@@ -22,14 +22,21 @@ teardown() {
     rm -rf "$TEST_TEMP_DIR"
 }
 
+# Minimal test implementation of log_status mirroring production behaviour:
+# - Formats messages with a timestamp and level
+# - Writes to both stdout and the Ralph log file
 log_status() {
     local level=$1
     local message=$2
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[$timestamp] [$level] $message"
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
 
+# Test-local copy of update_status that mirrors ralph_loop.sh behaviour.
+# This keeps the tests focused on the JSON structure without pulling in the
+# entire loop script.
 update_status() {
     local loop_count=$1
     local calls_made=$2
@@ -86,4 +93,8 @@ STATUSEOF
     run log_status "INFO" "Test message"
     assert_success
     [[ "$output" == *"Test message"* ]]
+
+    # Verify the message also landed in the Ralph log file
+    run grep "Test message" "$LOG_DIR/ralph.log"
+    assert_success
 }

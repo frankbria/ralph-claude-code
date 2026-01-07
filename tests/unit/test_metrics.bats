@@ -10,20 +10,13 @@ setup() {
     export LOG_DIR="logs"
     mkdir -p "$LOG_DIR"
     export RALPH_STATS="${BATS_TEST_DIRNAME}/../../ralph-stats"
+    # Source the real metrics implementation
+    source "${BATS_TEST_DIRNAME}/../../lib/metrics.sh"
 }
 
 teardown() {
     cd /
     rm -rf "$TEST_TEMP_DIR"
-}
-
-track_metrics() {
-    local loop_num=$1
-    local duration=$2
-    local success=$3
-    local calls=$4
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S%z" 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
-    echo "{\"timestamp\":\"$timestamp\",\"loop\":$loop_num,\"duration\":$duration,\"success\":$success,\"calls\":$calls}" >> "$LOG_DIR/metrics.jsonl"
 }
 
 @test "track_metrics appends entries to metrics.jsonl" {
@@ -42,9 +35,13 @@ track_metrics() {
 
 @test "track_metrics records correct loop number and duration" {
     track_metrics 5 120 "false" 10
-    local line=$(cat "$LOG_DIR/metrics.jsonl")
+    local line
+    line=$(cat "$LOG_DIR/metrics.jsonl")
     run jq -r '.loop' <<< "$line"
     assert_equal "$output" "5"
+
+    run jq -r '.duration' <<< "$line"
+    assert_equal "$output" "120"
 }
 
 @test "ralph-stats produces expected JSON summary" {
@@ -52,7 +49,7 @@ track_metrics() {
 {"timestamp":"2025-09-30T12:00:00+0000","loop":1,"duration":45,"success":true,"calls":1}
 {"timestamp":"2025-09-30T12:01:30+0000","loop":2,"duration":52,"success":true,"calls":2}
 EOF
-    run "$RALPH_STATS" "$LOG_DIR/metrics.jsonl"
+    run bash "$RALPH_STATS" "$LOG_DIR/metrics.jsonl"
     assert_success
     run jq -r '.total_loops' <<< "$output"
     assert_equal "$output" "2"

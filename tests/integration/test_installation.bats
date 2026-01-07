@@ -51,10 +51,15 @@ teardown() {
     assert_success
 }
 
-@test "install.sh PATH detection and warnings" {
+@test "installed ralph command is functional after install" {
     cd "${BATS_TEST_DIRNAME}/../.."
     run bash install.sh install
     assert_success
+
+    # The wrapper script should be available on PATH
+    run ralph --help
+    assert_success
+    [[ "$output" == *"Ralph Loop"* ]] || [[ "$output" == *"Usage:"* ]]
 }
 
 @test "install.sh uninstall removes command files" {

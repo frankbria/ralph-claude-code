@@ -1,77 +1,118 @@
 # Implementation Status Summary
 
-**Last Updated**: 2026-01-05
-**Overall Status**: ✅ ALL PLANNED FEATURES AND TESTS COMPLETE
+**Last Updated**: 2026-01-07  
+**Overall Status**: ✅ CORE FEATURES IMPLEMENTED – TESTING STILL IMPROVING
 
 ---
 
 ## Current State
 
-### Test Coverage (Verified 2026-01-05)
-- **Total Tests**: 177 (all passing)
-  - Unit Tests: 79
+### Test Coverage (Verified 2026-01-07)
+
+- **Total Tests**: 218
+  - Unit Tests: 120
   - Integration Tests: 88
   - E2E Tests: 10
-- **Pass Rate**: 100% (177/177)
-- **Estimated Coverage**: ~90%+
-- **Target Coverage**: 90%+ ✅ ACHIEVED
-- **CI/CD**: ✅ Operational (.github/workflows/test.yml)
+- **Pass Rate**:
+  - Unit: 100% (120/120)
+  - Integration/E2E: not enforced in CI (see notes below)
+- **Estimated Coverage**: ~70% of core paths (no automated coverage report yet)
+- **Target Coverage**: 85–90% (in progress)
+- **CI/CD**: ✅ Operational (`.github/workflows/test.yml`), but **integration and E2E suites currently use `|| true`**, so failures will not fail the build.
 
-### New Features Implemented (2026-01-05)
-- **Dry-Run Mode**: --dry-run flag, simulates execution without API calls ✅
-- **Config File Support**: ~/.ralphrc and .ralphrc loading with override support ✅
-- **Metrics & Analytics**: track_metrics(), metrics.jsonl, ralph-stats script ✅
-- **Notification System**: send_notification() with macOS/Linux/fallback support ✅
-- **Backup & Rollback**: create_backup(), rollback_to_backup(), --backup flag ✅
+**Test quality notes**
+
+- `tests/integration/test_prd_import.bats` now performs real PRD imports and verifies that:
+  - a project directory is created,
+  - `PROMPT.md`, `@fix_plan.md`, and `specs/requirements.md` exist, and
+  - known features from the sample PRDs appear in the generated files.
+- `tests/integration/test_installation.bats` now verifies that the installed `ralph` wrapper command runs and prints usable help text.
+- `tests/unit/test_config.bats`, `tests/unit/test_metrics.bats`, `tests/unit/test_notifications.bats`, and `tests/unit/test_backup.bats` all exercise the **shared production implementations** instead of private test-only stubs.
+
+> **Action item:** before declaring full production readiness, remove `|| true` from integration/E2E steps in `.github/workflows/test.yml` and fix any resulting test failures. Until then, treat integration/E2E status as **best-effort** rather than guaranteed.
+
+### New Features Implemented (2026-01-07)
+
+- **Dry-Run Mode**: `--dry-run` flag, simulates execution without invoking adapters ✅
+- **Config File Support**: `~/.ralphrc` and `./.ralphrc` loading with correct override order ✅
+- **Metrics & Analytics**:
+  - `track_metrics()` in `lib/metrics.sh`
+  - `logs/metrics.jsonl` (JSONL metrics stream)
+  - `ralph-stats` summary CLI ✅
+- **Notification System**:
+  - `send_notification()` in `lib/notifications.sh`
+  - macOS (osascript), Linux (notify-send) and terminal-bell fallback ✅
+- **Backup & Rollback**:
+  - `create_backup()` and `rollback_to_backup()` in `lib/backup.sh`
+  - `--backup` flag in `ralph_loop.sh` to enable automatic git snapshots ✅
+- **PRD Import**:
+  - `ralph_import.sh` converts PRDs into a working Ralph project **without external CLI dependencies**, suitable for CI and local use ✅
 
 ---
 
 ## Test File Summary
 
-### Unit Tests (79 tests)
-| File | Tests | Description |
-|------|-------|-------------|
-| test_rate_limiting.bats | 15 | Rate limit logic |
-| test_exit_detection.bats | 20 | Exit signal detection |
-| test_cli_parsing.bats | 16 | CLI argument parsing |
-| test_dry_run.bats | 4 | Dry-run mode |
-| test_config.bats | 6 | Config file loading |
-| test_metrics.bats | 4 | Metrics tracking |
-| test_notifications.bats | 3 | Notification system |
-| test_backup.bats | 5 | Backup/rollback |
-| test_status_updates.bats | 6 | Status updates |
+### Unit Tests (120 tests)
+
+| File                      | Tests | Description                 |
+|---------------------------|-------|-----------------------------|
+| test_rate_limiting.bats   | 15    | Rate limit logic            |
+| test_exit_detection.bats  | 20    | Exit signal detection       |
+| test_cli_parsing.bats     | 16    | CLI argument parsing        |
+| test_dry_run.bats         | 4     | Dry-run mode                |
+| test_config.bats          | 6     | Config file loading         |
+| test_metrics.bats         | 4     | Metrics tracking            |
+| test_notifications.bats   | 3     | Notification system         |
+| test_backup.bats          | 5     | Backup/rollback             |
+| test_status_updates.bats  | 6     | Status updates              |
+| test_adapters.bats        | 41    | Adapter registry behaviours |
 
 ### Integration Tests (88 tests)
-| File | Tests | Description |
-|------|-------|-------------|
-| test_loop_execution.bats | 20 | Loop execution |
-| test_edge_cases.bats | 20 | Edge cases |
-| test_installation.bats | 10 | Installation |
-| test_project_setup.bats | 8 | Project setup |
-| test_prd_import.bats | 10 | PRD import |
-| test_tmux_integration.bats | 12 | tmux integration |
-| test_monitor.bats | 8 | Monitor dashboard |
+
+| File                        | Tests | Description           |
+|-----------------------------|-------|-----------------------|
+| test_loop_execution.bats    | 20    | Loop execution        |
+| test_edge_cases.bats        | 20    | Edge cases            |
+| test_installation.bats      | 10    | Installation          |
+| test_project_setup.bats     | 8     | Project setup         |
+| test_prd_import.bats        | 10    | PRD import flows      |
+| test_tmux_integration.bats  | 12    | tmux integration      |
+| test_monitor.bats           | 8     | Monitor dashboard     |
 
 ### E2E Tests (10 tests)
-| File | Tests | Description |
-|------|-------|-------------|
-| test_full_loop.bats | 10 | Full loop scenarios |
+
+| File                 | Tests | Description           |
+|----------------------|-------|-----------------------|
+| test_full_loop.bats  | 10    | Full loop scenarios   |
 
 ---
 
-## Success Metrics ✅ ALL TARGETS MET
+## Success Metrics
 
-| Metric | Current | Target | Progress |
-|--------|---------|--------|----------|
-| Test Count | 177 | 140+ | ✅ 126% |
-| Test Coverage | ~90%+ | 90%+ | ✅ 100% |
-| Unit Tests | 79 | 50+ | ✅ 158% |
-| Integration Tests | 88 | 90+ | ✅ 98% |
-| E2E Tests | 10 | 10+ | ✅ 100% |
-| CI/CD Pipeline | ✅ | ✅ | ✅ 100% |
-| Features Complete | ✅ 100% | 98%+ | ✅ 100% |
+| Metric             | Current                     | Target   | Progress      |
+|--------------------|----------------------------|----------|---------------|
+| Test Count         | 218                        | 140+     | ✅ 155%       |
+| Test Coverage      | ~70% (estimated)           | 85–90%   | ⚠️ In progress |
+| Unit Tests         | 120                        | 50+      | ✅ 240%       |
+| Integration Tests  | 88                         | 90+      | ✅ ~98%       |
+| E2E Tests          | 10                         | 10+      | ✅ 100%       |
+| CI/CD Pipeline     | ✅ (with `|| true` caveats) | ✅       | ⚠️ Needs tightening |
+| Features Complete  | Core features implemented  | 98%+     | ✅ High       |
 
 ---
 
-**Status**: ✅ COMPLETE - All planned features and tests implemented
-**Recommendation**: Ready for v1.0.0 release
+## Breaking Changes
+
+- **Configuration**:
+  - New `~/.ralphrc` and `./.ralphrc` files are now loaded automatically before CLI flags are parsed. CLI options still have highest precedence.
+- **Backups**:
+  - Enabling `--backup` will create additional git commits and branches of the form `ralph-backup-loop-<n>-<timestamp>`. Workflows that assume a linear git history should be updated accordingly.
+- **PRD Import**:
+  - `ralph_import.sh` now uses a deterministic local transformation by default instead of relying on the Claude Code CLI. This makes imports predictable and CI-friendly but may differ from earlier AI-generated conversions.
+
+These changes are backwards-compatible for most existing flows, but long-running automation should be reviewed and, if necessary, updated to account for the new backup branches and configuration loading behaviour.
+
+---
+
+**Status**: ✅ Core v1.0.0 features implemented and covered by tests  
+**Recommendation**: Safe to use for day-to-day development. Before declaring “production-stable” for all environments, tighten CI by enforcing integration/E2E tests (no `|| true`) and add coverage for any remaining edge cases.

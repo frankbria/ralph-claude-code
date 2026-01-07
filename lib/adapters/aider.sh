@@ -78,64 +78,62 @@ adapter_execute() {
     local timeout_minutes="${2:-15}"
     local verbose="${3:-false}"
     local extra_args="${4:-}"
-    
+
     # Read prompt content
     local prompt_content
     prompt_content=$(cat "$prompt_file")
-    
-    # Build the Aider command
-    local cmd="$ADAPTER_CLI_COMMAND"
-    
-    # Set model
-    cmd="$cmd --model $AIDER_MODEL"
-    
-    # Pass the prompt as a message
-    cmd="$cmd --message \"$prompt_content\""
-    
-    # Auto-confirm prompts for autonomous operation
-    cmd="$cmd --yes"
-    
+
+    # Build the Aider command as an array to avoid shell injection
+    local cmd=("$ADAPTER_CLI_COMMAND" "--model" "$AIDER_MODEL" "--yes" "--no-stream")
+
     # Disable git integration if configured
     if [[ "$AIDER_AUTO_COMMITS" != "true" ]]; then
-        cmd="$cmd --no-auto-commits"
+        cmd+=("--no-auto-commits")
     fi
-    
+
     # Set edit format
     if [[ -n "$AIDER_EDIT_FORMAT" ]]; then
-        cmd="$cmd --edit-format $AIDER_EDIT_FORMAT"
+        cmd+=("--edit-format" "$AIDER_EDIT_FORMAT")
     fi
-    
+
     # Add verbose flag
     if [[ "$verbose" == "true" ]]; then
-        cmd="$cmd --verbose"
+        cmd+=("--verbose")
     fi
-    
-    # Don't use streaming for easier output capture
-    cmd="$cmd --no-stream"
-    
-    # Add any extra arguments
+
+    # Pass the prompt as a message
+    cmd+=("--message" "$prompt_content")
+
+    # Add any extra arguments (space-delimited string)
     if [[ -n "$extra_args" ]]; then
-        cmd="$cmd $extra_args"
+        # shellcheck disable=SC2206
+        local extra_array=($extra_args)
+        cmd+=("${extra_array[@]}")
     fi
-    
+
     # Execute with timeout
     local output
     local exit_code
-    
+
     if [[ -n "$timeout_minutes" && "$timeout_minutes" -gt 0 ]]; then
-        output=$(timeout "${timeout_minutes}m" bash -c "$cmd" 2>&1)
-        exit_code=$?
-        
-        if [[ $exit_code -eq 124 ]]; then
-            echo "Error: Execution timed out after ${timeout_minutes} minutes"
-            echo "$output"
-            return 124
+        if ! output=$(timeout "${timeout_minutes}m" "${cmd[@]}" 2>&1); then
+            exit_code=$?
+            if [[ $exit_code -eq 124 ]]; then
+                echo "Error: Execution timed out after ${timeout_minutes} minutes"
+                echo "$output"
+                return 124
+            fi
+        else
+            exit_code=0
         fi
     else
-        output=$(bash -c "$cmd" 2>&1)
-        exit_code=$?
+        if ! output=$("${cmd[@]}" 2>&1); then
+            exit_code=$?
+        else
+            exit_code=0
+        fi
     fi
-    
+
     echo "$output"
     return $exit_code
 }
