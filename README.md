@@ -2,7 +2,7 @@
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
-![Tests](https://img.shields.io/badge/tests-218-blue)
+![Tests](https://img.shields.io/badge/tests-221-blue)
 ![Coverage](https://img.shields.io/badge/coverage-~70%25-(est.)-yellow)
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
@@ -15,7 +15,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 **Version**: v1.0.0 - Stable Release  
 **Core Features**: ✅ Complete and exercised by unit/integration tests  
-**Test Coverage**: ~70% (218 tests across unit, integration, and e2e suites – see `IMPLEMENTATION_STATUS.md` for details)
+**Test Coverage**: ~70% (221 tests across unit, integration, and e2e suites – see `IMPLEMENTATION_STATUS.md` for details)
 
 ### What's Working Now ✅
 - Autonomous development loops with intelligent exit detection
@@ -31,7 +31,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Metrics and analytics tracking** – JSONL format logging and `ralph-stats`
 - **Desktop notifications** – Cross-platform alerts (macOS, Linux, fallback)
 - **Git backup and rollback** – Branch-based project state management
-- 218 tests covering all critical paths (unit, integration, and e2e)
+- 221 tests covering all critical paths (unit, integration, and e2e)
 
 ### Release Highlights 🎉
 
@@ -41,7 +41,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - ✅ Metrics tracking with JSONL format and `ralph-stats` summary CLI
 - ✅ Cross-platform desktop notifications (`--notify` flag)
 - ✅ Git-based backup and rollback system (`--backup` flag)
-- ✅ Comprehensive test suite: 218 tests (120 unit + 88 integration + 10 e2e)
+- ✅ Comprehensive test suite: 221 tests (125 unit + 86 integration + 10 e2e)
 - ✅ Solid coverage of core modules (coverage still improving; target 85–90%)
 - ✅ Full documentation and examples
 
@@ -502,7 +502,7 @@ npm run test:e2e
 ```
 
 **Test Status (see `IMPLEMENTATION_STATUS.md` for details):**
-- **218 tests** across unit, integration, and e2e suites
+- **221 tests** across unit, integration, and e2e suites
 - **Unit tests**: 100% pass rate
 - **Integration/E2E tests**: run as part of CI; failures will fail the build
 - Code coverage is **~70% (estimated)** and continues to improve
@@ -589,7 +589,7 @@ For detailed contribution guidelines, see **`CONTRIBUTING.md`** and **`TESTING.m
 
 3. **Run Tests**
    ```bash
-   npm test                    # Run all tests (currently 218 tests; see IMPLEMENTATION_STATUS.md)
+   npm test                    # Run all tests (currently 221 tests; see IMPLEMENTATION_STATUS.md)
    npm run test:unit           # Run unit tests only
    npm run test:integration    # Run integration tests only
    npm run test:e2e            # Run end-to-end tests only
@@ -734,7 +734,7 @@ For more detail, see **`MIGRATION.md`** and the **Breaking Changes** section in 
 - ✅ Metrics and analytics tracking (`logs/metrics.jsonl` + `ralph-stats`)
 - ✅ Desktop notifications (cross-platform)
 - ✅ Git backup and rollback system
-- ✅ 218 tests across unit, integration, and e2e suites
+- ✅ 221 tests across unit, integration, and e2e suites
 
 ### v0.9.0 - Circuit Breaker Enhancements
 - Fixed multi-line error matching

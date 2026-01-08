@@ -9,9 +9,9 @@
 
 ### Test Coverage (Verified 2026-01-07)
 
-- **Total Tests**: 218
-  - Unit Tests: 120
-  - Integration Tests: 88
+- **Total Tests**: 221
+  - Unit Tests: 125
+  - Integration Tests: 86
   - E2E Tests: 10
 - **Pass Rate**:
   - Unit: 100% (120/120)
@@ -52,7 +52,7 @@
 
 ## Test File Summary
 
-### Unit Tests (120 tests)
+### Unit Tests (125 tests)
 
 | File                      | Tests | Description                 |
 |---------------------------|-------|-----------------------------|
@@ -67,7 +67,7 @@
 | test_status_updates.bats  | 6     | Status updates              |
 | test_adapters.bats        | 41    | Adapter registry behaviours |
 
-### Integration Tests (88 tests)
+### Integration Tests (86 tests)
 
 | File                        | Tests | Description           |
 |-----------------------------|-------|-----------------------|
@@ -91,10 +91,10 @@
 
 | Metric             | Current                     | Target   | Progress      |
 |--------------------|----------------------------|----------|---------------|
-| Test Count         | 218                        | 140+     | ✅ 155%       |
+| Test Count         | 221                        | 140+     | ✅ 158%       |
 | Test Coverage      | ~70% (estimated)           | 85–90%   | ⚠️ In progress |
-| Unit Tests         | 120                        | 50+      | ✅ 240%       |
-| Integration Tests  | 88                         | 90+      | ✅ ~98%       |
+| Unit Tests         | 125                        | 50+      | ✅ 250%       |
+| Integration Tests  | 86                         | 90+      | ✅ ~96%       |
 | E2E Tests          | 10                         | 10+      | ✅ 100%       |
 | CI/CD Pipeline     | ✅ (unit+integration+E2E enforced) | ✅       | ✅ Stable     |
 | Features Complete  | Core features implemented  | 98%+     | ✅ High       |
