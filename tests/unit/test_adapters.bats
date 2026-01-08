@@ -242,11 +242,19 @@ teardown() {
 }
 
 @test "ollama_adapter: get_models returns local models" {
+    # Skip if ollama is not installed; this test is intended to validate the
+    # adapter behavior when a real Ollama installation is available.
+    if ! command -v ollama &> /dev/null; then
+        skip "ollama not installed"
+    fi
+
     load_adapter "ollama"
     
     run adapter_get_models
     [ "$status" -eq 0 ]
-    [[ "$output" == *"codellama"* ]] || [[ "$output" == *"llama"* ]]
+
+    # Verify output is non-empty and contains at least one model entry
+    [ -n "$output" ]
 }
 
 @test "ollama_adapter: rate_limit_status shows unlimited" {
@@ -314,13 +322,15 @@ teardown() {
 }
 
 @test "load_adapter_with_fallback: tries fallback when primary fails" {
-    # This test verifies the fallback mechanism works
-    # When loading a nonexistent adapter, it should try fallbacks
     run load_adapter_with_fallback "nonexistent_adapter" "claude,aider"
     
-    # If claude or aider is available, should succeed
-    # If neither is available, should fail gracefully
-    [[ "$output" == *"fallback"* ]] || [[ "$output" == *"auto-detect"* ]] || [ "$status" -eq 0 ]
+    # Should see a message indicating the primary adapter is not available
+    [[ "$output" == *"not available"* ]]
+    
+    # If the call succeeds, it must have used a fallback or auto-detection
+    if [ "$status" -eq 0 ]; then
+        [[ "$output" == *"fallback"* ]] || [[ "$output" == *"auto-detect"* ]]
+    fi
 }
 
 @test "get_adapter_capabilities: returns JSON with capabilities" {

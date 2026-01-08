@@ -90,7 +90,7 @@ ralph --list-adapters                # See all available adapters
 ```
 
 ### Testing & Quality
-- **✅ 218 Tests** – Unit, integration, and end-to-end coverage of core paths
+- **✅ 221 Tests** – Unit, integration, and end-to-end coverage of core paths
 - **📊 ~70% Code Coverage (estimated)** – Critical paths thoroughly exercised; coverage still increasing
 - **🔄 CI/CD Ready** – CI runs unit, integration, and E2E suites on each push/PR (see `IMPLEMENTATION_STATUS.md` for current details)
 
