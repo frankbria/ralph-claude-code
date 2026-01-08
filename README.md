@@ -571,6 +571,8 @@ ralph-stats logs/metrics.jsonl
 
 Ralph welcomes contributions! The project has reached v1.0.0 with strong test coverage (~70% of core paths, still improving).
 
+For detailed contribution guidelines, see **`CONTRIBUTING.md`** and **`TESTING.md`**.
+
 ### Quick Start for Contributors
 
 1. **Fork and Clone**
