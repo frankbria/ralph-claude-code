@@ -56,14 +56,15 @@ EOF
     # Status file should reflect a graceful completion
     assert_file_exists "$STATUS_FILE"
 
-    run jq -r '.last_action' "$STATUS_FILE"
-    assert_equal "$output" "graceful_exit"
+    # Avoid depending on JSON parsing here; verify key/value pairs directly
+    run grep -q '"last_action": "graceful_exit"' "$STATUS_FILE"
+    assert_success
 
-    run jq -r '.status' "$STATUS_FILE"
-    assert_equal "$output" "completed"
+    run grep -q '"status": "completed"' "$STATUS_FILE"
+    assert_success
 
-    run jq -r '.exit_reason' "$STATUS_FILE"
-    assert_equal "$output" "completion_signals"
+    run grep -q '"exit_reason": "completion_signals"' "$STATUS_FILE"
+    assert_success
 
     # Log should mention the graceful exit
     run grep "Graceful exit triggered" "$LOG_DIR/ralph.log"
