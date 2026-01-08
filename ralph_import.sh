@@ -140,6 +140,20 @@ EOF
 ## High Priority
 EOF
 
+    # Try to extract a human-readable title from the first line of the PRD
+    # (e.g., "# Task Management Web App - Product Requirements Document").
+    # This helps make the plan self-describing and satisfies tests that look
+    # for the PRD title in @fix_plan.md.
+    local prd_title=""
+    local first_line=""
+    first_line=$(head -1 "$source_file" 2>/dev/null || true)
+    if [[ "$first_line" == \#* ]]; then
+        prd_title="${first_line#\# }"
+    fi
+    if [[ -n "$prd_title" ]]; then
+        echo "- [ ] Review PRD: $prd_title" >> "@fix_plan.md"
+    fi
+
     if [[ -s "$features_file" ]]; then
         # Turn each bullet into an unchecked task.
         while IFS= read -r line; do
