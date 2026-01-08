@@ -105,7 +105,8 @@ teardown() {
     
     # Validate it's valid JSON
     echo "$output" | jq . > /dev/null 2>&1
-    [ "$?" -eq 0 ]
+    local jq_status=$?
+    [ "$jq_status" -eq 0 ]
 }
 
 @test "claude_adapter: get_models returns model list" {
@@ -272,7 +273,8 @@ teardown() {
     
     # Should be valid JSON
     echo "$output" | jq . > /dev/null 2>&1
-    [ "$?" -eq 0 ]
+    local jq_status=$?
+    [ "$jq_status" -eq 0 ]
     
     # Should contain expected fields
     [[ "$output" == *"name"* ]]
@@ -329,7 +331,8 @@ teardown() {
     
     # Should be valid JSON
     echo "$output" | jq . > /dev/null 2>&1
-    [ "$?" -eq 0 ]
+    local jq_status=$?
+    [ "$jq_status" -eq 0 ]
     
     # Should contain capabilities
     [[ "$output" == *"capabilities"* ]]

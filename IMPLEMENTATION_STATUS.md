@@ -9,9 +9,9 @@
 
 ### Test Coverage (Verified 2026-01-07)
 
-- **Total Tests**: 218
-  - Unit Tests: 120
-  - Integration Tests: 88
+- **Total Tests**: 221
+  - Unit Tests: 125
+  - Integration Tests: 86
   - E2E Tests: 10
 - **Pass Rate**:
   - Unit: 100% (120/120)
