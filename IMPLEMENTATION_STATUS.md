@@ -52,7 +52,7 @@
 
 ## Test File Summary
 
-### Unit Tests (125 tests)nit Tests (125 tests)
+### Unit Tests (125 tests)
 
 | File                      | Tests | Description                 |
 |---------------------------|-------|-----------------------------|
