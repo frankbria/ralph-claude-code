@@ -28,12 +28,15 @@ jobs:
       run: npm run test:unit
 
     - name: Run integration tests
-      run: npm run test:integration || true
+      run: npm run test:integration
 
     - name: Run E2E tests
-      run: npm run test:e2e || true
+      run: npm run test:e2e
 
     - name: Generate test report
+      if: always()
       run: |
         echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
+        echo "- Unit tests: completed (see logs for details)" >> $GITHUB_STEP_SUMMARY
+        echo "- Integration tests: completed (see logs for details)" >> $GITHUB_STEP_SUMMARY
+        echo "- E2E tests: completed (see logs for details)" >> $GITHUB_STEP_SUMMARY

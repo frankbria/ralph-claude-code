@@ -45,7 +45,7 @@ update_status() {
     local last_action=$3
     local status=$4
     cat > "$STATUS_FILE" << EOF
-{"loop_count": $loop_count, "calls_made": $calls_made, "status": "$status"}
+{"loop_count": $loop_count, "calls_made": $calls_made, "last_action": "$last_action", "status": "$status"}
 EOF
 }
 

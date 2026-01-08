@@ -44,7 +44,6 @@ send_notification() {
     local notification_log="${NOTIFICATION_LOG:-}"
     printf '\a' 2>/dev/null || true
     if [[ -n "$notification_log" ]]; then
-        mkdir -p "$(dirname "$notification_log")"
         echo "BELL: $title - $message" >> "$notification_log"
     fi
 }
