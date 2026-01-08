@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
+For current test counts, coverage estimates, and how to run tests, see `TESTING.md` and `IMPLEMENTATION_STATUS.md`.
+
 ## Core Architecture
 
 The system consists of four main bash scripts and a modular library system:
@@ -223,22 +225,25 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ### Testing Requirements
 
-- **Minimum Coverage**: 85% code coverage ratio required for all new code
-- **Test Pass Rate**: 100% - all tests must pass, no exceptions
+- **Coverage Target**: Aim for ~85%+ code coverage for new code where practical; do not reduce existing coverage.
+- **Test Pass Rate**: 100% – all tests must pass, no exceptions
 - **Test Types Required**:
   - Unit tests for bash script functions (if applicable)
   - Integration tests for Ralph loop behavior
   - End-to-end tests for full development cycles
-- **Coverage Validation**: Run coverage reports before marking features complete:
-  ```bash
-  # For projects with test suites
-  ./test.sh --coverage
-  
-  # Manual testing of Ralph loop
-  ralph --monitor --calls 5
-  ```
+- **Coverage Validation**:
+  - For this repository, there is currently no automated coverage tool; coverage is estimated from the breadth and depth of the BATS suites. Run:
+    ```bash
+    npm test
+    npm run test:unit
+    npm run test:integration
+    npm run test:e2e
+    ```
+  - For language-specific projects inside a Ralph-managed repo, use their own coverage commands (examples: `npm run test:coverage`, `pytest --cov=src tests/`, `cargo tarpaulin`) if those are configured.
 - **Test Quality**: Tests must validate behavior, not just achieve coverage metrics
 - **Test Documentation**: Complex test scenarios must include comments explaining the test strategy
+
+For current test counts and estimated coverage in this repo, see `IMPLEMENTATION_STATUS.md`.
 
 ### Git Workflow Requirements
 

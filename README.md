@@ -92,7 +92,7 @@ ralph --list-adapters                # See all available adapters
 ### Testing & Quality
 - **✅ 218 Tests** – Unit, integration, and end-to-end coverage of core paths
 - **📊 ~70% Code Coverage (estimated)** – Critical paths thoroughly exercised; coverage still increasing
-- **🔄 CI/CD Ready** – Tests designed for continuous integration workflows (see `IMPLEMENTATION_STATUS.md` for CI caveats)
+- **🔄 CI/CD Ready** – CI runs unit, integration, and E2E suites on each push/PR (see `IMPLEMENTATION_STATUS.md` for current details)
 
 ## 🚀 Quick Start
 
@@ -190,15 +190,14 @@ Ralph automatically stops when it detects:
 
 ## 📄 Importing Existing Requirements
 
-Ralph can convert existing PRDs, specifications, or requirement documents into the proper Ralph format using Claude Code.
+Ralph can convert existing PRDs, specifications, or requirement documents into the proper Ralph format using a deterministic local converter (no external AI tools).
 
 ### Supported Formats
 - **Markdown** (.md) - Product requirements, technical specs
 - **Text files** (.txt) - Plain text requirements
 - **JSON** (.json) - Structured requirement data
-- **Word documents** (.docx) - Business requirements  
-- **PDFs** (.pdf) - Design documents, specifications
-- **Any text-based format** - Ralph will intelligently parse the content
+- **Other formats via export** – Export Word documents, PDFs, or other binary formats to `.md`, `.txt`, or another text format before running `ralph-import`.
+- **Any text-based format** – Ralph will parse the content, extracting bullet points into tasks where possible
 
 ### Usage Examples
 
@@ -213,7 +212,7 @@ ralph-import requirements.txt webapp
 ralph-import api-spec.json backend-service
 
 # Let Ralph auto-name the project from filename
-ralph-import design-doc.pdf
+ralph-import design-doc.md
 ```
 
 ### What Gets Generated
@@ -467,7 +466,7 @@ my-project/
 
 **Enable Backups**: Use `--backup` for peace of mind, especially on important projects.
 
-**Track Metrics**: Enable `--metrics` to understand loop patterns and optimize settings.
+**Track Metrics**: Metrics are logged automatically; use `ralph-stats logs/metrics.jsonl` to understand loop patterns and optimize settings.
 
 **Stay Notified**: Use `--notify` to get alerts without constantly watching the terminal.
 
@@ -485,29 +484,21 @@ my-project/
 
 ### Testing Requirements (Development)
 
-If you want to run the test suite:
+See **`TESTING.md`** for a full guide to local setup, running tests, CI behavior, and coverage philosophy.
+
+Quick start:
 
 ```bash
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests
-bats tests/
+# Run all tests via npm scripts
+npm test
 
-# Run specific test categories
-bats tests/unit/           # Unit tests
-bats tests/integration/    # Integration tests  
-bats tests/e2e/            # End-to-end tests
-
-# Run specific test files
-bats tests/unit/test_cli_parsing.bats      # CLI argument tests
-bats tests/unit/test_dry_run.bats          # Dry-run mode tests
-bats tests/unit/test_config.bats           # Configuration tests
-bats tests/unit/test_metrics.bats          # Metrics tests
-bats tests/unit/test_notifications.bats    # Notification tests
-bats tests/unit/test_backup.bats           # Backup/rollback tests
-bats tests/integration/test_tmux_integration.bats  # tmux tests
-bats tests/e2e/test_full_loop.bats         # Full workflow tests
+# Or run specific suites
+npm run test:unit
+npm run test:integration
+npm run test:e2e
 ```
 
 **Test Status (see `IMPLEMENTATION_STATUS.md` for details):**
@@ -563,7 +554,7 @@ ralph --status
 tail -f logs/ralph.log
 
 # View metrics
-ralph --metrics-view
+ralph-stats logs/metrics.jsonl
 ```
 
 ### Common Issues
@@ -578,7 +569,9 @@ ralph --metrics-view
 
 ## 🤝 Contributing
 
-Ralph welcomes contributions! The project has reached v1.0.0 with comprehensive test coverage.
+Ralph welcomes contributions! The project has reached v1.0.0 with strong test coverage (~70% of core paths, still improving).
+
+For detailed contribution guidelines, see **`CONTRIBUTING.md`** and **`TESTING.md`**.
 
 ### Quick Start for Contributors
 
@@ -596,10 +589,10 @@ Ralph welcomes contributions! The project has reached v1.0.0 with comprehensive 
 
 3. **Run Tests**
    ```bash
-   npm test                    # Run all tests (177 tests)
-   npm run test:unit          # Run unit tests only
-   npm run test:integration   # Run integration tests only
-   npm run test:e2e           # Run end-to-end tests only
+   npm test                    # Run all tests (currently 218 tests; see IMPLEMENTATION_STATUS.md)
+   npm run test:unit           # Run unit tests only
+   npm run test:integration    # Run integration tests only
+   npm run test:e2e            # Run end-to-end tests only
    ```
 
 ### Contribution Areas

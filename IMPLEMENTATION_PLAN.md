@@ -1,9 +1,12 @@
 # Ralph for Claude Code - Implementation Plan
 ## Test Coverage & Feature Completion Roadmap
 
+> **Note**: This document captures the original implementation plan and historical coverage snapshots as of 2025-12-31.  
+> For the up-to-date implementation state, test counts, and coverage estimates, see `IMPLEMENTATION_STATUS.md`.
+
 **Goal**: Achieve 90%+ test coverage and implement missing critical features
 **Timeline**: 6 weeks (ongoing)
-**Current Coverage**: ~60% (75 tests passing: 15 rate limiting + 20 exit detection + 20 loop execution + 20 edge cases)
+**Current Coverage (historical snapshot)**: ~60% (75 tests passing: 15 rate limiting + 20 exit detection + 20 loop execution + 20 edge cases)
 **Target Coverage**: 90%+
 **Status**: Week 1-2 complete, Phase 1-2 enhancements complete, CI/CD operational
 
