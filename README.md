@@ -484,29 +484,21 @@ my-project/
 
 ### Testing Requirements (Development)
 
-If you want to run the test suite:
+See **`TESTING.md`** for a full guide to local setup, running tests, CI behavior, and coverage philosophy.
+
+Quick start:
 
 ```bash
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests
-bats tests/
+# Run all tests via npm scripts
+npm test
 
-# Run specific test categories
-bats tests/unit/           # Unit tests
-bats tests/integration/    # Integration tests  
-bats tests/e2e/            # End-to-end tests
-
-# Run specific test files
-bats tests/unit/test_cli_parsing.bats      # CLI argument tests
-bats tests/unit/test_dry_run.bats          # Dry-run mode tests
-bats tests/unit/test_config.bats           # Configuration tests
-bats tests/unit/test_metrics.bats          # Metrics tests
-bats tests/unit/test_notifications.bats    # Notification tests
-bats tests/unit/test_backup.bats           # Backup/rollback tests
-bats tests/integration/test_tmux_integration.bats  # tmux tests
-bats tests/e2e/test_full_loop.bats         # Full workflow tests
+# Or run specific suites
+npm run test:unit
+npm run test:integration
+npm run test:e2e
 ```
 
 **Test Status (see `IMPLEMENTATION_STATUS.md` for details):**

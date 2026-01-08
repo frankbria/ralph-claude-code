@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
+For current test counts, coverage estimates, and how to run tests, see `TESTING.md` and `IMPLEMENTATION_STATUS.md`.
+
 ## Core Architecture
 
 The system consists of four main bash scripts and a modular library system:
