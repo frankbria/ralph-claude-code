@@ -621,7 +621,7 @@ For detailed contribution guidelines, see **`CONTRIBUTING.md`** and **`TESTING.m
 ### Development Guidelines
 
 - **Tests Required**: All new features must include tests
-- **Coverage Goal**: Maintain 90%+ coverage
+- **Coverage Goal**: Coverage goal: 85–90% over time
 - **Code Style**: Follow existing bash patterns and conventions
 - **Documentation**: Update README and relevant docs for user-facing changes
 - **Commit Messages**: Clear, descriptive commit messages
