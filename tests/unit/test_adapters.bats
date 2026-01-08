@@ -412,13 +412,13 @@ teardown() {
     [ "$output" = "CONTINUE" ]
 }
 
-@test "aider_adapter: parse_output returns ERROR on API errors" {
+@test "aider_adapter: parse_output returns RATE_LIMITED on API rate limit errors" {
     load_adapter "aider"
 
     local output="API error: RateLimitError: You have hit the maximum number of requests"
     run adapter_parse_output "$output"
     [ "$status" -eq 0 ]
-    [ "$output" = "ERROR" ]
+    [ "$output" = "RATE_LIMITED" ]
 }
 
 @test "aider_adapter: parse_output returns ERROR on git conflicts" {
