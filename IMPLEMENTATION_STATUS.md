@@ -52,7 +52,7 @@
 
 ## Test File Summary
 
-### Unit Tests (125 tests)
+### Unit Tests (125 tests)nit Tests (125 tests)
 
 | File                      | Tests | Description                 |
 |---------------------------|-------|-----------------------------|
@@ -65,7 +65,7 @@
 | test_notifications.bats   | 3     | Notification system         |
 | test_backup.bats          | 5     | Backup/rollback             |
 | test_status_updates.bats  | 6     | Status updates              |
-| test_adapters.bats        | 41    | Adapter registry behaviours |
+| test_adapters.bats        | 46    | Adapter registry behaviours |
 
 ### Integration Tests (86 tests)
 
