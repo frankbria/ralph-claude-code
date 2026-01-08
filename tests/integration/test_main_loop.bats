@@ -117,3 +117,36 @@ EOF
     run ls "$LOG_DIR"/*_output_*.log 2>/dev/null
     assert_failure
 }
+
+@test "execute_with_adapter: returns 3 when circuit breaker opens" {
+    # Force record_loop_result to behave as if the circuit breaker opened by
+    # defining it in the environment before invoking ralph_loop.sh. Because the
+    # script is run as `bash ralph_loop.sh`, this definition is visible to the
+    # child shell and will override the library version.
+    export -f record_loop_result
+    record_loop_result() {
+        # Simulate circuit breaker transition to OPEN state and signal stop
+        return 1
+    }
+
+    # Ensure we actually reach execution:
+    # - EXIT_SIGNALS_FILE is empty
+    # - Call count is below limit
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    echo "0" > "$CALL_COUNT_FILE"
+
+    run bash "$RALPH_SCRIPT" --dry-run
+    # When record_loop_result returns non-zero, execute_with_adapter should
+    # return 3 and main should interpret this as a circuit breaker trip.
+    # We assert via status.json and logs rather than the shell exit code.
+    assert_file_exists "$STATUS_FILE"
+
+    run jq -r '.status' "$STATUS_FILE"
+    assert_equal "$output" "halted"
+
+    run jq -r '.exit_reason' "$STATUS_FILE"
+    assert_equal "$output" "stagnation_detected"
+
+    run grep "Circuit breaker opened - halting loop" "$LOG_DIR/ralph.log"
+    assert_success
+}
