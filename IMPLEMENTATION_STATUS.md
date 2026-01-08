@@ -15,10 +15,10 @@
   - E2E Tests: 10
 - **Pass Rate**:
   - Unit: 100% (120/120)
-  - Integration/E2E: not enforced in CI (see notes below)
+  - Integration/E2E: executed in CI; failures now fail the build
 - **Estimated Coverage**: ~70% of core paths (no automated coverage report yet)
 - **Target Coverage**: 85–90% (in progress)
-- **CI/CD**: ✅ Operational (`.github/workflows/test.yml`), but **integration and E2E suites currently use `|| true`**, so failures will not fail the build.
+- **CI/CD**: ✅ Operational (`.github/workflows/test.yml`) with unit, integration, and E2E suites enforced (failures will fail the build).
 
 **Test quality notes**
 
@@ -29,7 +29,7 @@
 - `tests/integration/test_installation.bats` now verifies that the installed `ralph` wrapper command runs and prints usable help text.
 - `tests/unit/test_config.bats`, `tests/unit/test_metrics.bats`, `tests/unit/test_notifications.bats`, and `tests/unit/test_backup.bats` all exercise the **shared production implementations** instead of private test-only stubs.
 
-> **Action item:** before declaring full production readiness, remove `|| true` from integration/E2E steps in `.github/workflows/test.yml` and fix any resulting test failures. Until then, treat integration/E2E status as **best-effort** rather than guaranteed.
+
 
 ### New Features Implemented (2026-01-07)
 
@@ -96,7 +96,7 @@
 | Unit Tests         | 120                        | 50+      | ✅ 240%       |
 | Integration Tests  | 88                         | 90+      | ✅ ~98%       |
 | E2E Tests          | 10                         | 10+      | ✅ 100%       |
-| CI/CD Pipeline     | ✅ (with `|| true` caveats) | ✅       | ⚠️ Needs tightening |
+| CI/CD Pipeline     | ✅ (unit+integration+E2E enforced) | ✅       | ✅ Stable     |
 | Features Complete  | Core features implemented  | 98%+     | ✅ High       |
 
 ---
@@ -115,4 +115,4 @@ These changes are backwards-compatible for most existing flows, but long-running
 ---
 
 **Status**: ✅ Core v1.0.0 features implemented and covered by tests  
-**Recommendation**: Safe to use for day-to-day development. Before declaring “production-stable” for all environments, tighten CI by enforcing integration/E2E tests (no `|| true`) and add coverage for any remaining edge cases.
+**Recommendation**: Safe to use for day-to-day development. Before declaring “production-stable” for all environments, continue improving coverage and add tests for any remaining edge cases.

@@ -513,7 +513,7 @@ bats tests/e2e/test_full_loop.bats         # Full workflow tests
 **Test Status (see `IMPLEMENTATION_STATUS.md` for details):**
 - **218 tests** across unit, integration, and e2e suites
 - **Unit tests**: 100% pass rate
-- **Integration/E2E tests**: run in CI but currently not enforced as build blockers (some steps use `|| true`)
+- **Integration/E2E tests**: run as part of CI; failures will fail the build
 - Code coverage is **~70% (estimated)** and continues to improve
 
 ### Installing tmux
@@ -722,6 +722,16 @@ tmux attach -t <name>     # Reattach to detached session
 ```
 
 ---
+
+## 🔄 Migration from pre-1.0.0
+
+If you're upgrading from an earlier Ralph version (≤0.9.x):
+
+- **Configuration loading** – Ralph now automatically loads `~/.ralphrc` and `.ralphrc` *before* parsing CLI flags. CLI options still have highest precedence, but config files can override built-in defaults. Review any scripts that relied on only environment variables or hard-coded defaults.
+- **Git backup branches** – Using `--backup` creates extra commits and branches named `ralph-backup-loop-<loop>-<timestamp>`. If you have automation that assumes a strictly linear git history, update it to ignore these branches or disable backups for that workflow.
+- **PRD import behaviour** – `ralph-import` now performs a deterministic local transformation instead of calling external AI tools. Results are predictable and CI-safe, but may differ from earlier AI-generated imports.
+
+For more detail, see **`MIGRATION.md`** and the **Breaking Changes** section in `IMPLEMENTATION_STATUS.md`.
 
 ## 🏆 Version History
 
