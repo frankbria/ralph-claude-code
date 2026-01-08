@@ -390,3 +390,51 @@ teardown() {
     
     [ "$OLLAMA_MODEL" = "deepseek-coder" ]
 }
+
+# =============================================================================
+# Adapter Error Classification Tests
+# =============================================================================
+
+@test "claude_adapter: parse_output returns ERROR for real error messages" {
+    load_adapter "claude"
+
+    run adapter_parse_output "Error: Failed to compile src/main.ts"
+    [ "$status" -eq 0 ]
+    [ "$output" = "ERROR" ]
+}
+
+@test "claude_adapter: parse_output ignores JSON error fields without real errors" {
+    load_adapter "claude"
+
+    local json_output='{ "status": "ok", "is_error": false, "error": null, "error_count": 0 }'
+    run adapter_parse_output "$json_output"
+    [ "$status" -eq 0 ]
+    [ "$output" = "CONTINUE" ]
+}
+
+@test "aider_adapter: parse_output returns ERROR on API errors" {
+    load_adapter "aider"
+
+    local output="API error: RateLimitError: You have hit the maximum number of requests"
+    run adapter_parse_output "$output"
+    [ "$status" -eq 0 ]
+    [ "$output" = "ERROR" ]
+}
+
+@test "aider_adapter: parse_output returns ERROR on git conflicts" {
+    load_adapter "aider"
+
+    local output="Merge conflict detected in main.py. git error: merge failed"
+    run adapter_parse_output "$output"
+    [ "$status" -eq 0 ]
+    [ "$output" = "ERROR" ]
+}
+
+@test "ollama_adapter: parse_output returns ERROR for Ollama-specific errors" {
+    load_adapter "ollama"
+
+    local output="Error from Ollama: model codellama not found locally"
+    run adapter_parse_output "$output"
+    [ "$status" -eq 0 ]
+    [ "$output" = "ERROR" ]
+}
