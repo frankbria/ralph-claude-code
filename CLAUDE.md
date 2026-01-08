@@ -225,7 +225,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ### Testing Requirements
 
-- **Coverage Target**: Aim for ~85%+ code coverage for new code where practical; do not reduce existing coverage.
+- **Coverage Target**: Aim for ~85–90% code coverage for new code where practical; do not reduce existing coverage.
 - **Test Pass Rate**: 100% – all tests must pass, no exceptions
 - **Test Types Required**:
   - Unit tests for bash script functions (if applicable)

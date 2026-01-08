@@ -98,7 +98,7 @@ If you’re unsure whether a feature fits, open an issue or draft PR describing 
 5. **Update Documentation**
 
    - Update `README.md` for user-visible changes.
-   - Update `TESTING.md`, `CLAUDE.md`, or other docs if behavior or expectations change.
+   - Revise `TESTING.md`, `CLAUDE.md`, or other docs if behavior or expectations change.
 
 6. **Commit and Push**
 
