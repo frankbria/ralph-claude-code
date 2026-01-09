@@ -201,26 +201,38 @@ analyze_response() {
                 fi
             fi
 
-            # Write analysis results for JSON path
-            cat > "$analysis_result_file" << EOF
-{
-    "loop_number": $loop_number,
-    "timestamp": "$(get_iso_timestamp)",
-    "output_file": "$output_file",
-    "output_format": "json",
-    "analysis": {
-        "has_completion_signal": $has_completion_signal,
-        "is_test_only": $is_test_only,
-        "is_stuck": $is_stuck,
-        "has_progress": $has_progress,
-        "files_modified": $files_modified,
-        "confidence_score": $confidence_score,
-        "exit_signal": $exit_signal,
-        "work_summary": "$work_summary",
-        "output_length": $output_length
-    }
-}
-EOF
+            # Write analysis results for JSON path using jq for safe construction
+            jq -n \
+                --argjson loop_number "$loop_number" \
+                --arg timestamp "$(get_iso_timestamp)" \
+                --arg output_file "$output_file" \
+                --arg output_format "json" \
+                --argjson has_completion_signal "$has_completion_signal" \
+                --argjson is_test_only "$is_test_only" \
+                --argjson is_stuck "$is_stuck" \
+                --argjson has_progress "$has_progress" \
+                --argjson files_modified "$files_modified" \
+                --argjson confidence_score "$confidence_score" \
+                --argjson exit_signal "$exit_signal" \
+                --arg work_summary "$work_summary" \
+                --argjson output_length "$output_length" \
+                '{
+                    loop_number: $loop_number,
+                    timestamp: $timestamp,
+                    output_file: $output_file,
+                    output_format: $output_format,
+                    analysis: {
+                        has_completion_signal: $has_completion_signal,
+                        is_test_only: $is_test_only,
+                        is_stuck: $is_stuck,
+                        has_progress: $has_progress,
+                        files_modified: $files_modified,
+                        confidence_score: $confidence_score,
+                        exit_signal: $exit_signal,
+                        work_summary: $work_summary,
+                        output_length: $output_length
+                    }
+                }' > "$analysis_result_file"
             rm -f ".json_parse_result"
             return 0
         fi
@@ -335,26 +347,38 @@ EOF
         exit_signal=true
     fi
 
-    # Write analysis results to file (text parsing path)
-    cat > "$analysis_result_file" << EOF
-{
-    "loop_number": $loop_number,
-    "timestamp": "$(get_iso_timestamp)",
-    "output_file": "$output_file",
-    "output_format": "text",
-    "analysis": {
-        "has_completion_signal": $has_completion_signal,
-        "is_test_only": $is_test_only,
-        "is_stuck": $is_stuck,
-        "has_progress": $has_progress,
-        "files_modified": $files_modified,
-        "confidence_score": $confidence_score,
-        "exit_signal": $exit_signal,
-        "work_summary": "$work_summary",
-        "output_length": $output_length
-    }
-}
-EOF
+    # Write analysis results to file (text parsing path) using jq for safe construction
+    jq -n \
+        --argjson loop_number "$loop_number" \
+        --arg timestamp "$(get_iso_timestamp)" \
+        --arg output_file "$output_file" \
+        --arg output_format "text" \
+        --argjson has_completion_signal "$has_completion_signal" \
+        --argjson is_test_only "$is_test_only" \
+        --argjson is_stuck "$is_stuck" \
+        --argjson has_progress "$has_progress" \
+        --argjson files_modified "$files_modified" \
+        --argjson confidence_score "$confidence_score" \
+        --argjson exit_signal "$exit_signal" \
+        --arg work_summary "$work_summary" \
+        --argjson output_length "$output_length" \
+        '{
+            loop_number: $loop_number,
+            timestamp: $timestamp,
+            output_file: $output_file,
+            output_format: $output_format,
+            analysis: {
+                has_completion_signal: $has_completion_signal,
+                is_test_only: $is_test_only,
+                is_stuck: $is_stuck,
+                has_progress: $has_progress,
+                files_modified: $files_modified,
+                confidence_score: $confidence_score,
+                exit_signal: $exit_signal,
+                work_summary: $work_summary,
+                output_length: $output_length
+            }
+        }' > "$analysis_result_file"
 
     # Always return 0 (success) - callers should check the JSON result file
     # Returning non-zero would cause issues with set -e and test frameworks
