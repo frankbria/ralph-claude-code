@@ -4,6 +4,7 @@
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
 ![Tests](https://img.shields.io/badge/tests-145%20passing-green)
 ![Coverage](https://img.shields.io/badge/coverage-informational-lightgrey)
+[![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
