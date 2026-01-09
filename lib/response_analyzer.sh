@@ -20,6 +20,120 @@ COMPLETION_KEYWORDS=("done" "complete" "finished" "all tasks complete" "project 
 TEST_ONLY_PATTERNS=("npm test" "bats" "pytest" "jest" "cargo test" "go test" "running tests")
 NO_WORK_PATTERNS=("nothing to do" "no changes" "already implemented" "up to date")
 
+# =============================================================================
+# JSON OUTPUT FORMAT DETECTION AND PARSING
+# =============================================================================
+
+# Detect output format (json or text)
+# Returns: "json" if valid JSON, "text" otherwise
+detect_output_format() {
+    local output_file=$1
+
+    if [[ ! -f "$output_file" ]] || [[ ! -s "$output_file" ]]; then
+        echo "text"
+        return
+    fi
+
+    # Check if file starts with { or [ (JSON indicators)
+    local first_char=$(head -c 1 "$output_file" 2>/dev/null | tr -d '[:space:]')
+
+    if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
+        echo "text"
+        return
+    fi
+
+    # Validate as JSON using jq
+    if jq empty "$output_file" 2>/dev/null; then
+        echo "json"
+    else
+        echo "text"
+    fi
+}
+
+# Parse JSON response and extract structured fields
+# Creates .json_parse_result with normalized analysis data
+parse_json_response() {
+    local output_file=$1
+    local result_file="${2:-.json_parse_result}"
+
+    if [[ ! -f "$output_file" ]]; then
+        echo "ERROR: Output file not found: $output_file" >&2
+        return 1
+    fi
+
+    # Validate JSON first
+    if ! jq empty "$output_file" 2>/dev/null; then
+        echo "ERROR: Invalid JSON in output file" >&2
+        return 1
+    fi
+
+    # Extract fields with defaults
+    local status=$(jq -r '.status // "UNKNOWN"' "$output_file" 2>/dev/null)
+    local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
+    local work_type=$(jq -r '.work_type // "UNKNOWN"' "$output_file" 2>/dev/null)
+    local files_modified=$(jq -r '.files_modified // 0' "$output_file" 2>/dev/null)
+    local error_count=$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)
+    local summary=$(jq -r '.summary // ""' "$output_file" 2>/dev/null)
+
+    # Extract nested metadata if present
+    local loop_number=$(jq -r '.metadata.loop_number // .loop_number // 0' "$output_file" 2>/dev/null)
+    local session_id=$(jq -r '.metadata.session_id // ""' "$output_file" 2>/dev/null)
+    local confidence=$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)
+
+    # Normalize values
+    # Convert exit_signal to boolean string
+    if [[ "$exit_signal" == "true" || "$status" == "COMPLETE" ]]; then
+        exit_signal="true"
+    else
+        exit_signal="false"
+    fi
+
+    # Determine is_test_only from work_type
+    local is_test_only="false"
+    if [[ "$work_type" == "TEST_ONLY" ]]; then
+        is_test_only="true"
+    fi
+
+    # Determine is_stuck from error_count
+    local is_stuck="false"
+    error_count=$((error_count + 0))  # Ensure integer
+    if [[ $error_count -gt 5 ]]; then
+        is_stuck="true"
+    fi
+
+    # Ensure files_modified is integer
+    files_modified=$((files_modified + 0))
+
+    # Calculate has_completion_signal
+    local has_completion_signal="false"
+    if [[ "$status" == "COMPLETE" || "$exit_signal" == "true" ]]; then
+        has_completion_signal="true"
+    fi
+
+    # Write normalized result
+    cat > "$result_file" << EOF
+{
+    "status": "$status",
+    "exit_signal": $exit_signal,
+    "is_test_only": $is_test_only,
+    "is_stuck": $is_stuck,
+    "has_completion_signal": $has_completion_signal,
+    "files_modified": $files_modified,
+    "error_count": $error_count,
+    "summary": "$summary",
+    "loop_number": $loop_number,
+    "session_id": "$session_id",
+    "confidence": $confidence,
+    "metadata": {
+        "loop_number": $loop_number,
+        "session_id": "$session_id"
+    }
+}
+EOF
+
+    return 0
+}
+
 # Analyze Claude Code response and extract signals
 analyze_response() {
     local output_file=$1
@@ -44,6 +158,65 @@ analyze_response() {
 
     local output_content=$(cat "$output_file")
     local output_length=${#output_content}
+
+    # Detect output format and try JSON parsing first
+    local output_format=$(detect_output_format "$output_file")
+
+    if [[ "$output_format" == "json" ]]; then
+        # Try JSON parsing
+        if parse_json_response "$output_file" ".json_parse_result" 2>/dev/null; then
+            # Extract values from JSON parse result
+            has_completion_signal=$(jq -r '.has_completion_signal' .json_parse_result 2>/dev/null || echo "false")
+            exit_signal=$(jq -r '.exit_signal' .json_parse_result 2>/dev/null || echo "false")
+            is_test_only=$(jq -r '.is_test_only' .json_parse_result 2>/dev/null || echo "false")
+            is_stuck=$(jq -r '.is_stuck' .json_parse_result 2>/dev/null || echo "false")
+            work_summary=$(jq -r '.summary' .json_parse_result 2>/dev/null || echo "")
+            files_modified=$(jq -r '.files_modified' .json_parse_result 2>/dev/null || echo "0")
+            local json_confidence=$(jq -r '.confidence' .json_parse_result 2>/dev/null || echo "0")
+
+            # JSON parsing provides high confidence
+            if [[ "$exit_signal" == "true" ]]; then
+                confidence_score=100
+            else
+                confidence_score=$((json_confidence + 50))
+            fi
+
+            # Check for file changes via git (supplements JSON data)
+            if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
+                local git_files=$(git diff --name-only 2>/dev/null | wc -l)
+                if [[ $git_files -gt 0 ]]; then
+                    has_progress=true
+                    files_modified=$git_files
+                fi
+            fi
+
+            # Write analysis results for JSON path
+            cat > "$analysis_result_file" << EOF
+{
+    "loop_number": $loop_number,
+    "timestamp": "$(get_iso_timestamp)",
+    "output_file": "$output_file",
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": $has_completion_signal,
+        "is_test_only": $is_test_only,
+        "is_stuck": $is_stuck,
+        "has_progress": $has_progress,
+        "files_modified": $files_modified,
+        "confidence_score": $confidence_score,
+        "exit_signal": $exit_signal,
+        "work_summary": "$work_summary",
+        "output_length": $output_length
+    }
+}
+EOF
+            rm -f ".json_parse_result"
+            return 0
+        fi
+        # If JSON parsing failed, fall through to text parsing
+    fi
+
+    # Text parsing fallback (original logic)
 
     # 1. Check for explicit structured output (if Claude follows schema)
     if grep -q -- "---RALPH_STATUS---" "$output_file"; then
@@ -151,12 +324,13 @@ analyze_response() {
         exit_signal=true
     fi
 
-    # Write analysis results to file
+    # Write analysis results to file (text parsing path)
     cat > "$analysis_result_file" << EOF
 {
     "loop_number": $loop_number,
     "timestamp": "$(get_iso_timestamp)",
     "output_file": "$output_file",
+    "output_format": "text",
     "analysis": {
         "has_completion_signal": $has_completion_signal,
         "is_test_only": $is_test_only,
@@ -303,6 +477,8 @@ detect_stuck_loop() {
 }
 
 # Export functions for use in ralph_loop.sh
+export -f detect_output_format
+export -f parse_json_response
 export -f analyze_response
 export -f update_exit_signals
 export -f log_analysis_summary

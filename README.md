@@ -1,9 +1,9 @@
 # Ralph for Claude Code
 
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.1-blue)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
-![Tests](https://img.shields.io/badge/tests-75%20passing-green)
-![Coverage](https://img.shields.io/badge/coverage-60%25-orange)
+![Tests](https://img.shields.io/badge/tests-98%20passing-green)
+![Coverage](https://img.shields.io/badge/coverage-65%25-orange)
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
@@ -13,22 +13,33 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## 📌 Project Status
 
-**Version**: v0.9.0 - Active Development
+**Version**: v0.9.1 - Active Development
 **Core Features**: ✅ Working and tested
-**Test Coverage**: 60% (expanding to 90%+ - see [roadmap](#-development-roadmap))
+**Test Coverage**: 65% (expanding to 90%+ - see [roadmap](#-development-roadmap))
 
 ### What's Working Now ✅
 - Autonomous development loops with intelligent exit detection
 - Rate limiting with hourly reset (100 calls/hour, configurable)
 - Circuit breaker with advanced error detection (prevents runaway loops)
 - Response analyzer with semantic understanding and two-stage error filtering
+- **JSON output format support with automatic fallback to text parsing**
+- **Session continuity with `--continue` flag for context preservation**
+- **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
-- 97 passing tests covering critical paths (13 error detection + 9 stuck loop + 75 core tests)
+- 98 passing tests covering critical paths (20 JSON parsing + 23 CLI modern + 55 core tests)
 
 ### Recent Improvements 🎉
+
+**v0.9.1 - Modern CLI Commands (Phase 1.1)**
+- ✅ JSON output format support with `--output-format json` (default)
+- ✅ Session continuity using `--continue` flag for cross-loop context
+- ✅ Tool permissions via `--allowed-tools` flag
+- ✅ Loop context injection with `build_loop_context()` function
+- ✅ Backward-compatible: automatic fallback to text parsing
+- ✅ 43 new tests: JSON parsing (20) + CLI modern (23)
 
 **v0.9.0 - Circuit Breaker Enhancements**
 - ✅ Fixed multi-line error matching in stuck loop detection
@@ -339,14 +350,15 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (97 tests)
+# Run all tests (98 tests)
 bats tests/
 
 # Run specific test suites
 bats tests/unit/test_rate_limiting.bats
 bats tests/unit/test_exit_detection.bats
+bats tests/unit/test_json_parsing.bats
+bats tests/unit/test_cli_modern.bats
 bats tests/integration/test_loop_execution.bats
-bats tests/integration/test_edge_cases.bats
 
 # Run error detection and circuit breaker tests
 ./tests/test_error_detection.sh
@@ -354,11 +366,11 @@ bats tests/integration/test_edge_cases.bats
 ```
 
 Current test status:
-- **97 tests** across 6 test files (75 core + 13 error detection + 9 stuck loop)
-- **100% pass rate** (97/97 passing)
-- **~60% code coverage** (target: 90%+)
+- **98 tests** across 7 test files (55 core + 20 JSON parsing + 23 CLI modern)
+- **100% pass rate** (98/98 passing)
+- **~65% code coverage** (target: 90%+)
 - Comprehensive unit and integration tests
-- Specialized tests for error detection and circuit breaker functionality
+- Specialized tests for JSON parsing, CLI flags, and circuit breaker functionality
 
 ### Installing tmux
 
@@ -537,13 +549,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### Ralph Loop Options
 ```bash
 ralph [OPTIONS]
-  -h, --help          Show help message
-  -c, --calls NUM     Set max calls per hour (default: 100)
-  -p, --prompt FILE   Set prompt file (default: PROMPT.md)
-  -s, --status        Show current status and exit
-  -m, --monitor       Start with tmux session and live monitor
-  -v, --verbose       Show detailed progress updates during execution
-  -t, --timeout MIN   Set Claude Code execution timeout in minutes (1-120, default: 15)
+  -h, --help              Show help message
+  -c, --calls NUM         Set max calls per hour (default: 100)
+  -p, --prompt FILE       Set prompt file (default: PROMPT.md)
+  -s, --status            Show current status and exit
+  -m, --monitor           Start with tmux session and live monitor
+  -v, --verbose           Show detailed progress updates during execution
+  -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
+  --output-format FORMAT  Set output format: json (default) or text
+  --allowed-tools TOOLS   Set allowed Claude tools (default: Write,Bash(git *),Read)
+  --no-continue           Disable session continuity (start fresh each loop)
 ```
 
 ### Project Commands (Per Project)
