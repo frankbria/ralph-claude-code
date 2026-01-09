@@ -3,7 +3,6 @@
 # Tests directory creation, template copying, git initialization, and README creation
 
 load '../helpers/test_helper'
-load '../helpers/mocks'
 load '../helpers/fixtures'
 
 # Store the path to setup.sh from the project root
@@ -16,6 +15,12 @@ setup() {
 
     # Store setup.sh path (relative to test directory)
     SETUP_SCRIPT="${BATS_TEST_DIRNAME}/../../setup.sh"
+
+    # Set git author info via environment variables (avoids mutating global config)
+    export GIT_AUTHOR_NAME="Test User"
+    export GIT_AUTHOR_EMAIL="test@example.com"
+    export GIT_COMMITTER_NAME="Test User"
+    export GIT_COMMITTER_EMAIL="test@example.com"
 
     # Create mock templates directory (simulating ../templates relative to project being created)
     mkdir -p templates/specs
@@ -65,10 +70,6 @@ EOF
 # Sample Specification
 This is a sample spec file for testing.
 EOF
-
-    # Initialize git config for test environment (required for commits)
-    git config --global user.email "test@example.com" 2>/dev/null || true
-    git config --global user.name "Test User" 2>/dev/null || true
 }
 
 teardown() {
@@ -215,7 +216,7 @@ teardown() {
     bash "$SETUP_SCRIPT" test-project
 
     cd test-project
-    run git rev-parse --git-dir
+    run command git rev-parse --git-dir
 
     assert_success
     assert_equal "$output" ".git"
@@ -225,7 +226,7 @@ teardown() {
     bash "$SETUP_SCRIPT" test-project
 
     cd test-project
-    run git log --oneline
+    run command git log --oneline
 
     assert_success
     # Should have at least one commit
@@ -236,7 +237,7 @@ teardown() {
     bash "$SETUP_SCRIPT" test-project
 
     cd test-project
-    run git log -1 --pretty=%B
+    run command git log -1 --pretty=%B
 
     assert_success
     # Remove trailing whitespace for comparison
@@ -248,7 +249,7 @@ teardown() {
     bash "$SETUP_SCRIPT" test-project
 
     cd test-project
-    run git status --porcelain
+    run command git status --porcelain
 
     assert_success
     # Working tree should be clean (no uncommitted changes)
@@ -438,27 +439,21 @@ teardown() {
 # Test: Idempotency and Edge Cases
 # =============================================================================
 
-@test "setup.sh fails if project directory already exists" {
+@test "setup.sh succeeds when run in an existing directory (idempotent)" {
     # Create project directory first
     mkdir -p existing-project
 
     run bash "$SETUP_SCRIPT" existing-project
 
-    # With set -e, should fail when trying to cd into and run git init in already existing dir
-    # This tests the expected behavior - may need adjustment based on actual script behavior
-    # Note: The script uses cd "$PROJECT_NAME" which will work, but git init in existing repo
-    # should still work. The real failure point would be if templates already copied.
-    # Actually, mkdir -p won't fail on existing dir, so this may succeed
-    # Let's just verify the test runs - behavior depends on script's error handling
-    [[ $status -eq 0 || $status -ne 0 ]]  # Accept either outcome
+    # The script uses mkdir -p which is idempotent, and git init works in existing dirs
+    # Templates will be copied over existing files, so this should succeed
+    [[ $status -eq 0 ]]
 }
 
 @test "setup.sh handles project name with spaces by creating directory" {
-    # Note: Project names with spaces are unusual but should work with quoting
-    # The script uses "$PROJECT_NAME" with quotes so it should work
+    # Project names with spaces should work since the script uses "$PROJECT_NAME" with quotes
     run bash "$SETUP_SCRIPT" "project with spaces"
 
-    # This may or may not work depending on how well spaces are handled throughout
-    # If it fails, that's acceptable behavior for an edge case
-    [[ $status -eq 0 || $status -ne 0 ]]
+    # The script properly quotes variables, so spaces should be handled correctly
+    [[ $status -eq 0 ]]
 }
