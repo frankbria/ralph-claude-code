@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.1 | **Tests**: 145 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.2 | **Tests**: 151 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -95,7 +95,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (145 tests)
+# Run all tests (151 tests)
 npm test
 
 # Run specific test suites
@@ -272,12 +272,12 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (145 tests total)
+### Test Files (151 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
-| `test_cli_modern.bats` | 23 | Modern CLI commands (Phase 1.1) |
+| `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
 | `test_json_parsing.bats` | 20 | JSON output format parsing |
 | `test_exit_detection.bats` | 20 | Exit signal detection |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
@@ -297,6 +297,14 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Prompt File Fix (v0.9.2)
+- Fixed critical bug: replaced non-existent `--prompt-file` CLI flag with `-p` flag
+- Modern CLI mode now correctly passes prompt content via `CLAUDE_CMD_ARGS+=("-p" "$prompt_content")`
+- Added error handling for missing prompt files in `build_claude_command()`
+- Added 6 new TDD tests for `build_claude_command` function
+- Maintains shell injection safety through array-based command building
+- Test count: 151 (up from 145)
 
 ### CLI Parsing Tests (v0.9.1)
 - Added 27 comprehensive CLI argument parsing tests
@@ -334,7 +342,7 @@ bats tests/unit/test_cli_parsing.bats
 **Modern CLI Flags**
 - `--output-format json|text` - Control Claude output format
 - `--allowed-tools` - Restrict tool permissions
-- `--prompt-file` - Use file instead of stdin piping
+- `-p` with content - Pass prompt content (reads from file via command substitution)
 - Version checking with `check_claude_version()`
 
 ### Circuit Breaker Enhancements (v0.9.0)
