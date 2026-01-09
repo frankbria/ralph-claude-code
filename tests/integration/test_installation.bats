@@ -70,6 +70,12 @@ EOF
 echo "Ralph import running"
 EOF
 
+    cat > "$MOCK_SOURCE_DIR/setup.sh" << 'EOF'
+#!/bin/bash
+# Mock setup.sh
+echo "Setup running"
+EOF
+
     chmod +x "$MOCK_SOURCE_DIR"/*.sh
     chmod +x "$MOCK_SOURCE_DIR/lib"/*.sh
 }
@@ -87,23 +93,6 @@ teardown() {
     if [[ -n "$MOCK_SOURCE_DIR" && -d "$MOCK_SOURCE_DIR" ]]; then
         rm -rf "$MOCK_SOURCE_DIR"
     fi
-}
-
-# Helper: Source install.sh functions for testing
-# This overrides SCRIPT_DIR to use our mock source
-source_install_functions() {
-    # Override SCRIPT_DIR before sourcing
-    export SCRIPT_DIR="$MOCK_SOURCE_DIR"
-    export INSTALL_DIR="$TEST_INSTALL_DIR"
-    export RALPH_HOME="$TEST_RALPH_HOME"
-
-    # Source only functions, not main execution
-    source <(grep -E '^(log|check_dependencies|create_install_dirs|install_scripts|install_ralph_loop|install_setup|check_path)\s*\(\)|^(log|check_dependencies|create_install_dirs|install_scripts|install_ralph_loop|install_setup|check_path)\(\)|^[A-Z_]+=|^function ' "$PROJECT_ROOT/install.sh" | head -100)
-
-    # Re-source with sed to extract functions
-    eval "$(sed -n '/^log()/,/^}/p' "$PROJECT_ROOT/install.sh")"
-    eval "$(sed -n '/^create_install_dirs()/,/^}/p' "$PROJECT_ROOT/install.sh")"
-    eval "$(sed -n '/^check_path()/,/^}/p' "$PROJECT_ROOT/install.sh")"
 }
 
 # Helper: Run install.sh in isolated environment
@@ -244,10 +233,14 @@ run_install() {
 #!/bin/bash
 set -e
 
-# Override command to simulate missing jq
+# Override command to simulate missing jq, git, and node/npx
 command() {
-    if [[ "$1" == "-v" && "$2" == "jq" ]]; then
-        return 1
+    if [[ "$1" == "-v" ]]; then
+        case "$2" in
+            jq|git|node|npx)
+                return 1
+                ;;
+        esac
     fi
     builtin command "$@"
 }
@@ -286,8 +279,11 @@ EOF
     # Should fail
     [[ "$status" -ne 0 ]]
 
-    # Should mention missing dependencies
-    [[ "$output" =~ "Missing required dependencies" ]] || [[ "$output" =~ "jq" ]]
+    # Should mention missing dependencies (all three)
+    [[ "$output" =~ "Missing required dependencies" ]]
+    [[ "$output" =~ "jq" ]]
+    [[ "$output" =~ "git" ]]
+    [[ "$output" =~ "Node.js" ]]
 
     rm -f "$temp_script"
 }

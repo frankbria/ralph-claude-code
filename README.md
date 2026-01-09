@@ -1,8 +1,8 @@
 # Ralph for Claude Code
 
-![Version](https://img.shields.io/badge/version-0.9.1-blue)
+![Version](https://img.shields.io/badge/version-0.9.3-blue)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
-![Tests](https://img.shields.io/badge/tests-145%20passing-green)
+![Tests](https://img.shields.io/badge/tests-165%20passing-green)
 ![Coverage](https://img.shields.io/badge/coverage-informational-lightgrey)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -15,9 +15,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.1 - Active Development
+**Version**: v0.9.3 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 145 tests, 100% pass rate
+**Test Coverage**: 165 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -32,7 +32,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - tmux integration for live monitoring
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
-- 151 passing tests across 7 test files
+- 165 passing tests across 8 test files
 
 ### Recent Improvements
 
@@ -361,8 +361,8 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (145 tests)
-bats tests/
+# Run all tests (165 tests)
+npm test
 
 # Run specific test suites
 bats tests/unit/test_rate_limiting.bats
@@ -378,10 +378,10 @@ bats tests/integration/test_loop_execution.bats
 ```
 
 Current test status:
-- **145 tests** across 7 test files
-- **100% pass rate** (145/145 passing)
+- **165 tests** across 8 test files
+- **100% pass rate** (165/165 passing)
 - Comprehensive unit and integration tests
-- Specialized tests for JSON parsing, CLI flags, and circuit breaker functionality
+- Specialized tests for JSON parsing, CLI flags, circuit breaker, and installation workflows
 
 > **Note on Coverage**: Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. Test pass rate (100%) is the quality gate. See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
 
@@ -598,23 +598,24 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.9.1
+### Current Status: v0.9.3
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- 145 comprehensive tests (100% pass rate)
+- 165 comprehensive tests (100% pass rate)
 - tmux integration and live monitoring
 - PRD import functionality
 - Installation system and project templates
 - Modern CLI commands with JSON output support
 - CI/CD pipeline with GitHub Actions
+- Comprehensive installation test suite
 
 **Test Coverage Breakdown:**
-- Unit Tests: 105 (CLI parsing, JSON, exit detection, rate limiting)
-- Integration Tests: 40 (loop execution, edge cases)
-- Test Files: 7
+- Unit Tests: 111 (CLI parsing, JSON, exit detection, rate limiting)
+- Integration Tests: 54 (loop execution, edge cases, installation)
+- Test Files: 8
 
 ### Path to v1.0.0 (~4 weeks)
 
