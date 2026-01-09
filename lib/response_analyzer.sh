@@ -110,26 +110,37 @@ parse_json_response() {
         has_completion_signal="true"
     fi
 
-    # Write normalized result
-    cat > "$result_file" << EOF
-{
-    "status": "$status",
-    "exit_signal": $exit_signal,
-    "is_test_only": $is_test_only,
-    "is_stuck": $is_stuck,
-    "has_completion_signal": $has_completion_signal,
-    "files_modified": $files_modified,
-    "error_count": $error_count,
-    "summary": "$summary",
-    "loop_number": $loop_number,
-    "session_id": "$session_id",
-    "confidence": $confidence,
-    "metadata": {
-        "loop_number": $loop_number,
-        "session_id": "$session_id"
-    }
-}
-EOF
+    # Write normalized result using jq for safe JSON construction
+    # String fields use --arg (auto-escapes), numeric/boolean use --argjson
+    jq -n \
+        --arg status "$status" \
+        --argjson exit_signal "$exit_signal" \
+        --argjson is_test_only "$is_test_only" \
+        --argjson is_stuck "$is_stuck" \
+        --argjson has_completion_signal "$has_completion_signal" \
+        --argjson files_modified "$files_modified" \
+        --argjson error_count "$error_count" \
+        --arg summary "$summary" \
+        --argjson loop_number "$loop_number" \
+        --arg session_id "$session_id" \
+        --argjson confidence "$confidence" \
+        '{
+            status: $status,
+            exit_signal: $exit_signal,
+            is_test_only: $is_test_only,
+            is_stuck: $is_stuck,
+            has_completion_signal: $has_completion_signal,
+            files_modified: $files_modified,
+            error_count: $error_count,
+            summary: $summary,
+            loop_number: $loop_number,
+            session_id: $session_id,
+            confidence: $confidence,
+            metadata: {
+                loop_number: $loop_number,
+                session_id: $session_id
+            }
+        }' > "$result_file"
 
     return 0
 }

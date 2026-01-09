@@ -33,6 +33,28 @@ CLAUDE_USE_CONTINUE=true                 # Enable session continuity
 CLAUDE_SESSION_FILE=".claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
+# Valid tool patterns for --allowed-tools validation
+# Tools can be exact matches or pattern matches with wildcards in parentheses
+VALID_TOOL_PATTERNS=(
+    "Write"
+    "Read"
+    "Edit"
+    "MultiEdit"
+    "Glob"
+    "Grep"
+    "Task"
+    "TodoWrite"
+    "WebFetch"
+    "WebSearch"
+    "Bash"
+    "Bash(git *)"
+    "Bash(npm *)"
+    "Bash(bats *)"
+    "Bash(python *)"
+    "Bash(node *)"
+    "NotebookEdit"
+)
+
 # Exit detection configuration
 EXIT_SIGNALS_FILE=".exit_signals"
 MAX_CONSECUTIVE_TEST_LOOPS=3
@@ -343,6 +365,54 @@ check_claude_version() {
     return 0
 }
 
+# Validate allowed tools against whitelist
+# Returns 0 if valid, 1 if invalid with error message
+validate_allowed_tools() {
+    local tools_input=$1
+
+    if [[ -z "$tools_input" ]]; then
+        return 0  # Empty is valid (uses defaults)
+    fi
+
+    # Split by comma
+    local IFS=','
+    read -ra tools <<< "$tools_input"
+
+    for tool in "${tools[@]}"; do
+        # Trim whitespace
+        tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        if [[ -z "$tool" ]]; then
+            continue
+        fi
+
+        local valid=false
+
+        # Check against valid patterns
+        for pattern in "${VALID_TOOL_PATTERNS[@]}"; do
+            if [[ "$tool" == "$pattern" ]]; then
+                valid=true
+                break
+            fi
+
+            # Check for Bash(*) pattern - any Bash with parentheses is allowed
+            if [[ "$tool" =~ ^Bash\(.+\)$ ]]; then
+                valid=true
+                break
+            fi
+        done
+
+        if [[ "$valid" == "false" ]]; then
+            echo "Error: Invalid tool in --allowed-tools: '$tool'"
+            echo "Valid tools: ${VALID_TOOL_PATTERNS[*]}"
+            echo "Note: Bash(...) patterns with any content are allowed (e.g., 'Bash(git *)')"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
 # Build loop context for Claude Code session
 # Provides loop-specific context via --append-system-prompt
 build_loop_context() {
@@ -407,46 +477,51 @@ save_claude_session() {
     fi
 }
 
-# Build Claude CLI command with modern flags
+# Global array for Claude command arguments (avoids shell injection)
+declare -a CLAUDE_CMD_ARGS=()
+
+# Build Claude CLI command with modern flags using array (shell-injection safe)
+# Populates global CLAUDE_CMD_ARGS array for direct execution
 build_claude_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
 
-    local cmd="$CLAUDE_CODE_CMD"
+    # Reset global array
+    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
 
     # Add output format flag
     if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
-        cmd+=" --output-format json"
+        CLAUDE_CMD_ARGS+=("--output-format" "json")
     fi
 
-    # Add allowed tools (convert comma-separated to space-separated quoted args)
+    # Add allowed tools (each tool as separate array element)
     if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
-        # Convert "Write,Bash(git *),Read" to --allowedTools "Write" "Bash(git *)" "Read"
-        local tools_array
-        IFS=',' read -ra tools_array <<< "$CLAUDE_ALLOWED_TOOLS"
-        cmd+=" --allowedTools"
+        CLAUDE_CMD_ARGS+=("--allowedTools")
+        # Split by comma and add each tool
+        local IFS=','
+        read -ra tools_array <<< "$CLAUDE_ALLOWED_TOOLS"
         for tool in "${tools_array[@]}"; do
-            cmd+=" \"$tool\""
+            # Trim whitespace
+            tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$tool" ]]; then
+                CLAUDE_CMD_ARGS+=("$tool")
+            fi
         done
     fi
 
     # Add session continuity flag
     if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        cmd+=" --continue"
+        CLAUDE_CMD_ARGS+=("--continue")
     fi
 
-    # Add loop context as system prompt
+    # Add loop context as system prompt (no escaping needed - array handles it)
     if [[ -n "$loop_context" ]]; then
-        # Escape quotes in context for shell
-        local escaped_context=$(echo "$loop_context" | sed 's/"/\\"/g')
-        cmd+=" --append-system-prompt \"$escaped_context\""
+        CLAUDE_CMD_ARGS+=("--append-system-prompt" "$loop_context")
     fi
 
     # Add prompt file
-    cmd+=" --prompt-file \"$prompt_file\""
-
-    echo "$cmd"
+    CLAUDE_CMD_ARGS+=("--prompt-file" "$prompt_file")
 }
 
 # Main execution function
@@ -479,24 +554,22 @@ execute_claude_code() {
     # Build the Claude CLI command with modern flags
     # Note: We use the modern --prompt-file approach when CLAUDE_OUTPUT_FORMAT is "json"
     # For backward compatibility, fall back to stdin piping for text mode
-    local claude_cmd=""
     local use_modern_cli=false
 
     if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
-        # Modern approach: use CLI flags
-        claude_cmd=$(build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id")
+        # Modern approach: use CLI flags (builds CLAUDE_CMD_ARGS array)
+        build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"
         use_modern_cli=true
         log_status "INFO" "Using modern CLI mode (JSON output)"
     else
-        # Legacy approach: stdin piping (backward compatibility)
-        claude_cmd="$CLAUDE_CODE_CMD"
         log_status "INFO" "Using legacy CLI mode (text output)"
     fi
 
     # Execute Claude Code
     if [[ "$use_modern_cli" == "true" ]]; then
-        # Modern execution with CLI flags
-        if timeout ${timeout_seconds}s bash -c "$claude_cmd" > "$output_file" 2>&1 &
+        # Modern execution with command array (shell-injection safe)
+        # Execute array directly without bash -c to prevent shell metacharacter interpretation
+        if timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
@@ -901,6 +974,9 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --allowed-tools)
+            if ! validate_allowed_tools "$2"; then
+                exit 1
+            fi
             CLAUDE_ALLOWED_TOOLS="$2"
             shift 2
             ;;
