@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.2 | **Tests**: 151 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.3 | **Tests**: 165 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -95,7 +95,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (151 tests)
+# Run all tests (165 tests)
 npm test
 
 # Run specific test suites
@@ -272,7 +272,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (151 tests total)
+### Test Files (165 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -283,6 +283,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 20 | Edge case handling |
+| `test_installation.bats` | 14 | Global installation/uninstall workflows |
 
 ### Running Tests
 ```bash
@@ -297,6 +298,17 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Installation Tests (v0.9.3)
+- Added 14 comprehensive tests for `install.sh` global installation script
+- Tests cover: directory creation, command installation, template copying, lib copying
+- Dependency detection tests (jq, git, node) with mocked failures
+- PATH detection and warning system tests
+- Uninstallation cleanup verification
+- Idempotency testing (run twice without errors)
+- End-to-end installation workflow validation
+- All tests use isolated temp directories (no system modifications)
+- Test count: 165 (up from 151)
 
 ### Prompt File Fix (v0.9.2)
 - Fixed critical bug: replaced non-existent `--prompt-file` CLI flag with `-p` flag

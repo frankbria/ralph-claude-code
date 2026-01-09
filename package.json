@@ -9,7 +9,7 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "bats tests/",
+    "test": "bats tests/unit/ tests/integration/",
     "test:unit": "bats tests/unit/",
     "test:integration": "bats tests/integration/",
     "test:e2e": "bats tests/e2e/"
