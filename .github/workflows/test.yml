@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  # Coverage threshold - configurable, not hardcoded
+  # Set to 0 to disable threshold enforcement
+  COVERAGE_THRESHOLD: 70
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -37,3 +42,109 @@ jobs:
       run: |
         echo "## Test Results" >> $GITHUB_STEP_SUMMARY
         echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: |
+        npm install
+        sudo apt-get update
+        sudo apt-get install -y jq kcov
+
+    - name: Verify kcov installation
+      run: |
+        kcov --version || echo "kcov version check"
+        which kcov
+
+    - name: Run tests with coverage
+      run: |
+        mkdir -p coverage
+
+        # Run CLI parsing tests under kcov
+        kcov --include-path="$(pwd)/ralph_loop.sh,$(pwd)/lib" \
+             --exclude-pattern=tests/,node_modules/ \
+             coverage/cli-parsing \
+             bash -c "bats tests/unit/test_cli_parsing.bats" || true
+
+        # Run all unit tests under kcov for comprehensive coverage
+        kcov --include-path="$(pwd)/ralph_loop.sh,$(pwd)/lib" \
+             --exclude-pattern=tests/,node_modules/ \
+             coverage/all-unit \
+             bash -c "bats tests/unit/" || true
+
+    - name: Parse coverage results
+      id: coverage
+      run: |
+        # Extract coverage percentage from kcov JSON output
+        COVERAGE_FILE="coverage/all-unit/kcov-merged/coverage.json"
+
+        if [[ -f "$COVERAGE_FILE" ]]; then
+          COVERAGE_PCT=$(jq -r '.percent_covered // "0"' "$COVERAGE_FILE" | cut -d'.' -f1)
+          echo "coverage_percent=$COVERAGE_PCT" >> $GITHUB_OUTPUT
+          echo "Coverage: ${COVERAGE_PCT}%"
+        else
+          # Fallback: parse from index.html or cobertura.xml
+          if [[ -f "coverage/all-unit/index.html" ]]; then
+            COVERAGE_PCT=$(grep -oP 'Covered: \K[0-9]+' coverage/all-unit/index.html | head -1 || echo "0")
+            echo "coverage_percent=$COVERAGE_PCT" >> $GITHUB_OUTPUT
+            echo "Coverage (from HTML): ${COVERAGE_PCT}%"
+          else
+            echo "coverage_percent=0" >> $GITHUB_OUTPUT
+            echo "Warning: Could not find coverage results"
+          fi
+        fi
+
+    - name: Check coverage threshold
+      run: |
+        COVERAGE=${{ steps.coverage.outputs.coverage_percent }}
+        THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
+
+        echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Coverage | ${COVERAGE}% |" >> $GITHUB_STEP_SUMMARY
+        echo "| Threshold | ${THRESHOLD}% |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ "$THRESHOLD" -eq 0 ]]; then
+          echo "✅ Coverage threshold enforcement disabled" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage threshold enforcement disabled (COVERAGE_THRESHOLD=0)"
+          exit 0
+        fi
+
+        if [[ "$COVERAGE" -lt "$THRESHOLD" ]]; then
+          echo "❌ Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+          echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+          exit 1
+        else
+          echo "✅ Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
+        fi
+
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-report
+        path: coverage/
+        retention-days: 7
+
+    - name: Upload coverage to Codecov (optional)
+      uses: codecov/codecov-action@v4
+      if: always()
+      continue-on-error: true
+      with:
+        directory: coverage/all-unit
+        fail_ci_if_error: false
+        verbose: true
