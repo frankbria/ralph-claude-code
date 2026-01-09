@@ -62,41 +62,34 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq
 
-    - name: Install kcov
+    - name: Build and install kcov from source
       run: |
-        # Install kcov dependencies
+        # Install kcov build dependencies
         sudo apt-get install -y \
+          cmake \
+          g++ \
           binutils-dev \
           libcurl4-openssl-dev \
           libdw-dev \
           libiberty-dev \
-          zlib1g-dev
+          zlib1g-dev \
+          libssl-dev
 
-        # Download and extract pre-built kcov
-        wget -q https://github.com/SimonKagworthy/kcov/releases/download/v${KCOV_VERSION}/kcov-amd64.tar.gz -O /tmp/kcov.tar.gz || \
-        wget -q https://github.com/SimonKagstrom/kcov/releases/download/v${KCOV_VERSION}/kcov-amd64.tar.gz -O /tmp/kcov.tar.gz || \
-        {
-          # Fallback: build from source if pre-built not available
-          echo "Pre-built kcov not found, building from source..."
-          sudo apt-get install -y cmake g++
-          git clone --depth 1 --branch v${KCOV_VERSION} https://github.com/SimonKagstrom/kcov.git /tmp/kcov-src
-          cd /tmp/kcov-src
-          mkdir build && cd build
-          cmake ..
-          make -j$(nproc)
-          sudo make install
-          cd /
-        }
+        # Clone and build kcov
+        git clone --depth 1 --branch v${KCOV_VERSION} https://github.com/SimonKagstrom/kcov.git /tmp/kcov-src
+        cd /tmp/kcov-src
+        mkdir build && cd build
+        cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
+        make -j$(nproc)
+        sudo make install
 
-        # Extract if we downloaded the tarball
-        if [[ -f /tmp/kcov.tar.gz ]]; then
-          sudo tar -xzf /tmp/kcov.tar.gz -C /usr/local
-        fi
+        # Verify installation
+        /usr/local/bin/kcov --version
 
     - name: Verify kcov installation
       run: |
-        kcov --version || echo "kcov installed"
-        which kcov || echo "kcov in PATH"
+        which kcov
+        kcov --version
 
     - name: Run tests with coverage
       run: |
@@ -136,6 +129,7 @@ jobs:
             echo "Warning: Could not find coverage results"
             # List what we do have for debugging
             find coverage -type f -name "*.json" 2>/dev/null || echo "No JSON files found"
+            ls -laR coverage/ 2>/dev/null || echo "Coverage directory empty or not found"
           fi
         fi
 
