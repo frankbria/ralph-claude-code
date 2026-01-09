@@ -30,10 +30,16 @@ The system uses a modular architecture with reusable components in the `lib/` di
 
 2. **lib/response_analyzer.sh** - Intelligent response analysis
    - Analyzes Claude Code output for completion signals
+   - **JSON output format detection and parsing** (with text fallback)
+   - Extracts structured fields: status, exit_signal, work_type, files_modified
    - Detects test-only loops and stuck error patterns
    - Two-stage error filtering to eliminate false positives
    - Multi-line error matching for accurate stuck loop detection
    - Confidence scoring for exit decisions
+
+3. **lib/date_utils.sh** - Cross-platform date utilities
+   - ISO timestamp generation for logging
+   - Epoch time calculations for rate limiting
 
 ## Key Commands
 
@@ -95,6 +101,35 @@ The loop is controlled by several key files and environment variables:
 - Default: 100 API calls per hour (configurable via `--calls` flag)
 - Automatic hourly reset with countdown display
 - Call tracking persists across script restarts
+
+### Modern CLI Configuration (Phase 1.1)
+
+Ralph uses modern Claude Code CLI flags for structured communication:
+
+**Configuration Variables:**
+```bash
+CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
+CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Allowed tool permissions
+CLAUDE_USE_CONTINUE=true              # Enable session continuity
+CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
+```
+
+**CLI Options:**
+- `--output-format json|text` - Set Claude output format (default: json)
+- `--allowed-tools "Write,Read,Bash(git *)"` - Restrict allowed tools
+- `--no-continue` - Disable session continuity, start fresh each loop
+
+**Loop Context:**
+Each loop iteration injects context via `build_loop_context()`:
+- Current loop number
+- Remaining tasks from @fix_plan.md
+- Circuit breaker state (if not CLOSED)
+- Previous loop work summary
+
+**Session Continuity:**
+- Sessions are preserved in `.claude_session_id`
+- Use `--continue` flag to maintain context across loops
+- Disable with `--no-continue` for isolated iterations
 
 ### Intelligent Exit Detection
 The loop automatically exits when it detects project completion through:
@@ -192,6 +227,37 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 - Prevents false negatives when multiple distinct errors occur simultaneously
 
 ## Recent Improvements
+
+### Modern CLI Commands (v0.9.1 - Phase 1.1)
+
+**JSON Output Format Support**
+- Added `detect_output_format()` function to identify JSON vs text output
+- Added `parse_json_response()` to extract structured fields from Claude's JSON output
+- Extracts: status, exit_signal, work_type, files_modified, error_count, summary
+- Automatic fallback to text parsing on malformed JSON
+- Maintains backward compatibility with traditional RALPH_STATUS format
+
+**Session Continuity Management**
+- `init_claude_session()` - Resume or start new sessions
+- `save_claude_session()` - Persist session ID from Claude output
+- `--continue` flag for context preservation across loops
+- `--no-continue` option for isolated iterations
+
+**Loop Context Injection**
+- `build_loop_context()` - Build contextual information for each loop
+- Includes: loop number, remaining tasks, circuit breaker state, previous work summary
+- Injected via `--append-system-prompt` for Claude awareness
+
+**Modern CLI Flags**
+- `--output-format json|text` - Control Claude output format
+- `--allowed-tools` - Restrict tool permissions
+- `--prompt-file` - Use file instead of stdin piping
+- Version checking with `check_claude_version()`
+
+**Test Coverage**
+- 20 new JSON parsing tests in `test_json_parsing.bats`
+- 23 new CLI modern tests in `test_cli_modern.bats`
+- All 98 tests passing (100% pass rate)
 
 ### Circuit Breaker Enhancements (v0.9.0)
 

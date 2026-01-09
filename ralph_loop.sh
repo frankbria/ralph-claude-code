@@ -26,6 +26,35 @@ CALL_COUNT_FILE=".call_count"
 TIMESTAMP_FILE=".last_reset"
 USE_TMUX=false
 
+# Modern Claude CLI configuration (Phase 1.1)
+CLAUDE_OUTPUT_FORMAT="json"              # Options: json, text
+CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Comma-separated list of allowed tools
+CLAUDE_USE_CONTINUE=true                 # Enable session continuity
+CLAUDE_SESSION_FILE=".claude_session_id" # Session ID persistence file
+CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
+
+# Valid tool patterns for --allowed-tools validation
+# Tools can be exact matches or pattern matches with wildcards in parentheses
+VALID_TOOL_PATTERNS=(
+    "Write"
+    "Read"
+    "Edit"
+    "MultiEdit"
+    "Glob"
+    "Grep"
+    "Task"
+    "TodoWrite"
+    "WebFetch"
+    "WebSearch"
+    "Bash"
+    "Bash(git *)"
+    "Bash(npm *)"
+    "Bash(bats *)"
+    "Bash(python *)"
+    "Bash(node *)"
+    "NotebookEdit"
+)
+
 # Exit detection configuration
 EXIT_SIGNALS_FILE=".exit_signals"
 MAX_CONSECUTIVE_TEST_LOOPS=3
@@ -303,6 +332,198 @@ should_exit_gracefully() {
     echo ""  # Return empty string instead of using return code
 }
 
+# =============================================================================
+# MODERN CLI HELPER FUNCTIONS (Phase 1.1)
+# =============================================================================
+
+# Check Claude CLI version for compatibility with modern flags
+check_claude_version() {
+    local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
+    if [[ -z "$version" ]]; then
+        log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
+        return 0
+    fi
+
+    # Compare versions (simplified semver comparison)
+    local required="$CLAUDE_MIN_VERSION"
+
+    # Convert to comparable integers (major * 10000 + minor * 100 + patch)
+    local ver_parts=(${version//./ })
+    local req_parts=(${required//./ })
+
+    local ver_num=$((${ver_parts[0]:-0} * 10000 + ${ver_parts[1]:-0} * 100 + ${ver_parts[2]:-0}))
+    local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
+
+    if [[ $ver_num -lt $req_num ]]; then
+        log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+        log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
+        return 1
+    fi
+
+    log_status "INFO" "Claude CLI version $version (>= $required) - modern features enabled"
+    return 0
+}
+
+# Validate allowed tools against whitelist
+# Returns 0 if valid, 1 if invalid with error message
+validate_allowed_tools() {
+    local tools_input=$1
+
+    if [[ -z "$tools_input" ]]; then
+        return 0  # Empty is valid (uses defaults)
+    fi
+
+    # Split by comma
+    local IFS=','
+    read -ra tools <<< "$tools_input"
+
+    for tool in "${tools[@]}"; do
+        # Trim whitespace
+        tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        if [[ -z "$tool" ]]; then
+            continue
+        fi
+
+        local valid=false
+
+        # Check against valid patterns
+        for pattern in "${VALID_TOOL_PATTERNS[@]}"; do
+            if [[ "$tool" == "$pattern" ]]; then
+                valid=true
+                break
+            fi
+
+            # Check for Bash(*) pattern - any Bash with parentheses is allowed
+            if [[ "$tool" =~ ^Bash\(.+\)$ ]]; then
+                valid=true
+                break
+            fi
+        done
+
+        if [[ "$valid" == "false" ]]; then
+            echo "Error: Invalid tool in --allowed-tools: '$tool'"
+            echo "Valid tools: ${VALID_TOOL_PATTERNS[*]}"
+            echo "Note: Bash(...) patterns with any content are allowed (e.g., 'Bash(git *)')"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+# Build loop context for Claude Code session
+# Provides loop-specific context via --append-system-prompt
+build_loop_context() {
+    local loop_count=$1
+    local context=""
+
+    # Add loop number
+    context="Loop #${loop_count}. "
+
+    # Extract incomplete tasks from @fix_plan.md
+    if [[ -f "@fix_plan.md" ]]; then
+        local incomplete_tasks=$(grep -c "^- \[ \]" "@fix_plan.md" 2>/dev/null || echo "0")
+        context+="Remaining tasks: ${incomplete_tasks}. "
+    fi
+
+    # Add circuit breaker state
+    if [[ -f ".circuit_breaker_state" ]]; then
+        local cb_state=$(jq -r '.state // "UNKNOWN"' .circuit_breaker_state 2>/dev/null)
+        if [[ "$cb_state" != "CLOSED" && "$cb_state" != "null" && -n "$cb_state" ]]; then
+            context+="Circuit breaker: ${cb_state}. "
+        fi
+    fi
+
+    # Add previous loop summary (truncated)
+    if [[ -f ".response_analysis" ]]; then
+        local prev_summary=$(jq -r '.analysis.work_summary // ""' .response_analysis 2>/dev/null | head -c 200)
+        if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
+            context+="Previous: ${prev_summary}"
+        fi
+    fi
+
+    # Limit total length to ~500 chars
+    echo "${context:0:500}"
+}
+
+# Initialize or resume Claude session
+init_claude_session() {
+    if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
+        local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
+        if [[ -n "$session_id" ]]; then
+            log_status "INFO" "Resuming Claude session: ${session_id:0:20}..."
+            echo "$session_id"
+            return 0
+        fi
+    fi
+
+    log_status "INFO" "Starting new Claude session"
+    echo ""
+}
+
+# Save session ID after successful execution
+save_claude_session() {
+    local output_file=$1
+
+    # Try to extract session ID from JSON output
+    if [[ -f "$output_file" ]]; then
+        local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
+        if [[ -n "$session_id" && "$session_id" != "null" ]]; then
+            echo "$session_id" > "$CLAUDE_SESSION_FILE"
+            log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
+        fi
+    fi
+}
+
+# Global array for Claude command arguments (avoids shell injection)
+declare -a CLAUDE_CMD_ARGS=()
+
+# Build Claude CLI command with modern flags using array (shell-injection safe)
+# Populates global CLAUDE_CMD_ARGS array for direct execution
+build_claude_command() {
+    local prompt_file=$1
+    local loop_context=$2
+    local session_id=$3
+
+    # Reset global array
+    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
+
+    # Add output format flag
+    if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
+        CLAUDE_CMD_ARGS+=("--output-format" "json")
+    fi
+
+    # Add allowed tools (each tool as separate array element)
+    if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
+        CLAUDE_CMD_ARGS+=("--allowedTools")
+        # Split by comma and add each tool
+        local IFS=','
+        read -ra tools_array <<< "$CLAUDE_ALLOWED_TOOLS"
+        for tool in "${tools_array[@]}"; do
+            # Trim whitespace
+            tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$tool" ]]; then
+                CLAUDE_CMD_ARGS+=("$tool")
+            fi
+        done
+    fi
+
+    # Add session continuity flag
+    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+        CLAUDE_CMD_ARGS+=("--continue")
+    fi
+
+    # Add loop context as system prompt (no escaping needed - array handles it)
+    if [[ -n "$loop_context" ]]; then
+        CLAUDE_CMD_ARGS+=("--append-system-prompt" "$loop_context")
+    fi
+
+    # Add prompt file
+    CLAUDE_CMD_ARGS+=("--prompt-file" "$prompt_file")
+}
+
 # Main execution function
 execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -310,35 +531,88 @@ execute_claude_code() {
     local loop_count=$1
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
-    
+
     log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
-    
-    # Execute Claude Code with the prompt, streaming output
-    if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 & 
-    then
-        local claude_pid=$!
-        local progress_counter=0
-        
-        # Show progress while Claude Code is running
-        while kill -0 $claude_pid 2>/dev/null; do
-            progress_counter=$((progress_counter + 1))
-            case $((progress_counter % 4)) in
-                1) progress_indicator="⠋" ;;
-                2) progress_indicator="⠙" ;;
-                3) progress_indicator="⠹" ;;
-                0) progress_indicator="⠸" ;;
-            esac
-            
-            # Get last line from output if available
-            local last_line=""
-            if [[ -f "$output_file" && -s "$output_file" ]]; then
-                last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
-            fi
-            
-            # Update progress file for monitor
-            cat > "$PROGRESS_FILE" << EOF
+
+    # Build loop context for session continuity
+    local loop_context=""
+    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+        loop_context=$(build_loop_context "$loop_count")
+        if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
+            log_status "INFO" "Loop context: $loop_context"
+        fi
+    fi
+
+    # Initialize or resume session
+    local session_id=""
+    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+        session_id=$(init_claude_session)
+    fi
+
+    # Build the Claude CLI command with modern flags
+    # Note: We use the modern --prompt-file approach when CLAUDE_OUTPUT_FORMAT is "json"
+    # For backward compatibility, fall back to stdin piping for text mode
+    local use_modern_cli=false
+
+    if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
+        # Modern approach: use CLI flags (builds CLAUDE_CMD_ARGS array)
+        build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"
+        use_modern_cli=true
+        log_status "INFO" "Using modern CLI mode (JSON output)"
+    else
+        log_status "INFO" "Using legacy CLI mode (text output)"
+    fi
+
+    # Execute Claude Code
+    if [[ "$use_modern_cli" == "true" ]]; then
+        # Modern execution with command array (shell-injection safe)
+        # Execute array directly without bash -c to prevent shell metacharacter interpretation
+        if timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
+        then
+            :  # Continue to wait loop
+        else
+            log_status "ERROR" "❌ Failed to start Claude Code process (modern mode)"
+            # Fall back to legacy mode
+            log_status "INFO" "Falling back to legacy mode..."
+            use_modern_cli=false
+        fi
+    fi
+
+    # Fall back to legacy stdin piping if modern mode failed or not enabled
+    if [[ "$use_modern_cli" == "false" ]]; then
+        if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
+        then
+            :  # Continue to wait loop
+        else
+            log_status "ERROR" "❌ Failed to start Claude Code process"
+            return 1
+        fi
+    fi
+
+    # Get PID and monitor progress
+    local claude_pid=$!
+    local progress_counter=0
+
+    # Show progress while Claude Code is running
+    while kill -0 $claude_pid 2>/dev/null; do
+        progress_counter=$((progress_counter + 1))
+        case $((progress_counter % 4)) in
+            1) progress_indicator="⠋" ;;
+            2) progress_indicator="⠙" ;;
+            3) progress_indicator="⠹" ;;
+            0) progress_indicator="⠸" ;;
+        esac
+
+        # Get last line from output if available
+        local last_line=""
+        if [[ -f "$output_file" && -s "$output_file" ]]; then
+            last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
+        fi
+
+        # Update progress file for monitor
+        cat > "$PROGRESS_FILE" << EOF
 {
     "status": "executing",
     "indicator": "$progress_indicator",
@@ -347,95 +621,96 @@ execute_claude_code() {
     "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
 }
 EOF
-            
-            # Only log if verbose mode is enabled
-            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-                if [[ -n "$last_line" ]]; then
-                    log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
-                else
-                    log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
-                fi
-            fi
-            
-            sleep 10
-        done
-        
-        # Wait for the process to finish and get exit code
-        wait $claude_pid
-        local exit_code=$?
-        
-        if [ $exit_code -eq 0 ]; then
-            # Only increment counter on successful execution
-            echo "$calls_made" > "$CALL_COUNT_FILE"
-            
-            # Clear progress file
-            echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-            
-            log_status "SUCCESS" "✅ Claude Code execution completed successfully"
 
-            # Analyze the response
-            log_status "INFO" "🔍 Analyzing Claude Code response..."
-            analyze_response "$output_file" "$loop_count"
-            local analysis_exit_code=$?
-
-            # Update exit signals based on analysis
-            update_exit_signals
-
-            # Log analysis summary
-            log_analysis_summary
-
-            # Get file change count for circuit breaker
-            local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
-            local has_errors="false"
-
-            # Two-stage error detection to avoid JSON field false positives
-            # Stage 1: Filter out JSON field patterns like "is_error": false
-            # Stage 2: Look for actual error messages in specific contexts
-            # Avoid type annotations like "error: Error" by requiring lowercase after ": error"
-            if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
-               grep -qE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
-                has_errors="true"
-
-                # Debug logging: show what triggered error detection
-                if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-                    log_status "DEBUG" "Error patterns found:"
-                    grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
-                        grep -nE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' | \
-                        head -3 | while IFS= read -r line; do
-                        log_status "DEBUG" "  $line"
-                    done
-                fi
-
-                log_status "WARN" "Errors detected in output, check: $output_file"
-            fi
-            local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
-
-            # Record result in circuit breaker
-            record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
-            local circuit_result=$?
-
-            if [[ $circuit_result -ne 0 ]]; then
-                log_status "WARN" "Circuit breaker opened - halting execution"
-                return 3  # Special code for circuit breaker trip
-            fi
-
-            return 0
-        else
-            # Clear progress file on failure
-            echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-            
-            # Check if the failure is due to API 5-hour limit
-            if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
-                log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
-                return 2  # Special return code for API limit
+        # Only log if verbose mode is enabled
+        if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            if [[ -n "$last_line" ]]; then
+                log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
             else
-                log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
-                return 1
+                log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
             fi
         fi
+
+        sleep 10
+    done
+
+    # Wait for the process to finish and get exit code
+    wait $claude_pid
+    local exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        # Only increment counter on successful execution
+        echo "$calls_made" > "$CALL_COUNT_FILE"
+
+        # Clear progress file
+        echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+        log_status "SUCCESS" "✅ Claude Code execution completed successfully"
+
+        # Save session ID from JSON output (Phase 1.1)
+        if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+            save_claude_session "$output_file"
+        fi
+
+        # Analyze the response
+        log_status "INFO" "🔍 Analyzing Claude Code response..."
+        analyze_response "$output_file" "$loop_count"
+        local analysis_exit_code=$?
+
+        # Update exit signals based on analysis
+        update_exit_signals
+
+        # Log analysis summary
+        log_analysis_summary
+
+        # Get file change count for circuit breaker
+        local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+        local has_errors="false"
+
+        # Two-stage error detection to avoid JSON field false positives
+        # Stage 1: Filter out JSON field patterns like "is_error": false
+        # Stage 2: Look for actual error messages in specific contexts
+        # Avoid type annotations like "error: Error" by requiring lowercase after ": error"
+        if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+           grep -qE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
+            has_errors="true"
+
+            # Debug logging: show what triggered error detection
+            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+                log_status "DEBUG" "Error patterns found:"
+                grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+                    grep -nE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' | \
+                    head -3 | while IFS= read -r line; do
+                    log_status "DEBUG" "  $line"
+                done
+            fi
+
+            log_status "WARN" "Errors detected in output, check: $output_file"
+        fi
+        local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+
+        # Record result in circuit breaker
+        record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
+        local circuit_result=$?
+
+        if [[ $circuit_result -ne 0 ]]; then
+            log_status "WARN" "Circuit breaker opened - halting execution"
+            return 3  # Special code for circuit breaker trip
+        fi
+
+        return 0
     else
-        log_status "ERROR" "❌ Failed to start Claude Code process"
-        return 1
+        # Clear progress file on failure
+        echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+        # Check if the failure is due to API 5-hour limit
+        if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
+            log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+            return 2  # Special return code for API limit
+        else
+            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+            return 1
+        fi
     fi
 }
 
@@ -608,6 +883,11 @@ Options:
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
 
+Modern CLI Options (Phase 1.1):
+    --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
+    --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
+    --no-continue           Disable session continuity across loops
+
 Files created:
     - $LOG_DIR/: All execution logs
     - $DOCS_DIR/: Generated documentation
@@ -615,7 +895,7 @@ Files created:
 
 Example workflow:
     ralph-setup my-project     # Create project
-    cd my-project             # Enter project directory  
+    cd my-project             # Enter project directory
     $0 --monitor             # Start Ralph with monitoring
 
 Examples:
@@ -623,6 +903,8 @@ Examples:
     $0 --monitor             # Start with integrated tmux monitoring
     $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
+    $0 --output-format text     # Use legacy text output format
+    $0 --no-continue            # Disable session continuity
 
 HELPEOF
 }
@@ -681,6 +963,26 @@ while [[ $# -gt 0 ]]; do
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
             show_circuit_status
             exit 0
+            ;;
+        --output-format)
+            if [[ "$2" == "json" || "$2" == "text" ]]; then
+                CLAUDE_OUTPUT_FORMAT="$2"
+            else
+                echo "Error: --output-format must be 'json' or 'text'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --allowed-tools)
+            if ! validate_allowed_tools "$2"; then
+                exit 1
+            fi
+            CLAUDE_ALLOWED_TOOLS="$2"
+            shift 2
+            ;;
+        --no-continue)
+            CLAUDE_USE_CONTINUE=false
+            shift
             ;;
         *)
             echo "Unknown option: $1"
