@@ -248,6 +248,13 @@ EOF
     [[ "$output" == *"must be 'json' or 'text'"* ]]
 }
 
+@test "--allowed-tools flag accepts valid tool list" {
+    run bash "$RALPH_SCRIPT" --allowed-tools "Write,Read,Bash" --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
 # =============================================================================
 # MULTIPLE FLAGS TESTS (3 tests)
 # =============================================================================
