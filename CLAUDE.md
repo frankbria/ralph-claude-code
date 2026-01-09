@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.3 | **Tests**: 165 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.4 | **Tests**: 201 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -272,7 +272,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (165 tests total)
+### Test Files (201 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -284,6 +284,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 20 | Edge case handling |
 | `test_installation.bats` | 14 | Global installation/uninstall workflows |
+| `test_project_setup.bats` | 36 | Project setup (setup.sh) validation |
 
 ### Running Tests
 ```bash
@@ -298,6 +299,19 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Project Setup Tests (v0.9.4)
+- Added 36 comprehensive tests for `setup.sh` project initialization script
+- Tests cover: directory creation, subdirectory structure, template copying, git initialization
+- Template copying verification for PROMPT.md, @fix_plan.md, @AGENT.md
+- Git repository validation: .git exists, valid repo, initial commit, correct message
+- README.md creation and content verification
+- Custom and default project name handling
+- Working directory behavior (nested directories, relative paths)
+- Error handling: missing templates, missing PROMPT.md
+- Output message validation (startup, completion, next steps)
+- Edge cases: spaces in names, existing directories
+- Test count: 201 (up from 165)
 
 ### Installation Tests (v0.9.3)
 - Added 14 comprehensive tests for `install.sh` global installation script
