@@ -10,6 +10,7 @@ SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+source "$SCRIPT_DIR/lib/log_rotation.sh"
 
 # Configuration
 PROMPT_FILE="PROMPT.md"
@@ -139,7 +140,6 @@ setup_tmux_session() {
 
 # Initialize call tracking
 init_call_tracking() {
-    log_status "INFO" "DEBUG: Entered init_call_tracking..."
     local current_hour=$(date +%Y%m%d%H)
     local last_reset_hour=""
 
@@ -161,8 +161,16 @@ init_call_tracking() {
 
     # Initialize circuit breaker
     init_circuit_breaker
+}
 
-    log_status "INFO" "DEBUG: Completed init_call_tracking successfully"
+# Colors for debug output (dim/gray)
+DIM='\033[2m'
+
+# Sanitize file path for safe display in logs (removes directory, shows filename only)
+# This prevents information disclosure in error messages
+sanitize_path() {
+    local path=$1
+    basename "$path" 2>/dev/null || echo "$path"
 }
 
 # Log function with timestamps and colors
@@ -171,15 +179,16 @@ log_status() {
     local message=$2
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local color=""
-    
+
     case $level in
-        "INFO")  color=$BLUE ;;
-        "WARN")  color=$YELLOW ;;
-        "ERROR") color=$RED ;;
+        "INFO")    color=$BLUE ;;
+        "WARN")    color=$YELLOW ;;
+        "ERROR")   color=$RED ;;
         "SUCCESS") color=$GREEN ;;
-        "LOOP") color=$PURPLE ;;
+        "LOOP")    color=$PURPLE ;;
+        "DEBUG")   color=$DIM ;;
     esac
-    
+
     echo -e "${color}[$timestamp] [$level] $message${NC}"
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
@@ -264,71 +273,60 @@ wait_for_reset() {
 
 # Check if we should gracefully exit
 should_exit_gracefully() {
-    log_status "INFO" "DEBUG: Checking exit conditions..." >&2
-    
     if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
-        log_status "INFO" "DEBUG: No exit signals file found, continuing..." >&2
         return 1  # Don't exit, file doesn't exist
     fi
-    
+
     local signals=$(cat "$EXIT_SIGNALS_FILE")
-    log_status "INFO" "DEBUG: Exit signals content: $signals" >&2
-    
+
     # Count recent signals (last 5 loops) - with error handling
     local recent_test_loops
-    local recent_done_signals  
+    local recent_done_signals
     local recent_completion_indicators
-    
+
     recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
-    
-    log_status "INFO" "DEBUG: Exit counts - test_loops:$recent_test_loops, done_signals:$recent_done_signals, completion:$recent_completion_indicators" >&2
-    
+
     # Check for exit conditions
-    
+
     # 1. Too many consecutive test-only loops
     if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
         log_status "WARN" "Exit condition: Too many test-focused loops ($recent_test_loops >= $MAX_CONSECUTIVE_TEST_LOOPS)"
         echo "test_saturation"
         return 0
     fi
-    
+
     # 2. Multiple "done" signals
     if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
         log_status "WARN" "Exit condition: Multiple completion signals ($recent_done_signals >= $MAX_CONSECUTIVE_DONE_SIGNALS)"
         echo "completion_signals"
         return 0
     fi
-    
+
     # 3. Strong completion indicators
     if [[ $recent_completion_indicators -ge 2 ]]; then
         log_status "WARN" "Exit condition: Strong completion indicators ($recent_completion_indicators)"
         echo "project_complete"
         return 0
     fi
-    
+
     # 4. Check fix_plan.md for completion
     if [[ -f "@fix_plan.md" ]]; then
         local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null)
         local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null)
-        
+
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
         [[ -z "$completed_items" ]] && completed_items=0
-        
-        log_status "INFO" "DEBUG: @fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
-        
+
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
-            log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
+            log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)"
             echo "plan_complete"
             return 0
         fi
-    else
-        log_status "INFO" "DEBUG: @fix_plan.md file not found" >&2
     fi
-    
-    log_status "INFO" "DEBUG: No exit conditions met, continuing loop" >&2
+
     echo ""  # Return empty string instead of using return code
 }
 
@@ -336,9 +334,29 @@ should_exit_gracefully() {
 # MODERN CLI HELPER FUNCTIONS (Phase 1.1)
 # =============================================================================
 
+# Timeout wrapper for jq operations (prevents hang on large/malformed JSON)
+# Usage: jq_safe <timeout_seconds> <jq_args...>
+# Returns: jq output or empty string on timeout/error
+JQ_DEFAULT_TIMEOUT=5
+
+jq_safe() {
+    local timeout_secs=${1:-$JQ_DEFAULT_TIMEOUT}
+    shift
+    timeout "$timeout_secs" jq "$@" 2>/dev/null || echo ""
+}
+
+# Extract semver version from string (handles pre-release versions like 2.0.76-beta.1)
+# Returns: major.minor.patch (strips pre-release suffix)
+extract_semver() {
+    local version_string=$1
+    # Extract X.Y.Z, ignoring any -suffix (pre-release) or +suffix (build metadata)
+    echo "$version_string" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+}
+
 # Check Claude CLI version for compatibility with modern flags
 check_claude_version() {
-    local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local raw_version=$($CLAUDE_CODE_CMD --version 2>/dev/null)
+    local version=$(extract_semver "$raw_version")
 
     if [[ -z "$version" ]]; then
         log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
@@ -448,9 +466,53 @@ build_loop_context() {
     echo "${context:0:500}"
 }
 
-# Initialize or resume Claude session
+# Session expiration configuration (24 hours in seconds)
+SESSION_MAX_AGE_SECONDS=86400
+
+# Check if session file is expired (older than SESSION_MAX_AGE_SECONDS)
+is_session_expired() {
+    local session_file=$1
+
+    if [[ ! -f "$session_file" ]]; then
+        return 0  # No file = expired
+    fi
+
+    local file_age_seconds
+    local current_time=$(date +%s)
+
+    # Get file modification time (cross-platform)
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS
+        local file_mtime=$(stat -f %m "$session_file" 2>/dev/null)
+    else
+        # Linux
+        local file_mtime=$(stat -c %Y "$session_file" 2>/dev/null)
+    fi
+
+    if [[ -z "$file_mtime" ]]; then
+        return 0  # Can't read mtime = treat as expired
+    fi
+
+    file_age_seconds=$((current_time - file_mtime))
+
+    if [[ $file_age_seconds -gt $SESSION_MAX_AGE_SECONDS ]]; then
+        return 0  # Expired
+    else
+        return 1  # Still valid
+    fi
+}
+
+# Initialize or resume Claude session (with expiration check)
 init_claude_session() {
     if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
+        # Check if session is expired
+        if is_session_expired "$CLAUDE_SESSION_FILE"; then
+            log_status "INFO" "Session expired (>24h), starting fresh"
+            rm -f "$CLAUDE_SESSION_FILE"
+            echo ""
+            return 0
+        fi
+
         local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
         if [[ -n "$session_id" ]]; then
             log_status "INFO" "Resuming Claude session: ${session_id:0:20}..."
@@ -685,7 +747,7 @@ EOF
                 done
             fi
 
-            log_status "WARN" "Errors detected in output, check: $output_file"
+            log_status "WARN" "Errors detected in output, check: $(sanitize_path "$output_file")"
         fi
         local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
 
@@ -708,7 +770,7 @@ EOF
             log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
             return 2  # Special return code for API limit
         else
-            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+            log_status "ERROR" "❌ Claude Code execution failed, check: $(sanitize_path "$output_file")"
             return 1
         fi
     fi
@@ -729,7 +791,9 @@ loop_count=0
 
 # Main loop
 main() {
-    
+    # Perform log maintenance at startup (rotate large files, cleanup old files)
+    maintain_logs "$LOG_DIR"
+
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
@@ -759,12 +823,9 @@ main() {
     fi
     
     log_status "INFO" "Starting main loop..."
-    log_status "INFO" "DEBUG: About to enter while loop, loop_count=$loop_count"
-    
+
     while true; do
         loop_count=$((loop_count + 1))
-        log_status "INFO" "DEBUG: Successfully incremented loop_count to $loop_count"
-        log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
