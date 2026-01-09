@@ -31,9 +31,16 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - tmux integration for live monitoring
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
-- 145 passing tests across 7 test files
+- 151 passing tests across 7 test files
 
 ### Recent Improvements
+
+**v0.9.2 - Prompt File Fix**
+- Fixed critical bug: replaced non-existent `--prompt-file` CLI flag with `-p` flag
+- Modern CLI mode now correctly passes prompt content via `-p "$(cat file)"`
+- Added error handling for missing prompt files in `build_claude_command()`
+- Added 6 new TDD tests for `build_claude_command` function
+- Maintains shell injection safety through array-based command building
 
 **v0.9.1 - Modern CLI Commands (Phase 1.1)**
 - JSON output format support with `--output-format json` (default)

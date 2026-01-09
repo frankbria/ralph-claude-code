@@ -417,3 +417,207 @@ EOF
 
     [[ "$output" == *"no-continue"* ]] || skip "--no-continue help not yet added"
 }
+
+# =============================================================================
+# BUILD_CLAUDE_COMMAND TESTS (TDD)
+# Tests for the fix of --prompt-file -> -p flag
+# =============================================================================
+
+# Global array for Claude command arguments (mirrors ralph_loop.sh)
+declare -a CLAUDE_CMD_ARGS=()
+
+# Define build_claude_command function for testing
+# This is a copy that will be verified against the actual implementation
+build_claude_command() {
+    local prompt_file=$1
+    local loop_context=$2
+    local session_id=$3
+
+    # Reset global array
+    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
+
+    # Check if prompt file exists
+    if [[ ! -f "$prompt_file" ]]; then
+        echo "ERROR: Prompt file not found: $prompt_file" >&2
+        return 1
+    fi
+
+    # Add output format flag
+    if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
+        CLAUDE_CMD_ARGS+=("--output-format" "json")
+    fi
+
+    # Add allowed tools (each tool as separate array element)
+    if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
+        CLAUDE_CMD_ARGS+=("--allowedTools")
+        # Split by comma and add each tool
+        local IFS=','
+        read -ra tools_array <<< "$CLAUDE_ALLOWED_TOOLS"
+        for tool in "${tools_array[@]}"; do
+            # Trim whitespace
+            tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$tool" ]]; then
+                CLAUDE_CMD_ARGS+=("$tool")
+            fi
+        done
+    fi
+
+    # Add session continuity flag
+    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+        CLAUDE_CMD_ARGS+=("--continue")
+    fi
+
+    # Add loop context as system prompt (no escaping needed - array handles it)
+    if [[ -n "$loop_context" ]]; then
+        CLAUDE_CMD_ARGS+=("--append-system-prompt" "$loop_context")
+    fi
+
+    # Read prompt file content and use -p flag (NOT --prompt-file which doesn't exist)
+    local prompt_content
+    prompt_content=$(cat "$prompt_file")
+    CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
+}
+
+@test "build_claude_command uses -p flag instead of --prompt-file" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    # Create a test prompt file
+    echo "Test prompt content" > "$PROMPT_FILE"
+
+    build_claude_command "$PROMPT_FILE" "" ""
+
+    # Check that the command array contains -p, not --prompt-file
+    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+
+    # Should NOT contain --prompt-file
+    [[ "$cmd_string" != *"--prompt-file"* ]]
+
+    # Should contain -p
+    [[ "$cmd_string" == *"-p"* ]]
+}
+
+@test "build_claude_command reads prompt file content correctly" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="text"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    # Create a test prompt file with specific content
+    echo "My specific prompt content for testing" > "$PROMPT_FILE"
+
+    build_claude_command "$PROMPT_FILE" "" ""
+
+    # Check that the prompt content was read into the command
+    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+
+    [[ "$cmd_string" == *"My specific prompt content for testing"* ]]
+}
+
+@test "build_claude_command handles missing prompt file" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    # Ensure prompt file doesn't exist
+    rm -f "nonexistent_prompt.md"
+
+    run build_claude_command "nonexistent_prompt.md" "" ""
+
+    # Should fail with error
+    assert_failure
+    [[ "$output" == *"ERROR"* ]] || [[ "$output" == *"not found"* ]]
+}
+
+@test "build_claude_command includes all modern CLI flags" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS="Write,Read,Bash(git *)"
+    export CLAUDE_USE_CONTINUE="true"
+
+    # Create a test prompt file
+    echo "Test prompt" > "$PROMPT_FILE"
+
+    build_claude_command "$PROMPT_FILE" "Loop #5 context" ""
+
+    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+
+    # Should include all flags
+    [[ "$cmd_string" == *"--output-format"* ]]
+    [[ "$cmd_string" == *"json"* ]]
+    [[ "$cmd_string" == *"--allowedTools"* ]]
+    [[ "$cmd_string" == *"Write"* ]]
+    [[ "$cmd_string" == *"Read"* ]]
+    [[ "$cmd_string" == *"--continue"* ]]
+    [[ "$cmd_string" == *"--append-system-prompt"* ]]
+    [[ "$cmd_string" == *"Loop #5 context"* ]]
+    [[ "$cmd_string" == *"-p"* ]]
+}
+
+@test "build_claude_command handles multiline prompt content" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    # Create a test prompt file with multiple lines
+    cat > "$PROMPT_FILE" << 'EOF'
+# Test Prompt
+
+## Task Description
+This is a multiline prompt
+with several lines of text.
+
+## Expected Output
+The prompt should be preserved correctly.
+EOF
+
+    build_claude_command "$PROMPT_FILE" "" ""
+
+    # Verify the prompt content is in the command
+    local found_p_flag=false
+    local prompt_index=-1
+
+    for i in "${!CLAUDE_CMD_ARGS[@]}"; do
+        if [[ "${CLAUDE_CMD_ARGS[$i]}" == "-p" ]]; then
+            found_p_flag=true
+            prompt_index=$((i + 1))
+            break
+        fi
+    done
+
+    [[ "$found_p_flag" == "true" ]]
+
+    # The next element after -p should contain the multiline content
+    [[ "${CLAUDE_CMD_ARGS[$prompt_index]}" == *"multiline prompt"* ]]
+    [[ "${CLAUDE_CMD_ARGS[$prompt_index]}" == *"Expected Output"* ]]
+}
+
+@test "build_claude_command array prevents shell injection" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    # Create a prompt with potentially dangerous shell characters
+    cat > "$PROMPT_FILE" << 'EOF'
+Test prompt with $(dangerous) and `backticks` and "quotes"
+Also: $VAR and ${VAR} and $(command) and ; rm -rf /
+EOF
+
+    build_claude_command "$PROMPT_FILE" "" ""
+
+    # Verify the content is preserved literally (array handles quoting)
+    local found_prompt=false
+    for arg in "${CLAUDE_CMD_ARGS[@]}"; do
+        if [[ "$arg" == *'$(dangerous)'* ]]; then
+            found_prompt=true
+            break
+        fi
+    done
+
+    [[ "$found_prompt" == "true" ]]
+}

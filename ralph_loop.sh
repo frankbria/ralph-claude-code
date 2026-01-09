@@ -482,6 +482,7 @@ declare -a CLAUDE_CMD_ARGS=()
 
 # Build Claude CLI command with modern flags using array (shell-injection safe)
 # Populates global CLAUDE_CMD_ARGS array for direct execution
+# Uses -p flag with prompt content (Claude CLI does not have --prompt-file)
 build_claude_command() {
     local prompt_file=$1
     local loop_context=$2
@@ -489,6 +490,12 @@ build_claude_command() {
 
     # Reset global array
     CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
+
+    # Check if prompt file exists
+    if [[ ! -f "$prompt_file" ]]; then
+        log_status "ERROR" "Prompt file not found: $prompt_file"
+        return 1
+    fi
 
     # Add output format flag
     if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
@@ -520,8 +527,12 @@ build_claude_command() {
         CLAUDE_CMD_ARGS+=("--append-system-prompt" "$loop_context")
     fi
 
-    # Add prompt file
-    CLAUDE_CMD_ARGS+=("--prompt-file" "$prompt_file")
+    # Read prompt file content and use -p flag
+    # Note: Claude CLI uses -p for prompts, not --prompt-file (which doesn't exist)
+    # Array-based approach maintains shell injection safety
+    local prompt_content
+    prompt_content=$(cat "$prompt_file")
+    CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
 }
 
 # Main execution function
@@ -552,15 +563,18 @@ execute_claude_code() {
     fi
 
     # Build the Claude CLI command with modern flags
-    # Note: We use the modern --prompt-file approach when CLAUDE_OUTPUT_FORMAT is "json"
+    # Note: We use the modern CLI with -p flag when CLAUDE_OUTPUT_FORMAT is "json"
     # For backward compatibility, fall back to stdin piping for text mode
     local use_modern_cli=false
 
     if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
         # Modern approach: use CLI flags (builds CLAUDE_CMD_ARGS array)
-        build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"
-        use_modern_cli=true
-        log_status "INFO" "Using modern CLI mode (JSON output)"
+        if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+            use_modern_cli=true
+            log_status "INFO" "Using modern CLI mode (JSON output)"
+        else
+            log_status "WARN" "Failed to build modern CLI command, falling back to legacy mode"
+        fi
     else
         log_status "INFO" "Using legacy CLI mode (text output)"
     fi
