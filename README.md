@@ -2,8 +2,8 @@
 
 ![Version](https://img.shields.io/badge/version-0.9.1-blue)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
-![Tests](https://img.shields.io/badge/tests-98%20passing-green)
-![Coverage](https://img.shields.io/badge/coverage-65%25-orange)
+![Tests](https://img.shields.io/badge/tests-145%20passing-green)
+![Coverage](https://img.shields.io/badge/coverage-informational-lightgrey)
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
@@ -11,13 +11,13 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 **Install once, use everywhere** - Ralph becomes a global command available in any directory.
 
-## 📌 Project Status
+## Project Status
 
 **Version**: v0.9.1 - Active Development
-**Core Features**: ✅ Working and tested
-**Test Coverage**: 65% (expanding to 90%+ - see [roadmap](#-development-roadmap))
+**Core Features**: Working and tested
+**Test Coverage**: 145 tests, 100% pass rate
 
-### What's Working Now ✅
+### What's Working Now
 - Autonomous development loops with intelligent exit detection
 - Rate limiting with hourly reset (100 calls/hour, configurable)
 - Circuit breaker with advanced error detection (prevents runaway loops)
@@ -29,27 +29,29 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
-- 98 passing tests covering critical paths (20 JSON parsing + 23 CLI modern + 55 core tests)
+- **CI/CD pipeline with GitHub Actions**
+- 145 passing tests across 7 test files
 
-### Recent Improvements 🎉
+### Recent Improvements
 
 **v0.9.1 - Modern CLI Commands (Phase 1.1)**
-- ✅ JSON output format support with `--output-format json` (default)
-- ✅ Session continuity using `--continue` flag for cross-loop context
-- ✅ Tool permissions via `--allowed-tools` flag
-- ✅ Loop context injection with `build_loop_context()` function
-- ✅ Backward-compatible: automatic fallback to text parsing
-- ✅ 43 new tests: JSON parsing (20) + CLI modern (23)
+- JSON output format support with `--output-format json` (default)
+- Session continuity using `--continue` flag for cross-loop context
+- Tool permissions via `--allowed-tools` flag
+- Loop context injection with `build_loop_context()` function
+- Backward-compatible: automatic fallback to text parsing
+- 70 new tests: JSON parsing (20) + CLI modern (23) + CLI parsing (27)
+- CI/CD pipeline with kcov coverage reporting
 
 **v0.9.0 - Circuit Breaker Enhancements**
-- ✅ Fixed multi-line error matching in stuck loop detection
-- ✅ Eliminated JSON field false positives (e.g., `"is_error": false`)
-- ✅ Added two-stage error filtering for accurate detection
-- ✅ Comprehensive test suite: 22 new tests for error detection
-- ✅ Fixed installation to include lib/ directory components
+- Fixed multi-line error matching in stuck loop detection
+- Eliminated JSON field false positives (e.g., `"is_error": false`)
+- Added two-stage error filtering for accurate detection
+- Comprehensive test suite: 22 new tests for error detection
+- Fixed installation to include lib/ directory components
 
-### In Progress 🚧
-- Expanding test coverage (60% → 90%+)
+### In Progress
+- Expanding test coverage
 - Log rotation functionality
 - Dry-run mode
 - Configuration file support (.ralphrc)
@@ -57,39 +59,39 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Desktop notifications
 - Git backup and rollback system
 
-**Timeline to v1.0**: ~4 weeks • [Full roadmap](IMPLEMENTATION_PLAN.md) • **Contributions welcome!**
+**Timeline to v1.0**: ~4 weeks | [Full roadmap](IMPLEMENTATION_PLAN.md) | **Contributions welcome!**
 
-## 🌟 Features
+## Features
 
-- **🔄 Autonomous Development Loop** - Continuously executes Claude Code with your project requirements
-- **🛡️ Intelligent Exit Detection** - Automatically stops when project objectives are complete
-- **⚡ Rate Limiting** - Built-in API call management with hourly limits and countdown timers
-- **🚫 5-Hour API Limit Handling** - Detects Claude's 5-hour usage limit and offers wait/exit options
-- **📊 Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
-- **🎯 Task Management** - Structured approach with prioritized task lists and progress tracking
-- **🔧 Project Templates** - Quick setup for new projects with best-practice structure
-- **📝 Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
-- **⏱️ Configurable Timeouts** - Set execution timeout for Claude Code operations (1-120 minutes)
-- **🔍 Verbose Progress Mode** - Optional detailed progress updates during execution
-- **🧠 Response Analyzer** - AI-powered analysis of Claude Code responses with semantic understanding
-- **🔌 Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
-- **✅ Test Coverage** - 75 comprehensive tests with 60%+ code coverage (target: 90%+)
+- **Autonomous Development Loop** - Continuously executes Claude Code with your project requirements
+- **Intelligent Exit Detection** - Automatically stops when project objectives are complete
+- **Rate Limiting** - Built-in API call management with hourly limits and countdown timers
+- **5-Hour API Limit Handling** - Detects Claude's 5-hour usage limit and offers wait/exit options
+- **Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
+- **Task Management** - Structured approach with prioritized task lists and progress tracking
+- **Project Templates** - Quick setup for new projects with best-practice structure
+- **Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
+- **Configurable Timeouts** - Set execution timeout for Claude Code operations (1-120 minutes)
+- **Verbose Progress Mode** - Optional detailed progress updates during execution
+- **Response Analyzer** - AI-powered analysis of Claude Code responses with semantic understanding
+- **Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
+- **CI/CD Integration** - GitHub Actions workflow with automated testing
 
-## 🚀 Quick Start
+## Quick Start
 
 Ralph has two phases: **one-time installation** and **per-project setup**.
 
 ```
-🔧 INSTALL ONCE              🚀 USE MANY TIMES
-┌─────────────────┐          ┌──────────────────────┐
-│ ./install.sh    │    →     │ ralph-setup project1 │
-│                 │          │ ralph-setup project2 │
-│ Adds global     │          │ ralph-setup project3 │
-│ commands        │          │ ...                  │
-└─────────────────┘          └──────────────────────┘
+INSTALL ONCE              USE MANY TIMES
++-----------------+          +----------------------+
+| ./install.sh    |    ->    | ralph-setup project1 |
+|                 |          | ralph-setup project2 |
+| Adds global     |          | ralph-setup project3 |
+| commands        |          | ...                  |
++-----------------+          +----------------------+
 ```
 
-### 📦 Phase 1: Install Ralph (One Time Only)
+### Phase 1: Install Ralph (One Time Only)
 
 Install Ralph globally on your system:
 
@@ -103,7 +105,7 @@ This adds `ralph`, `ralph-monitor`, and `ralph-setup` commands to your PATH.
 
 > **Note**: You only need to do this once per system. After installation, you can delete the cloned repository if desired.
 
-### 🎯 Phase 2: Initialize New Projects (Per Project)
+### Phase 2: Initialize New Projects (Per Project)
 
 For each new project you want Ralph to work on:
 
@@ -115,7 +117,7 @@ cd my-project
 
 # Review and adjust the generated files:
 # - PROMPT.md (Ralph instructions)
-# - @fix_plan.md (task priorities) 
+# - @fix_plan.md (task priorities)
 # - specs/requirements.md (technical specs)
 
 # Start autonomous development
@@ -130,14 +132,14 @@ cd my-awesome-project
 
 # Configure your project requirements manually
 # Edit PROMPT.md with your project goals
-# Edit specs/ with detailed specifications  
+# Edit specs/ with detailed specifications
 # Edit @fix_plan.md with initial priorities
 
 # Start autonomous development
 ralph --monitor
 ```
 
-### 🔄 Ongoing Usage (After Setup)
+### Ongoing Usage (After Setup)
 
 Once Ralph is installed and your project is initialized:
 
@@ -150,26 +152,26 @@ ralph                        # Terminal 1: Ralph loop
 ralph-monitor               # Terminal 2: Live monitor dashboard
 ```
 
-## 📖 How It Works
+## How It Works
 
 Ralph operates on a simple but powerful cycle:
 
-1. **📋 Read Instructions** - Loads `PROMPT.md` with your project requirements
-2. **🤖 Execute Claude Code** - Runs Claude Code with current context and priorities  
-3. **📊 Track Progress** - Updates task lists and logs execution results
-4. **🔍 Evaluate Completion** - Checks for exit conditions and project completion signals
-5. **🔄 Repeat** - Continues until project is complete or limits are reached
+1. **Read Instructions** - Loads `PROMPT.md` with your project requirements
+2. **Execute Claude Code** - Runs Claude Code with current context and priorities
+3. **Track Progress** - Updates task lists and logs execution results
+4. **Evaluate Completion** - Checks for exit conditions and project completion signals
+5. **Repeat** - Continues until project is complete or limits are reached
 
 ### Intelligent Exit Detection
 
 Ralph automatically stops when it detects:
-- ✅ All tasks in `@fix_plan.md` marked complete
-- 🎯 Multiple consecutive "done" signals from Claude Code
-- 🧪 Too many test-focused loops (indicating feature completeness)
-- 📋 Strong completion indicators in responses
-- 🚫 Claude API 5-hour usage limit reached (with user prompt to wait or exit)
+- All tasks in `@fix_plan.md` marked complete
+- Multiple consecutive "done" signals from Claude Code
+- Too many test-focused loops (indicating feature completeness)
+- Strong completion indicators in responses
+- Claude API 5-hour usage limit reached (with user prompt to wait or exit)
 
-## 📄 Importing Existing Requirements
+## Importing Existing Requirements
 
 Ralph can convert existing PRDs, specifications, or requirement documents into the proper Ralph format using Claude Code.
 
@@ -177,7 +179,7 @@ Ralph can convert existing PRDs, specifications, or requirement documents into t
 - **Markdown** (.md) - Product requirements, technical specs
 - **Text files** (.txt) - Plain text requirements
 - **JSON** (.json) - Structured requirement data
-- **Word documents** (.docx) - Business requirements  
+- **Word documents** (.docx) - Business requirements
 - **PDFs** (.pdf) - Design documents, specifications
 - **Any text-based format** - Ralph will intelligently parse the content
 
@@ -187,7 +189,7 @@ Ralph can convert existing PRDs, specifications, or requirement documents into t
 # Convert a markdown PRD
 ralph-import product-requirements.md my-app
 
-# Convert a text specification  
+# Convert a text specification
 ralph-import requirements.txt webapp
 
 # Convert a JSON API spec
@@ -208,7 +210,7 @@ Ralph-import creates a complete project with:
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
-## 🛠️ Configuration
+## Configuration
 
 ### Rate Limiting & Circuit Breaker
 
@@ -293,7 +295,7 @@ CB_SAME_ERROR_THRESHOLD=5        # Open circuit after 5 loops with repeated erro
 CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 Ralph creates a standardized structure for each project:
 
@@ -310,7 +312,7 @@ my-project/
 └── docs/generated/     # Auto-generated documentation
 ```
 
-## 🎯 Best Practices
+## Best Practices
 
 ### Writing Effective Prompts
 
@@ -329,11 +331,11 @@ my-project/
 ### Monitoring Progress
 
 - Use `ralph-monitor` for live status updates
-- Check logs in `logs/` for detailed execution history  
+- Check logs in `logs/` for detailed execution history
 - Monitor `status.json` for programmatic access
 - Watch for exit condition signals
 
-## 🔧 System Requirements
+## System Requirements
 
 - **Bash 4.0+** - For script execution
 - **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code`
@@ -350,7 +352,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (98 tests)
+# Run all tests (145 tests)
 bats tests/
 
 # Run specific test suites
@@ -358,6 +360,7 @@ bats tests/unit/test_rate_limiting.bats
 bats tests/unit/test_exit_detection.bats
 bats tests/unit/test_json_parsing.bats
 bats tests/unit/test_cli_modern.bats
+bats tests/unit/test_cli_parsing.bats
 bats tests/integration/test_loop_execution.bats
 
 # Run error detection and circuit breaker tests
@@ -366,11 +369,12 @@ bats tests/integration/test_loop_execution.bats
 ```
 
 Current test status:
-- **98 tests** across 7 test files (55 core + 20 JSON parsing + 23 CLI modern)
-- **100% pass rate** (98/98 passing)
-- **~65% code coverage** (target: 90%+)
+- **145 tests** across 7 test files
+- **100% pass rate** (145/145 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, and circuit breaker functionality
+
+> **Note on Coverage**: Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. Test pass rate (100%) is the quality gate. See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
 
 ### Installing tmux
 
@@ -385,7 +389,7 @@ brew install tmux
 sudo yum install tmux
 ```
 
-## 📊 Monitoring and Debugging
+## Monitoring and Debugging
 
 ### Live Dashboard
 
@@ -429,7 +433,7 @@ tail -f logs/ralph.log
 - **Missing Dependencies** - Ensure Claude Code CLI and tmux are installed
 - **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
 
-## 🤝 Contributing
+## Contributing
 
 Ralph is actively seeking contributors! We're working toward v1.0.0 with clear priorities and a detailed roadmap.
 
@@ -456,19 +460,17 @@ Ralph is actively seeking contributors! We're working toward v1.0.0 with clear p
 
 ### Priority Contribution Areas
 
-**🔥 High Priority (Help Needed!)**
-1. **Test Implementation** - We need 65+ more tests to reach 90% coverage
+**High Priority (Help Needed!)**
+1. **Test Implementation** - We need more tests to reach comprehensive coverage
    - See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed test specifications
-   - Week 3-4: Installation, CLI, tmux tests (58 tests)
-   - Week 5-6: Features and E2E tests (42 tests)
 
 2. **Feature Development**
-   - Log rotation functionality (Week 5, Day 3)
-   - Dry-run mode (Week 5, Day 4)
-   - Config file support (Week 5, Day 5)
-   - Metrics tracking (Week 6, Day 1)
-   - Notifications (Week 6, Day 2)
-   - Backup/rollback (Week 6, Day 3)
+   - Log rotation functionality
+   - Dry-run mode
+   - Config file support
+   - Metrics tracking
+   - Notifications
+   - Backup/rollback
 
 3. **Documentation**
    - TESTING.md guide
@@ -484,7 +486,6 @@ Ralph is actively seeking contributors! We're working toward v1.0.0 with clear p
 ### Development Guidelines
 
 - **Tests Required**: All new features must include tests
-- **Coverage Goal**: Maintain or improve coverage (currently 60%, target 90%+)
 - **Code Style**: Follow existing bash patterns and conventions
 - **Documentation**: Update README and relevant docs for user-facing changes
 - **Commit Messages**: Clear, descriptive commit messages
@@ -506,7 +507,7 @@ Ralph is actively seeking contributors! We're working toward v1.0.0 with clear p
 
 ### Development Roadmap Reference
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete 6-week plan including:
+See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap including:
 - Detailed test specifications
 - Feature implementation guides
 - Code examples for new functionality
@@ -518,26 +519,26 @@ See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete 6-week pla
 - Check existing issues for planned work
 - Join discussions on pull requests
 
-**Every contribution matters** - from fixing typos to implementing major features. Thank you for helping make Ralph better! 🙏
+**Every contribution matters** - from fixing typos to implementing major features. Thank you for helping make Ralph better!
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- Inspired by the [Ralph technique](https://github.com/paul-gauthier/aider/blob/main/docs/more/aider-benchmarks.md#ralph) created by Paul Gauthier for the Aider project
+- Inspired by the [Ralph technique](https://ghuntley.com/ralph/) created by Geoffrey Huntley
 - Built for [Claude Code](https://claude.ai/code) by Anthropic
 - Community feedback and contributions
 
-## 🔗 Related Projects
+## Related Projects
 
 - [Claude Code](https://claude.ai/code) - The AI coding assistant that powers Ralph
 - [Aider](https://github.com/paul-gauthier/aider) - Original Ralph technique implementation
 
 ---
 
-## 📋 Command Reference
+## Command Reference
 
 ### Installation Commands (Run Once)
 ```bash
@@ -559,6 +560,8 @@ ralph [OPTIONS]
   --output-format FORMAT  Set output format: json (default) or text
   --allowed-tools TOOLS   Set allowed Claude tools (default: Write,Bash(git *),Read)
   --no-continue           Disable session continuity (start fresh each loop)
+  --reset-circuit         Reset the circuit breaker
+  --circuit-status        Show circuit breaker status
 ```
 
 ### Project Commands (Per Project)
@@ -582,61 +585,62 @@ tmux attach -t <name>     # Reattach to detached session
 
 ---
 
-## 🗺️ Development Roadmap
+## Development Roadmap
 
-Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete 6-week roadmap.
+Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.9.0 (Week 1-2 Complete)
+### Current Status: v0.9.1
+
 **What's Delivered:**
-- ✅ Core loop functionality with intelligent exit detection
-- ✅ Rate limiting (100 calls/hour) and circuit breaker pattern
-- ✅ Response analyzer with semantic understanding
-- ✅ 75 comprehensive tests (100% pass rate, 60% coverage)
-- ✅ tmux integration and live monitoring
-- ✅ PRD import functionality
-- ✅ Installation system and project templates
-- ✅ Comprehensive documentation (2,300+ lines)
+- Core loop functionality with intelligent exit detection
+- Rate limiting (100 calls/hour) and circuit breaker pattern
+- Response analyzer with semantic understanding
+- 145 comprehensive tests (100% pass rate)
+- tmux integration and live monitoring
+- PRD import functionality
+- Installation system and project templates
+- Modern CLI commands with JSON output support
+- CI/CD pipeline with GitHub Actions
 
 **Test Coverage Breakdown:**
-- Unit Tests: 35 (rate limiting, exit detection)
+- Unit Tests: 105 (CLI parsing, JSON, exit detection, rate limiting)
 - Integration Tests: 40 (loop execution, edge cases)
-- Coverage: ~60% of critical code paths
+- Test Files: 7
 
 ### Path to v1.0.0 (~4 weeks)
-**Week 3-4: Enhanced Testing**
-- ⏳ Installation and setup workflow tests (28 tests)
-- ⏳ CLI argument parsing tests (10 tests)
-- ⏳ tmux integration tests (12 tests)
-- ⏳ Monitor dashboard tests (8 tests)
 
-**Week 5: Core Features**
-- ⏳ Log rotation functionality (5 tests)
-- ⏳ Dry-run mode (4 tests)
-- ⏳ Configuration file support - .ralphrc (6 tests)
+**Enhanced Testing**
+- Installation and setup workflow tests
+- tmux integration tests
+- Monitor dashboard tests
 
-**Week 6: Advanced Features & Polish**
-- ⏳ Metrics and analytics tracking (4 tests)
-- ⏳ Desktop notifications (3 tests)
-- ⏳ Git backup and rollback system (5 tests)
-- ⏳ End-to-end tests (10 tests)
-- ⏳ Final documentation and release prep
+**Core Features**
+- Log rotation functionality
+- Dry-run mode
+- Configuration file support - .ralphrc
 
-**Target:** 140+ tests, 90%+ coverage, all planned features implemented
+**Advanced Features & Polish**
+- Metrics and analytics tracking
+- Desktop notifications
+- Git backup and rollback system
+- End-to-end tests
+- Final documentation and release prep
 
-See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed week-by-week progress tracking.
+See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed progress tracking.
 
 ### How to Contribute
 Ralph is seeking contributors! Priority areas:
-1. **Test Implementation** - Help reach 90%+ coverage ([see plan](IMPLEMENTATION_PLAN.md))
+1. **Test Implementation** - Help expand test coverage ([see plan](IMPLEMENTATION_PLAN.md))
 2. **Feature Development** - Log rotation, dry-run mode, config files
 3. **Documentation** - Usage examples, tutorials, troubleshooting guides
 4. **Bug Reports** - Real-world usage feedback and edge cases
 
-See [Contributing](#-contributing) section below for guidelines.
+See [Contributing](#contributing) section above for guidelines.
 
 ---
 
-**Ready to let AI build your project?** Start with `./install.sh` and let Ralph take it from there! 🚀
+**Ready to let AI build your project?** Start with `./install.sh` and let Ralph take it from there!
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=frankbria/ralph-claude-code&type=date&legend=top-left)](https://www.star-history.com/#frankbria/ralph-claude-code&type=date&legend=top-left)
