@@ -63,6 +63,32 @@ Target MVP completion in 4-6 weeks of development.
 EOF
 }
 
+# Sample PRD Document (Text)
+create_sample_prd_txt() {
+    local file=${1:-"sample_prd.txt"}
+    cat > "$file" << 'EOF'
+Project: Task Management System
+
+Requirements:
+- User authentication with email/password
+- Task CRUD operations (create, read, update, delete)
+- Team collaboration features
+- Real-time updates for shared workspaces
+
+Tech Stack:
+- Frontend: React, TypeScript
+- Backend: Node.js, Express
+- Database: PostgreSQL
+
+Timeline: 4-6 weeks for MVP
+
+Success Criteria:
+- Users can create and manage tasks
+- Teams can collaborate on shared projects
+- Performance: <2s page load time
+EOF
+}
+
 # Sample PRD Document (JSON)
 create_sample_prd_json() {
     local file=${1:-"sample_prd.json"}

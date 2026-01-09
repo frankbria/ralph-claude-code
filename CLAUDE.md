@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.4 | **Tests**: 201 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.5 | **Tests**: 223 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -272,7 +272,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (201 tests total)
+### Test Files (223 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -285,6 +285,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_edge_cases.bats` | 20 | Edge case handling |
 | `test_installation.bats` | 14 | Global installation/uninstall workflows |
 | `test_project_setup.bats` | 36 | Project setup (setup.sh) validation |
+| `test_prd_import.bats` | 22 | PRD import (ralph_import.sh) workflows |
 
 ### Running Tests
 ```bash
@@ -299,6 +300,19 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### PRD Import Tests (v0.9.5)
+- Added 22 comprehensive tests for `ralph_import.sh` PRD conversion script
+- Tests cover: file format support (.md, .txt, .json), output file creation, project naming
+- Mock infrastructure for `ralph-setup` and Claude Code CLI isolation
+- Output file validation: PROMPT.md, @fix_plan.md, specs/requirements.md creation
+- Project naming tests: custom names, auto-detection from filename, path handling
+- Error handling tests: missing source file, missing ralph-setup, conversion failures
+- Help and usage tests: --help flag, no arguments behavior
+- Full workflow integration: complete project structure validation
+- Edge cases: hyphens in names, uppercase filenames, subdirectory paths
+- Test helper: added `create_sample_prd_txt()` fixture function
+- Test count: 223 (up from 201)
 
 ### Project Setup Tests (v0.9.4)
 - Added 36 comprehensive tests for `setup.sh` project initialization script
