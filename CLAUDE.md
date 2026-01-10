@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.5 | **Tests**: 223 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.6 | **Tests**: 239 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -33,7 +33,10 @@ The system uses a modular architecture with reusable components in the `lib/` di
 2. **lib/response_analyzer.sh** - Intelligent response analysis
    - Analyzes Claude Code output for completion signals
    - **JSON output format detection and parsing** (with text fallback)
+   - Supports both flat JSON format and Claude CLI format (`result`, `sessionId`, `metadata`)
    - Extracts structured fields: status, exit_signal, work_type, files_modified
+   - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
+   - Automatic session persistence to `.claude_session_id` file with 24-hour expiration
    - Detects test-only loops and stuck error patterns
    - Two-stage error filtering to eliminate false positives
    - Multi-line error matching for accurate stuck loop detection
@@ -272,13 +275,13 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (223 tests total)
+### Test Files (239 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
-| `test_json_parsing.bats` | 20 | JSON output format parsing |
+| `test_json_parsing.bats` | 36 | JSON output format parsing + Claude CLI format + session management |
 | `test_exit_detection.bats` | 20 | Exit signal detection |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
@@ -300,6 +303,20 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### JSON Output & Session Management (v0.9.6)
+- Extended `parse_json_response()` to support Claude Code CLI JSON format
+  - Supports `result`, `sessionId`, and `metadata` fields alongside existing flat format
+  - Extracts `metadata.files_changed`, `metadata.has_errors`, `metadata.completion_status`
+  - Parses `metadata.progress_indicators` array for confidence boosting
+- Added session management functions for continuity tracking:
+  - `store_session_id()` - Persists session with timestamp
+  - `get_last_session_id()` - Retrieves stored session ID
+  - `should_resume_session()` - Checks session validity (24-hour expiration)
+- Added `get_epoch_seconds()` to date_utils.sh for cross-platform epoch time
+- Auto-persists sessionId to `.claude_session_id` file during response analysis
+- Added 16 new tests covering Claude CLI format and session management
+- Test count: 239 (up from 223)
 
 ### PRD Import Tests (v0.9.5)
 - Added 22 comprehensive tests for `ralph_import.sh` PRD conversion script

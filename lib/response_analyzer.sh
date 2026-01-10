@@ -52,6 +52,9 @@ detect_output_format() {
 
 # Parse JSON response and extract structured fields
 # Creates .json_parse_result with normalized analysis data
+# Supports TWO JSON formats:
+# 1. Flat format: { status, exit_signal, work_type, files_modified, ... }
+# 2. Claude CLI format: { result, sessionId, metadata: { files_changed, has_errors, completion_status, ... } }
 parse_json_response() {
     local output_file=$1
     local result_file="${2:-.json_parse_result}"
@@ -67,22 +70,57 @@ parse_json_response() {
         return 1
     fi
 
-    # Extract fields with defaults
-    local status=$(jq -r '.status // "UNKNOWN"' "$output_file" 2>/dev/null)
-    local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
-    local work_type=$(jq -r '.work_type // "UNKNOWN"' "$output_file" 2>/dev/null)
-    local files_modified=$(jq -r '.files_modified // 0' "$output_file" 2>/dev/null)
-    local error_count=$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)
-    local summary=$(jq -r '.summary // ""' "$output_file" 2>/dev/null)
+    # Detect JSON format by checking for Claude CLI fields
+    local has_result_field=$(jq -r 'has("result")' "$output_file" 2>/dev/null)
 
-    # Extract nested metadata if present
+    # Extract fields - support both flat format and Claude CLI format
+    # Priority: Claude CLI fields first, then flat format fields
+
+    # Status: from flat format OR derived from metadata.completion_status
+    local status=$(jq -r '.status // "UNKNOWN"' "$output_file" 2>/dev/null)
+    local completion_status=$(jq -r '.metadata.completion_status // ""' "$output_file" 2>/dev/null)
+    if [[ "$completion_status" == "complete" || "$completion_status" == "COMPLETE" ]]; then
+        status="COMPLETE"
+    fi
+
+    # Exit signal: from flat format OR derived from completion_status
+    local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
+
+    # Work type: from flat format
+    local work_type=$(jq -r '.work_type // "UNKNOWN"' "$output_file" 2>/dev/null)
+
+    # Files modified: from flat format OR from metadata.files_changed
+    local files_modified=$(jq -r '.metadata.files_changed // .files_modified // 0' "$output_file" 2>/dev/null)
+
+    # Error count: from flat format OR derived from metadata.has_errors
+    # Note: When only has_errors=true is present (without explicit error_count),
+    # we set error_count=1 as a minimum. This is defensive programming since
+    # the stuck detection threshold is >5 errors, so 1 error won't trigger it.
+    # Actual error count may be higher, but precise count isn't critical for our logic.
+    local error_count=$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)
+    local has_errors=$(jq -r '.metadata.has_errors // false' "$output_file" 2>/dev/null)
+    if [[ "$has_errors" == "true" && "$error_count" == "0" ]]; then
+        error_count=1  # At least one error if has_errors is true
+    fi
+
+    # Summary: from flat format OR from result field (Claude CLI format)
+    local summary=$(jq -r '.result // .summary // ""' "$output_file" 2>/dev/null)
+
+    # Session ID: from Claude CLI format (sessionId) OR from metadata.session_id
+    local session_id=$(jq -r '.sessionId // .metadata.session_id // ""' "$output_file" 2>/dev/null)
+
+    # Loop number: from metadata
     local loop_number=$(jq -r '.metadata.loop_number // .loop_number // 0' "$output_file" 2>/dev/null)
-    local session_id=$(jq -r '.metadata.session_id // ""' "$output_file" 2>/dev/null)
+
+    # Confidence: from flat format
     local confidence=$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)
+
+    # Progress indicators: from Claude CLI metadata (optional)
+    local progress_count=$(jq -r '.metadata.progress_indicators | if . then length else 0 end' "$output_file" 2>/dev/null)
 
     # Normalize values
     # Convert exit_signal to boolean string
-    if [[ "$exit_signal" == "true" || "$status" == "COMPLETE" ]]; then
+    if [[ "$exit_signal" == "true" || "$status" == "COMPLETE" || "$completion_status" == "complete" || "$completion_status" == "COMPLETE" ]]; then
         exit_signal="true"
     else
         exit_signal="false"
@@ -94,7 +132,7 @@ parse_json_response() {
         is_test_only="true"
     fi
 
-    # Determine is_stuck from error_count
+    # Determine is_stuck from error_count (threshold >5)
     local is_stuck="false"
     error_count=$((error_count + 0))  # Ensure integer
     if [[ $error_count -gt 5 ]]; then
@@ -104,10 +142,21 @@ parse_json_response() {
     # Ensure files_modified is integer
     files_modified=$((files_modified + 0))
 
+    # Ensure progress_count is integer
+    progress_count=$((progress_count + 0))
+
     # Calculate has_completion_signal
     local has_completion_signal="false"
     if [[ "$status" == "COMPLETE" || "$exit_signal" == "true" ]]; then
         has_completion_signal="true"
+    fi
+
+    # Boost confidence based on structured data availability
+    if [[ "$has_result_field" == "true" ]]; then
+        confidence=$((confidence + 20))  # Structured response boost
+    fi
+    if [[ $progress_count -gt 0 ]]; then
+        confidence=$((confidence + progress_count * 5))  # Progress indicators boost
     fi
 
     # Write normalized result using jq for safe JSON construction
@@ -184,6 +233,13 @@ analyze_response() {
             work_summary=$(jq -r '.summary' .json_parse_result 2>/dev/null || echo "")
             files_modified=$(jq -r '.files_modified' .json_parse_result 2>/dev/null || echo "0")
             local json_confidence=$(jq -r '.confidence' .json_parse_result 2>/dev/null || echo "0")
+            local session_id=$(jq -r '.session_id' .json_parse_result 2>/dev/null || echo "")
+
+            # Persist session ID if present (for session continuity across loop iterations)
+            if [[ -n "$session_id" && "$session_id" != "null" ]]; then
+                store_session_id "$session_id"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Persisted session ID: $session_id" >&2
+            fi
 
             # JSON parsing provides high confidence
             if [[ "$exit_signal" == "true" ]]; then
@@ -511,6 +567,110 @@ detect_stuck_loop() {
     fi
 }
 
+# =============================================================================
+# SESSION MANAGEMENT FUNCTIONS
+# =============================================================================
+
+# Session file location - standardized across ralph_loop.sh and response_analyzer.sh
+SESSION_FILE=".claude_session_id"
+# Session expiration time in seconds (24 hours)
+SESSION_EXPIRATION_SECONDS=86400
+
+# Store session ID to file with timestamp
+# Usage: store_session_id "session-uuid-123"
+store_session_id() {
+    local session_id=$1
+
+    if [[ -z "$session_id" ]]; then
+        return 1
+    fi
+
+    # Write session with timestamp using jq for safe JSON construction
+    jq -n \
+        --arg session_id "$session_id" \
+        --arg timestamp "$(get_iso_timestamp)" \
+        '{
+            session_id: $session_id,
+            timestamp: $timestamp
+        }' > "$SESSION_FILE"
+
+    return 0
+}
+
+# Get the last stored session ID
+# Returns: session ID string or empty if not found
+get_last_session_id() {
+    if [[ ! -f "$SESSION_FILE" ]]; then
+        echo ""
+        return 0
+    fi
+
+    # Extract session_id from JSON file
+    local session_id=$(jq -r '.session_id // ""' "$SESSION_FILE" 2>/dev/null)
+    echo "$session_id"
+    return 0
+}
+
+# Check if the stored session should be resumed
+# Returns: 0 (true) if session is valid and recent, 1 (false) otherwise
+should_resume_session() {
+    if [[ ! -f "$SESSION_FILE" ]]; then
+        echo "false"
+        return 1
+    fi
+
+    # Get session timestamp
+    local timestamp=$(jq -r '.timestamp // ""' "$SESSION_FILE" 2>/dev/null)
+
+    if [[ -z "$timestamp" ]]; then
+        echo "false"
+        return 1
+    fi
+
+    # Calculate session age using date utilities
+    local now=$(get_epoch_seconds)
+    local session_time
+
+    # Parse ISO timestamp to epoch - try multiple formats for cross-platform compatibility
+    # Strip milliseconds if present (e.g., 2026-01-09T10:30:00.123+00:00 → 2026-01-09T10:30:00+00:00)
+    local clean_timestamp="${timestamp}"
+    if [[ "$timestamp" =~ \.[0-9]+[+-Z] ]]; then
+        clean_timestamp=$(echo "$timestamp" | sed 's/\.[0-9]*\([+-Z]\)/\1/')
+    fi
+
+    if command -v gdate &>/dev/null; then
+        # macOS with coreutils
+        session_time=$(gdate -d "$clean_timestamp" +%s 2>/dev/null)
+    elif date --version 2>&1 | grep -q GNU; then
+        # GNU date (Linux)
+        session_time=$(date -d "$clean_timestamp" +%s 2>/dev/null)
+    else
+        # BSD date (macOS without coreutils) - try parsing ISO format
+        # Format: 2026-01-09T10:30:00+00:00 or 2026-01-09T10:30:00Z
+        # Strip timezone suffix for BSD date parsing
+        local date_only="${clean_timestamp%[+-Z]*}"
+        session_time=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$date_only" +%s 2>/dev/null)
+    fi
+
+    # If we couldn't parse the timestamp, consider session expired
+    if [[ -z "$session_time" || ! "$session_time" =~ ^[0-9]+$ ]]; then
+        echo "false"
+        return 1
+    fi
+
+    # Calculate age in seconds
+    local age=$((now - session_time))
+
+    # Check if session is still valid (less than expiration time)
+    if [[ $age -lt $SESSION_EXPIRATION_SECONDS ]]; then
+        echo "true"
+        return 0
+    else
+        echo "false"
+        return 1
+    fi
+}
+
 # Export functions for use in ralph_loop.sh
 export -f detect_output_format
 export -f parse_json_response
@@ -518,3 +678,6 @@ export -f analyze_response
 export -f update_exit_signals
 export -f log_analysis_summary
 export -f detect_stuck_loop
+export -f store_session_id
+export -f get_last_session_id
+export -f should_resume_session
