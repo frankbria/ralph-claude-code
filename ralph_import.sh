@@ -274,7 +274,7 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! npx @anthropic/claude-code --version &> /dev/null 2>&1; then
+    if ! npx @anthropic-ai/claude-code --version &> /dev/null 2>&1; then
         log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
     fi
 }

@@ -244,7 +244,7 @@ After installation, the following global commands are available:
 ## Integration Points
 
 Ralph integrates with:
-- **Claude Code CLI**: Uses `npx @anthropic/claude-code` as the execution engine
+- **Claude Code CLI**: Uses `npx @anthropic-ai/claude-code` as the execution engine
 - **tmux**: Terminal multiplexer for integrated monitoring sessions
 - **Git**: Expects projects to be git repositories
 - **jq**: For JSON processing of status and exit signals
