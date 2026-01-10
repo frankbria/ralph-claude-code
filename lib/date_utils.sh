@@ -39,3 +39,15 @@ get_next_hour_time() {
 get_basic_timestamp() {
     date '+%Y-%m-%d %H:%M:%S'
 }
+
+# Get current Unix epoch time in seconds
+# Returns: Integer seconds since 1970-01-01 00:00:00 UTC
+get_epoch_seconds() {
+    date +%s
+}
+
+# Export functions for use in other scripts
+export -f get_iso_timestamp
+export -f get_next_hour_time
+export -f get_basic_timestamp
+export -f get_epoch_seconds
