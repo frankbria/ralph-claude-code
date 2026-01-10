@@ -82,6 +82,19 @@ echo "Created Ralph project: $project_name"
 MOCK_SETUP_EOF
     chmod +x "$MOCK_BIN_DIR/ralph-setup"
 
+    # Create mock npx command to avoid slow npm registry calls
+    cat > "$MOCK_BIN_DIR/npx" << 'MOCK_NPX_EOF'
+#!/bin/bash
+# Mock npx that handles @anthropic-ai/claude-code
+if [[ "$1" == "@anthropic-ai/claude-code" && "$2" == "--version" ]]; then
+    echo "claude-code version 2.1.0"
+    exit 0
+fi
+# For other npx calls, pass through to real npx (if needed)
+exit 0
+MOCK_NPX_EOF
+    chmod +x "$MOCK_BIN_DIR/npx"
+
     # Create mock claude command for PRD conversion
     # Default behavior: create the expected output files
     create_mock_claude_success
