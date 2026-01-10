@@ -1,8 +1,8 @@
 # Ralph for Claude Code
 
-![Version](https://img.shields.io/badge/version-0.9.3-blue)
+![Version](https://img.shields.io/badge/version-0.9.8-blue)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
-![Tests](https://img.shields.io/badge/tests-165%20passing-green)
+![Tests](https://img.shields.io/badge/tests-276%20passing-green)
 ![Coverage](https://img.shields.io/badge/coverage-informational-lightgrey)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -15,9 +15,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.3 - Active Development
+**Version**: v0.9.8 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 165 tests, 100% pass rate
+**Test Coverage**: 276 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -33,32 +33,59 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Windows Terminal support for split-pane monitoring (Windows)**
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
-- 165 passing tests across 8 test files
+- 276 passing tests across 11 test files
 
 ### Recent Improvements
+
+**v0.9.8 - Modern CLI for PRD Import**
+- Modernized `ralph_import.sh` to use Claude Code CLI JSON output format
+- JSON output format support with `--output-format json` for structured responses
+- Enhanced error handling with structured JSON error messages
+- Improved file verification with JSON-derived status information
+- Backward compatibility with older CLI versions (automatic text fallback)
+- Added 11 new tests for modern CLI features
+- Test count: 276 (up from 265)
+
+**v0.9.7 - Session Lifecycle Management**
+- Complete session lifecycle management with automatic reset triggers
+- Session auto-reset on: circuit breaker open, manual interrupt, project completion
+- Added `--reset-session` CLI flag for manual session reset
+- Session history tracking (last 50 transitions) for debugging
+- Added 26 new tests for session continuity features
+
+**v0.9.6 - JSON Output & Session Management**
+- Extended `parse_json_response()` to support Claude Code CLI JSON format
+- Added session management functions: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
+- Cross-platform epoch time utilities in date_utils.sh
+- Added 16 new tests covering Claude CLI format and session management
+
+**v0.9.5 - PRD Import Tests**
+- Added 22 comprehensive tests for `ralph_import.sh` PRD conversion script
+- Tests cover: file format support, output file creation, project naming, error handling
+
+**v0.9.4 - Project Setup Tests**
+- Added 36 comprehensive tests for `setup.sh` project initialization script
+- Tests cover: directory creation, template copying, git initialization
+
+**v0.9.3 - Installation Tests**
+- Added 14 comprehensive tests for `install.sh` global installation script
+- Tests cover: directory creation, command installation, dependency detection
 
 **v0.9.2 - Prompt File Fix**
 - Fixed critical bug: replaced non-existent `--prompt-file` CLI flag with `-p` flag
 - Modern CLI mode now correctly passes prompt content via `-p "$(cat file)"`
 - Added error handling for missing prompt files in `build_claude_command()`
-- Added 6 new TDD tests for `build_claude_command` function
-- Maintains shell injection safety through array-based command building
 
 **v0.9.1 - Modern CLI Commands (Phase 1.1)**
 - JSON output format support with `--output-format json` (default)
 - Session continuity using `--continue` flag for cross-loop context
 - Tool permissions via `--allowed-tools` flag
-- Loop context injection with `build_loop_context()` function
-- Backward-compatible: automatic fallback to text parsing
-- 70 new tests: JSON parsing (20) + CLI modern (23) + CLI parsing (27)
 - CI/CD pipeline with kcov coverage reporting
 
 **v0.9.0 - Circuit Breaker Enhancements**
 - Fixed multi-line error matching in stuck loop detection
 - Eliminated JSON field false positives (e.g., `"is_error": false`)
 - Added two-stage error filtering for accurate detection
-- Comprehensive test suite: 22 new tests for error detection
-- Fixed installation to include lib/ directory components
 
 ### In Progress
 - Expanding test coverage
@@ -75,6 +102,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 - **Autonomous Development Loop** - Continuously executes Claude Code with your project requirements
 - **Intelligent Exit Detection** - Automatically stops when project objectives are complete
+- **Session Continuity** - Preserves context across loop iterations with automatic session management
 - **Rate Limiting** - Built-in API call management with hourly limits and countdown timers
 - **5-Hour API Limit Handling** - Detects Claude's 5-hour usage limit and offers wait/exit options
 - **Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
@@ -220,6 +248,17 @@ Ralph-import creates a complete project with:
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
+### Modern CLI Features (v0.9.8)
+
+Ralph-import uses modern Claude Code CLI features for improved reliability:
+
+- **JSON Output Format**: Structured responses enable precise parsing of conversion results
+- **Automatic Fallback**: Gracefully handles older CLI versions with text-based parsing
+- **Enhanced Error Reporting**: Extracts specific error messages and codes from JSON responses
+- **Session Tracking**: Captures session IDs for potential continuation of interrupted conversions
+
+> **Note**: These features require Claude Code CLI version 2.0.76 or later. Older versions will work with standard text output.
+
 ## Configuration
 
 ### Rate Limiting & Circuit Breaker
@@ -286,6 +325,33 @@ ralph --verbose
 # Combine with other options
 ralph --monitor --verbose --timeout 30
 ```
+
+### Session Continuity
+
+Ralph maintains session context across loop iterations for improved coherence:
+
+```bash
+# Sessions are enabled by default with --continue flag
+ralph --monitor                 # Uses session continuity
+
+# Start fresh without session context
+ralph --no-continue             # Isolated iterations
+
+# Reset session manually (clears context)
+ralph --reset-session           # Clears current session
+
+# Check session status
+cat .ralph_session              # View current session file
+cat .ralph_session_history      # View session transition history
+```
+
+**Session Auto-Reset Triggers:**
+- Circuit breaker opens (stagnation detected)
+- Manual interrupt (Ctrl+C / SIGINT)
+- Project completion (graceful exit)
+- Manual circuit breaker reset (`--reset-circuit`)
+
+Sessions are persisted to `.ralph_session` with a 24-hour expiration. The last 50 session transitions are logged to `.ralph_session_history` for debugging.
 
 ### Exit Thresholds
 
@@ -363,7 +429,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (165 tests)
+# Run all tests (276 tests)
 npm test
 
 # Run specific test suites
@@ -372,7 +438,11 @@ bats tests/unit/test_exit_detection.bats
 bats tests/unit/test_json_parsing.bats
 bats tests/unit/test_cli_modern.bats
 bats tests/unit/test_cli_parsing.bats
+bats tests/unit/test_session_continuity.bats
 bats tests/integration/test_loop_execution.bats
+bats tests/integration/test_prd_import.bats
+bats tests/integration/test_project_setup.bats
+bats tests/integration/test_installation.bats
 
 # Run error detection and circuit breaker tests
 ./tests/test_error_detection.sh
@@ -380,8 +450,8 @@ bats tests/integration/test_loop_execution.bats
 ```
 
 Current test status:
-- **165 tests** across 8 test files
-- **100% pass rate** (165/165 passing)
+- **276 tests** across 11 test files
+- **100% pass rate** (276/276 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, and installation workflows
 
@@ -590,6 +660,7 @@ ralph [OPTIONS]
   --no-continue           Disable session continuity (start fresh each loop)
   --reset-circuit         Reset the circuit breaker
   --circuit-status        Show circuit breaker status
+  --reset-session         Reset session state manually
 ```
 
 ### Project Commands (Per Project)
@@ -601,6 +672,7 @@ ralph --status               # Check current loop status
 ralph --verbose              # Enable detailed progress updates
 ralph --timeout 30           # Set 30-minute execution timeout
 ralph --calls 50             # Limit to 50 API calls per hour
+ralph --reset-session        # Reset session state manually
 ralph-monitor                # Manual monitoring dashboard
 ```
 
@@ -617,24 +689,25 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.9.3
+### Current Status: v0.9.8
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- 165 comprehensive tests (100% pass rate)
+- 276 comprehensive tests (100% pass rate)
 - tmux integration and live monitoring
-- PRD import functionality
+- PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
 - Modern CLI commands with JSON output support
 - CI/CD pipeline with GitHub Actions
 - Comprehensive installation test suite
+- Session lifecycle management with auto-reset triggers
 
 **Test Coverage Breakdown:**
-- Unit Tests: 111 (CLI parsing, JSON, exit detection, rate limiting)
-- Integration Tests: 54 (loop execution, edge cases, installation)
-- Test Files: 8
+- Unit Tests: 154 (CLI parsing, JSON, exit detection, rate limiting, session continuity)
+- Integration Tests: 122 (loop execution, edge cases, installation, project setup, PRD import)
+- Test Files: 11
 
 ### Path to v1.0.0 (~4 weeks)
 
