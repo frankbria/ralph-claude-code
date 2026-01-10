@@ -62,9 +62,6 @@
 
 **Remaining**:
 - [ ] #51 - Session expiration for .claude_session_id (P2)
-- [ ] #65 - Fix timeout command on MacOS (P2)
-- [ ] #44 - Stream Claude output to log file (P3)
-- [ ] #54 - Custom API base / proxy configuration (P3)
 - [ ] #24 - Create TESTING.md documentation (P3)
 - [ ] #25 - Create CONTRIBUTING.md guide (P3)
 - [ ] #26 - Update README with testing instructions (P3)
@@ -88,7 +85,6 @@
 - [ ] #21 - Implement metrics and analytics (P3)
 - [ ] #22 - Implement notification system (P3)
 - [ ] #23 - Implement backup and rollback system (P3)
-- [ ] #64 - Monorepo support and .ralphrc enhancements (P3)
 
 ### Phase 4: Validation Testing (0% Complete)
 
@@ -203,7 +199,6 @@
 | Issue | Phase | Title |
 |-------|-------|-------|
 | #51 | 1.5 | Session expiration for .claude_session_id |
-| #65 | 1.8 | Fix timeout command on MacOS |
 | #32 | 2.1 | Create Agent SDK proof of concept |
 | #33 | 2.2 | Define custom tools for Agent SDK |
 | #34 | 2.3 | Implement hybrid CLI/SDK architecture |
@@ -220,8 +215,6 @@
 ### P3 (Low - Nice to have)
 | Issue | Phase | Title |
 |-------|-------|-------|
-| #44 | 1.6 | Stream Claude output to log file |
-| #54 | 1.7 | Custom API base / proxy configuration |
 | #24 | 1.9 | Create TESTING.md documentation |
 | #25 | 1.10 | Create CONTRIBUTING.md guide |
 | #26 | 1.11 | Update README with testing instructions |
@@ -230,7 +223,6 @@
 | #21 | 3.7 | Implement metrics and analytics |
 | #22 | 3.8 | Implement notification system |
 | #23 | 3.9 | Implement backup and rollback system |
-| #64 | 3.10 | Monorepo support and .ralphrc enhancements |
 | #39 | 4.1 | Implement CLI enhancement tests |
 | #40 | 4.2 | Implement SDK integration tests |
 | #41 | 4.3 | Implement backward compatibility tests |
@@ -259,9 +251,9 @@
 
 | Category | Count |
 |----------|-------|
-| Total Open Issues | 40 |
-| P2 Issues | 14 |
-| P3 Issues | 15 |
+| Total Open Issues | 36 |
+| P2 Issues | 13 |
+| P3 Issues | 12 |
 | P4 Issues | 13 |
 | Closed Issues | 20 |
 | Total Tests | 276 |

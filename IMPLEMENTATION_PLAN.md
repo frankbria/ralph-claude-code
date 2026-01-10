@@ -15,9 +15,6 @@ Phase 1 focuses on modernizing Ralph's CLI integration with Claude Code, includi
 | Issue | Title | Priority | Status |
 |-------|-------|----------|--------|
 | #51 | Phase 1.5: Implement session expiration for .claude_session_id | P2 | Open |
-| #65 | Phase 1.8: Fix timeout command not found on MacOS | P2 | Open |
-| #44 | Phase 1.6: Stream Claude output to log file in real-time | P3 | Open |
-| #54 | Phase 1.7: Support custom API base / proxy configuration | P3 | Open |
 | #24 | Phase 1.9: Create TESTING.md documentation | P3 | Open |
 | #25 | Phase 1.10: Create CONTRIBUTING.md guide | P3 | Open |
 | #26 | Phase 1.11: Update README with testing instructions | P3 | Open |
@@ -57,7 +54,6 @@ Add configuration file support, infrastructure features, and advanced functional
 | #21 | Phase 3.7: Implement metrics and analytics | P3 | Open |
 | #22 | Phase 3.8: Implement notification system | P3 | Open |
 | #23 | Phase 3.9: Implement backup and rollback system | P3 | Open |
-| #64 | Phase 3.10: Monorepo support and .ralphrc enhancements | P3 | Open |
 
 ---
 
