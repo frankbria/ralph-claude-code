@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.6 | **Tests**: 239 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.7 | **Tests**: 257 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -45,6 +45,11 @@ The system uses a modular architecture with reusable components in the `lib/` di
 3. **lib/date_utils.sh** - Cross-platform date utilities
    - ISO timestamp generation for logging
    - Epoch time calculations for rate limiting
+
+4. **lib/platform_utils.sh** - Cross-platform system utilities
+   - Platform detection (Linux, macOS, Windows)
+   - Terminal multiplexer detection (tmux, Windows Terminal)
+   - Path format conversion for Windows compatibility
 
 ## Key Commands
 
@@ -219,7 +224,7 @@ Ralph installs to:
 - **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import)
 - **Templates**: `~/.ralph/templates/`
 - **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, platform_utils.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
@@ -275,7 +280,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (239 tests total)
+### Test Files (257 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -289,6 +294,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_installation.bats` | 14 | Global installation/uninstall workflows |
 | `test_project_setup.bats` | 36 | Project setup (setup.sh) validation |
 | `test_prd_import.bats` | 22 | PRD import (ralph_import.sh) workflows |
+| `test_platform_utils.bats` | 18 | Cross-platform utilities (Windows Terminal, path conversion) |
 
 ### Running Tests
 ```bash
@@ -303,6 +309,26 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Windows Terminal Support (v0.9.7)
+- Added cross-platform terminal multiplexer support for `--monitor` flag
+  - Windows: Uses Windows Terminal with split panes via `wt.exe`
+  - Linux/macOS: Continues to use tmux (no changes to existing behavior)
+- Added `lib/platform_utils.sh` with cross-platform utility functions:
+  - `get_platform()` - Returns "linux", "darwin", "windows", or "unknown"
+  - `is_windows()`, `is_macos()`, `is_linux()` - Platform detection helpers
+  - `has_tmux()`, `has_windows_terminal()` - Multiplexer availability checks
+  - `get_available_multiplexer()` - Returns best available multiplexer
+  - `get_git_bash_path()` - Locates Git Bash on Windows
+  - `unix_to_windows_path()` - Converts `/c/path` to `C:\path` format
+  - `get_windows_cwd()` - Gets current directory in Windows format
+- Added Windows CMD wrappers (`.cmd` files) for PowerShell/CMD compatibility
+  - `ralph.cmd`, `ralph-monitor.cmd`, `ralph-setup.cmd`, `ralph-import.cmd`
+  - Automatically created during installation on Windows
+- Fixed `log_status()` to output to stderr, preventing pollution of function return values
+- Platform-specific error messages for missing multiplexers
+- Added 18 new tests for platform utilities
+- Test count: 257 (up from 239)
 
 ### JSON Output & Session Management (v0.9.6)
 - Extended `parse_json_response()` to support Claude Code CLI JSON format
@@ -419,6 +445,17 @@ bats tests/unit/test_cli_parsing.bats
 - Added `lib/` directory to installation process for modular architecture
 - Fixed issue where `response_analyzer.sh` and `circuit_breaker.sh` were not being copied during global installation
 - All library components now properly installed to `~/.ralph/lib/`
+
+### PowerShell/CMD Compatibility
+
+Ralph scripts are bash scripts and won't run directly in PowerShell or CMD. The install script creates `.cmd` wrapper files on Windows that invoke bash:
+
+```cmd
+@echo off
+bash "%USERPROFILE%\.local\bin\ralph" %*
+```
+
+This allows running `ralph --monitor` from PowerShell or CMD after installation.
 
 ## Feature Development Quality Standards
 

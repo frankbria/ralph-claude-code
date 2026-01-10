@@ -29,7 +29,8 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
-- tmux integration for live monitoring
+- tmux integration for live monitoring (Linux/macOS)
+- **Windows Terminal support for split-pane monitoring (Windows)**
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
 - 165 passing tests across 8 test files
@@ -348,7 +349,8 @@ my-project/
 
 - **Bash 4.0+** - For script execution
 - **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code`
-- **tmux** - Terminal multiplexer for integrated monitoring (recommended)
+- **tmux** - Terminal multiplexer for integrated monitoring on Linux/macOS (recommended)
+- **Windows Terminal** - For integrated monitoring on Windows
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
 - **Standard Unix tools** - grep, date, etc.
@@ -385,7 +387,11 @@ Current test status:
 
 > **Note on Coverage**: Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. Test pass rate (100%) is the quality gate. See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
 
-### Installing tmux
+### Installing Terminal Multiplexer
+
+Ralph supports both tmux (Linux/macOS) and Windows Terminal (Windows) for integrated monitoring.
+
+#### Installing tmux (Linux/macOS)
 
 ```bash
 # Ubuntu/Debian
@@ -396,6 +402,19 @@ brew install tmux
 
 # CentOS/RHEL
 sudo yum install tmux
+```
+
+#### Installing Windows Terminal (Windows)
+
+```bash
+# Microsoft Store (recommended)
+# Search for "Windows Terminal" in Microsoft Store
+
+# Or using winget
+winget install Microsoft.WindowsTerminal
+
+# Or using chocolatey
+choco install microsoft-windows-terminal
 ```
 
 ## Monitoring and Debugging
@@ -563,7 +582,7 @@ ralph [OPTIONS]
   -c, --calls NUM         Set max calls per hour (default: 100)
   -p, --prompt FILE       Set prompt file (default: PROMPT.md)
   -s, --status            Show current status and exit
-  -m, --monitor           Start with tmux session and live monitor
+  -m, --monitor           Start with split-pane monitoring (tmux or Windows Terminal)
   -v, --verbose           Show detailed progress updates during execution
   -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
   --output-format FORMAT  Set output format: json (default) or text

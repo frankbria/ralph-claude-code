@@ -60,9 +60,18 @@ check_dependencies() {
     # Claude Code CLI will be downloaded automatically when first used
     log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
     
-    # Check tmux (optional)
-    if ! command -v tmux &> /dev/null; then
-        log "WARN" "tmux not found. Install for integrated monitoring: apt-get install tmux / brew install tmux"
+    # Check terminal multiplexer (optional, for --monitor flag)
+    if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+        # Windows: check for Windows Terminal
+        # WT_SESSION is set when running inside Windows Terminal
+        if [[ -z "$WT_SESSION" ]] && ! command -v wt.exe &> /dev/null && ! command -v wt &> /dev/null; then
+            log "WARN" "Windows Terminal not found. Install for integrated monitoring: winget install Microsoft.WindowsTerminal"
+        fi
+    else
+        # Linux/macOS: check for tmux
+        if ! command -v tmux &> /dev/null; then
+            log "WARN" "tmux not found. Install for integrated monitoring: apt-get install tmux / brew install tmux"
+        fi
     fi
     
     log "SUCCESS" "Dependencies check completed"
@@ -146,6 +155,25 @@ EOF
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
     chmod +x "$RALPH_HOME/lib/"*.sh
+
+    # Create Windows CMD wrappers for PowerShell/CMD compatibility
+    if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+        log "INFO" "Creating Windows CMD wrappers for PowerShell/CMD compatibility..."
+
+        echo '@echo off' > "$INSTALL_DIR/ralph.cmd"
+        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph" %*' >> "$INSTALL_DIR/ralph.cmd"
+
+        echo '@echo off' > "$INSTALL_DIR/ralph-monitor.cmd"
+        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph-monitor" %*' >> "$INSTALL_DIR/ralph-monitor.cmd"
+
+        echo '@echo off' > "$INSTALL_DIR/ralph-setup.cmd"
+        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph-setup" %*' >> "$INSTALL_DIR/ralph-setup.cmd"
+
+        echo '@echo off' > "$INSTALL_DIR/ralph-import.cmd"
+        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph-import" %*' >> "$INSTALL_DIR/ralph-import.cmd"
+
+        log "SUCCESS" "Windows CMD wrappers created"
+    fi
 
     log "SUCCESS" "Ralph scripts installed to $INSTALL_DIR"
 }
