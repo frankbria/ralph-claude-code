@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.7 | **Tests**: 265 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.8 | **Tests**: 276 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -19,6 +19,9 @@ The system consists of four main bash scripts and a modular library system:
 3. **setup.sh** - Project initialization script for new Ralph projects
 4. **create_files.sh** - Bootstrap script that creates the entire Ralph system
 5. **ralph_import.sh** - PRD/specification import tool that converts documents to Ralph format
+   - Uses modern Claude Code CLI with `--output-format json` for structured responses
+   - Implements `detect_response_format()` and `parse_conversion_response()` for JSON parsing
+   - Backward compatible with older CLI versions (automatic text fallback)
 
 ### Library Components (lib/)
 
@@ -295,7 +298,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_edge_cases.bats` | 20 | Edge case handling |
 | `test_installation.bats` | 14 | Global installation/uninstall workflows |
 | `test_project_setup.bats` | 36 | Project setup (setup.sh) validation |
-| `test_prd_import.bats` | 22 | PRD import (ralph_import.sh) workflows |
+| `test_prd_import.bats` | 33 | PRD import (ralph_import.sh) workflows + modern CLI tests |
 
 ### Running Tests
 ```bash
@@ -310,6 +313,26 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Modern CLI for PRD Import (v0.9.8)
+- Modernized `ralph_import.sh` to use Claude Code CLI JSON output format
+  - Added `--output-format json` flag for structured responses
+  - Implemented `detect_response_format()` for JSON vs text detection
+  - Implemented `parse_conversion_response()` for extracting JSON fields
+- Enhanced error handling with structured JSON error messages
+  - Extracts `error_message` and `error_code` from JSON metadata
+  - Provides specific, actionable feedback on conversion failures
+- Improved file verification with JSON-derived status information
+  - Reports files created vs missing based on JSON metadata
+  - Logs session ID for potential conversion continuation
+- Backward compatibility with older CLI versions
+  - Automatic fallback to text-based parsing when JSON unavailable
+  - Version detection with `check_claude_version()` function
+- Enhanced logging with modern CLI awareness
+  - Reports which CLI mode is being used
+  - Detailed file creation status reporting
+- Added 11 new tests for modern CLI features (tests 23-33)
+- Test count: 276 (up from 265)
 
 ### Session Lifecycle Management (v0.9.7)
 - Added complete session lifecycle management with automatic reset triggers:
