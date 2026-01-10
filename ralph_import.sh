@@ -54,7 +54,8 @@ detect_response_format() {
     fi
 
     # Check if file starts with { or [ (JSON indicators)
-    local first_char=$(head -c 1 "$output_file" 2>/dev/null | tr -d '[:space:]')
+    # Use grep to find first non-whitespace character (handles leading whitespace)
+    local first_char=$(grep -m1 -o '[^[:space:]]' "$output_file" 2>/dev/null)
 
     if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
         echo "text"
@@ -125,6 +126,7 @@ parse_conversion_response() {
 }
 
 # Check Claude Code CLI version for modern features
+# Uses numeric comparison for proper semantic versioning
 check_claude_version() {
     local version
     version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -134,9 +136,32 @@ check_claude_version() {
         return 1
     fi
 
-    # Simple version comparison (assumes semantic versioning)
-    # For production use, consider a more robust version comparison
-    if [[ "$version" < "$CLAUDE_MIN_VERSION" ]]; then
+    # Numeric semantic version comparison
+    # Split versions into major.minor.patch components
+    local ver_major ver_minor ver_patch
+    local min_major min_minor min_patch
+
+    IFS='.' read -r ver_major ver_minor ver_patch <<< "$version"
+    IFS='.' read -r min_major min_minor min_patch <<< "$CLAUDE_MIN_VERSION"
+
+    # Compare major version
+    if [[ $ver_major -lt $min_major ]]; then
+        log "WARN" "Claude Code CLI version $version is below recommended $CLAUDE_MIN_VERSION"
+        return 1
+    elif [[ $ver_major -gt $min_major ]]; then
+        return 0
+    fi
+
+    # Major equal, compare minor version
+    if [[ $ver_minor -lt $min_minor ]]; then
+        log "WARN" "Claude Code CLI version $version is below recommended $CLAUDE_MIN_VERSION"
+        return 1
+    elif [[ $ver_minor -gt $min_minor ]]; then
+        return 0
+    fi
+
+    # Minor equal, compare patch version
+    if [[ $ver_patch -lt $min_patch ]]; then
         log "WARN" "Claude Code CLI version $version is below recommended $CLAUDE_MIN_VERSION"
         return 1
     fi
@@ -314,21 +339,29 @@ PROMPTEOF
     # Build and execute Claude Code command
     # Modern CLI: Use --output-format json and --allowedTools for structured output
     # Fallback: Standard CLI invocation for older versions
+    # Note: stderr is written to separate file to avoid corrupting JSON output
+    local stderr_file="${CONVERSION_OUTPUT_FILE}.err"
+
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern CLI invocation with JSON output and controlled tool permissions
-        # Note: --allowedTools permits file operations without user prompts
-        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2>&1; then
+        # --allowedTools permits file operations without user prompts
+        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" --allowedTools $CLAUDE_ALLOWED_TOOLS < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
             cli_exit_code=0
         else
             cli_exit_code=$?
         fi
     else
         # Standard CLI invocation (backward compatible)
-        if $CLAUDE_CODE_CMD < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2>&1; then
+        if $CLAUDE_CODE_CMD < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
             cli_exit_code=0
         else
             cli_exit_code=$?
         fi
+    fi
+
+    # Log stderr if there was any (for debugging)
+    if [[ -s "$stderr_file" ]]; then
+        log "WARN" "CLI stderr output detected (see $stderr_file)"
     fi
 
     # Process the response
@@ -372,36 +405,56 @@ PROMPTEOF
     # Check CLI exit code
     if [[ $cli_exit_code -ne 0 ]]; then
         log "ERROR" "PRD conversion failed (exit code: $cli_exit_code)"
-        rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE"
+        rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE" "$stderr_file"
         exit 1
     fi
 
-    log "SUCCESS" "PRD conversion completed"
+    # Use PARSED_RESULT for success message if available
+    if [[ "$json_parsed" == "true" && -n "$PARSED_RESULT" && "$PARSED_RESULT" != "null" ]]; then
+        log "SUCCESS" "PRD conversion completed: $PARSED_RESULT"
+    else
+        log "SUCCESS" "PRD conversion completed"
+    fi
 
     # Clean up temp files
-    rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE"
+    rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE" "$stderr_file"
 
     # Verify files were created
+    # Use PARSED_FILES_CREATED from JSON if available, otherwise check filesystem
     local missing_files=()
     local created_files=()
+    local expected_files=("PROMPT.md" "@fix_plan.md" "specs/requirements.md")
 
-    if [[ -f "PROMPT.md" ]]; then
-        created_files+=("PROMPT.md")
-    else
-        missing_files+=("PROMPT.md")
+    # If JSON provided files_created, use that to inform verification
+    if [[ "$json_parsed" == "true" && -n "$PARSED_FILES_CREATED" && "$PARSED_FILES_CREATED" != "[]" ]]; then
+        # Parse JSON array and verify each file exists
+        local json_files
+        json_files=$(echo "$PARSED_FILES_CREATED" | jq -r '.[]' 2>/dev/null)
+        if [[ -n "$json_files" ]]; then
+            while IFS= read -r file; do
+                if [[ -f "$file" ]]; then
+                    created_files+=("$file")
+                else
+                    missing_files+=("$file")
+                fi
+            done <<< "$json_files"
+        fi
     fi
 
-    if [[ -f "@fix_plan.md" ]]; then
-        created_files+=("@fix_plan.md")
-    else
-        missing_files+=("@fix_plan.md")
-    fi
-
-    if [[ -f "specs/requirements.md" ]]; then
-        created_files+=("specs/requirements.md")
-    else
-        missing_files+=("specs/requirements.md")
-    fi
+    # Always verify expected files exist (filesystem is source of truth)
+    for file in "${expected_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            # Add to created_files if not already there
+            if [[ ! " ${created_files[*]} " =~ " ${file} " ]]; then
+                created_files+=("$file")
+            fi
+        else
+            # Add to missing_files if not already there
+            if [[ ! " ${missing_files[*]} " =~ " ${file} " ]]; then
+                missing_files+=("$file")
+            fi
+        fi
+    done
 
     # Report created files
     if [[ ${#created_files[@]} -gt 0 ]]; then

@@ -1,8 +1,8 @@
 # Ralph for Claude Code
 
-![Version](https://img.shields.io/badge/version-0.9.3-blue)
+![Version](https://img.shields.io/badge/version-0.9.8-blue)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
-![Tests](https://img.shields.io/badge/tests-165%20passing-green)
+![Tests](https://img.shields.io/badge/tests-276%20passing-green)
 ![Coverage](https://img.shields.io/badge/coverage-informational-lightgrey)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -15,9 +15,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.3 - Active Development
+**Version**: v0.9.8 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 165 tests, 100% pass rate
+**Test Coverage**: 276 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -609,24 +609,25 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.9.3
+### Current Status: v0.9.8
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- 165 comprehensive tests (100% pass rate)
+- 276 comprehensive tests (100% pass rate)
 - tmux integration and live monitoring
-- PRD import functionality
+- PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
 - Modern CLI commands with JSON output support
 - CI/CD pipeline with GitHub Actions
 - Comprehensive installation test suite
+- Session lifecycle management with auto-reset triggers
 
 **Test Coverage Breakdown:**
-- Unit Tests: 111 (CLI parsing, JSON, exit detection, rate limiting)
-- Integration Tests: 54 (loop execution, edge cases, installation)
-- Test Files: 8
+- Unit Tests: 154 (CLI parsing, JSON, exit detection, rate limiting, session continuity)
+- Integration Tests: 122 (loop execution, edge cases, installation, project setup, PRD import)
+- Test Files: 11
 
 ### Path to v1.0.0 (~4 weeks)
 
