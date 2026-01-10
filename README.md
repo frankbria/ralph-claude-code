@@ -32,7 +32,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - tmux integration for live monitoring
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
-- 165 passing tests across 8 test files
+- 276 passing tests across 11 test files
 
 ### Recent Improvements
 
@@ -372,7 +372,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (165 tests)
+# Run all tests (276 tests)
 npm test
 
 # Run specific test suites
@@ -389,8 +389,8 @@ bats tests/integration/test_loop_execution.bats
 ```
 
 Current test status:
-- **165 tests** across 8 test files
-- **100% pass rate** (165/165 passing)
+- **276 tests** across 11 test files
+- **100% pass rate** (276/276 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, and installation workflows
 

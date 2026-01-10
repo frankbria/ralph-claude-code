@@ -10,7 +10,8 @@ CLAUDE_CODE_CMD="claude"
 # Modern CLI Configuration (Phase 1.1)
 # These flags enable structured JSON output and controlled file operations
 CLAUDE_OUTPUT_FORMAT="json"
-CLAUDE_ALLOWED_TOOLS='"Read" "Write" "Bash(mkdir:*)" "Bash(cp:*)"'
+# Use bash array for proper quoting of each tool argument
+declare -a CLAUDE_ALLOWED_TOOLS=('Read' 'Write' 'Bash(mkdir:*)' 'Bash(cp:*)')
 CLAUDE_MIN_VERSION="2.0.76"  # Minimum version for modern CLI features
 
 # Temporary file names
@@ -143,6 +144,14 @@ check_claude_version() {
 
     IFS='.' read -r ver_major ver_minor ver_patch <<< "$version"
     IFS='.' read -r min_major min_minor min_patch <<< "$CLAUDE_MIN_VERSION"
+
+    # Default empty components to 0 (handles versions like "2.1" without patch)
+    ver_major=${ver_major:-0}
+    ver_minor=${ver_minor:-0}
+    ver_patch=${ver_patch:-0}
+    min_major=${min_major:-0}
+    min_minor=${min_minor:-0}
+    min_patch=${min_patch:-0}
 
     # Compare major version
     if [[ $ver_major -lt $min_major ]]; then
@@ -362,7 +371,8 @@ PROMPTEOF
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern CLI invocation with JSON output and controlled tool permissions
         # --allowedTools permits file operations without user prompts
-        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" --allowedTools $CLAUDE_ALLOWED_TOOLS < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
+        # Array expansion preserves quoting for each tool argument
+        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
             cli_exit_code=0
         else
             cli_exit_code=$?
@@ -402,7 +412,7 @@ PROMPTEOF
                     if [[ -n "$PARSED_ERROR_CODE" ]]; then
                         log "ERROR" "Error code: $PARSED_ERROR_CODE"
                     fi
-                    rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE"
+                    rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE" "$stderr_file"
                     exit 1
                 fi
 
@@ -444,17 +454,22 @@ PROMPTEOF
 
     # If JSON provided files_created, use that to inform verification
     if [[ "$json_parsed" == "true" && -n "$PARSED_FILES_CREATED" && "$PARSED_FILES_CREATED" != "[]" ]]; then
-        # Parse JSON array and verify each file exists
-        local json_files
-        json_files=$(echo "$PARSED_FILES_CREATED" | jq -r '.[]' 2>/dev/null)
-        if [[ -n "$json_files" ]]; then
-            while IFS= read -r file; do
-                if [[ -f "$file" ]]; then
-                    created_files+=("$file")
-                else
-                    missing_files+=("$file")
-                fi
-            done <<< "$json_files"
+        # Validate that PARSED_FILES_CREATED is a valid JSON array before iteration
+        local is_array
+        is_array=$(echo "$PARSED_FILES_CREATED" | jq -e 'type == "array"' 2>/dev/null)
+        if [[ "$is_array" == "true" ]]; then
+            # Parse JSON array and verify each file exists
+            local json_files
+            json_files=$(echo "$PARSED_FILES_CREATED" | jq -r '.[]' 2>/dev/null)
+            if [[ -n "$json_files" ]]; then
+                while IFS= read -r file; do
+                    if [[ -n "$file" && -f "$file" ]]; then
+                        created_files+=("$file")
+                    elif [[ -n "$file" ]]; then
+                        missing_files+=("$file")
+                    fi
+                done <<< "$json_files"
+            fi
         fi
     fi
 
