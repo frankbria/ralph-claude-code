@@ -657,7 +657,7 @@ EOF
     assert_equal "$output_format" "json"
 }
 
-@test "analyze_response persists sessionId to .session_id file" {
+@test "analyze_response persists sessionId to .claude_session_id file" {
     local output_file="$LOG_DIR/test_output.log"
 
     cat > "$output_file" << 'EOF'
@@ -670,9 +670,9 @@ EOF
     analyze_response "$output_file" 1
 
     # Session ID should be persisted for continuity
-    [[ -f ".session_id" ]] || skip "Session persistence not yet implemented"
+    [[ -f ".claude_session_id" ]] || skip "Session persistence not yet implemented"
 
-    local stored_session=$(cat .session_id)
+    local stored_session=$(cat .claude_session_id)
     [[ "$stored_session" == *"session-persist-test-123"* ]]
 }
 
@@ -683,15 +683,15 @@ EOF
 @test "store_session_id writes session to file with timestamp" {
     run store_session_id "session-test-abc"
 
-    [[ -f ".session_id" ]] || skip "store_session_id not yet implemented"
+    [[ -f ".claude_session_id" ]] || skip "store_session_id not yet implemented"
 
-    local content=$(cat .session_id)
+    local content=$(cat .claude_session_id)
     [[ "$content" == *"session-test-abc"* ]]
 }
 
 @test "get_last_session_id retrieves stored session" {
     # First store a session
-    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > .session_id
+    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > .claude_session_id
 
     run get_last_session_id
 
@@ -699,7 +699,7 @@ EOF
 }
 
 @test "get_last_session_id returns empty when no session file" {
-    rm -f .session_id
+    rm -f .claude_session_id
 
     run get_last_session_id
 
@@ -711,7 +711,7 @@ EOF
 @test "should_resume_session returns true for recent session" {
     # Store a recent session (simulated as current timestamp)
     local now=$(date +%s)
-    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > .session_id
+    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > .claude_session_id
 
     run should_resume_session
 
@@ -721,7 +721,7 @@ EOF
 
 @test "should_resume_session returns false for old session" {
     # Store an old session (24+ hours ago)
-    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > .session_id
+    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > .claude_session_id
 
     run should_resume_session
 
@@ -730,7 +730,7 @@ EOF
 }
 
 @test "should_resume_session returns false when no session file" {
-    rm -f .session_id
+    rm -f .claude_session_id
 
     run should_resume_session
 

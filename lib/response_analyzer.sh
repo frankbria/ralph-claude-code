@@ -72,7 +72,6 @@ parse_json_response() {
 
     # Detect JSON format by checking for Claude CLI fields
     local has_result_field=$(jq -r 'has("result")' "$output_file" 2>/dev/null)
-    local has_session_id_field=$(jq -r 'has("sessionId")' "$output_file" 2>/dev/null)
 
     # Extract fields - support both flat format and Claude CLI format
     # Priority: Claude CLI fields first, then flat format fields
@@ -94,6 +93,10 @@ parse_json_response() {
     local files_modified=$(jq -r '.metadata.files_changed // .files_modified // 0' "$output_file" 2>/dev/null)
 
     # Error count: from flat format OR derived from metadata.has_errors
+    # Note: When only has_errors=true is present (without explicit error_count),
+    # we set error_count=1 as a minimum. This is defensive programming since
+    # the stuck detection threshold is >5 errors, so 1 error won't trigger it.
+    # Actual error count may be higher, but precise count isn't critical for our logic.
     local error_count=$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)
     local has_errors=$(jq -r '.metadata.has_errors // false' "$output_file" 2>/dev/null)
     if [[ "$has_errors" == "true" && "$error_count" == "0" ]]; then
@@ -232,9 +235,10 @@ analyze_response() {
             local json_confidence=$(jq -r '.confidence' .json_parse_result 2>/dev/null || echo "0")
             local session_id=$(jq -r '.session_id' .json_parse_result 2>/dev/null || echo "")
 
-            # Persist session ID if present
+            # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
                 store_session_id "$session_id"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Persisted session ID: $session_id" >&2
             fi
 
             # JSON parsing provides high confidence
@@ -567,8 +571,8 @@ detect_stuck_loop() {
 # SESSION MANAGEMENT FUNCTIONS
 # =============================================================================
 
-# Session file location
-SESSION_FILE=".session_id"
+# Session file location - standardized across ralph_loop.sh and response_analyzer.sh
+SESSION_FILE=".claude_session_id"
 # Session expiration time in seconds (24 hours)
 SESSION_EXPIRATION_SECONDS=86400
 
@@ -628,16 +632,24 @@ should_resume_session() {
     local session_time
 
     # Parse ISO timestamp to epoch - try multiple formats for cross-platform compatibility
+    # Strip milliseconds if present (e.g., 2026-01-09T10:30:00.123+00:00 → 2026-01-09T10:30:00+00:00)
+    local clean_timestamp="${timestamp}"
+    if [[ "$timestamp" =~ \.[0-9]+[+-Z] ]]; then
+        clean_timestamp=$(echo "$timestamp" | sed 's/\.[0-9]*\([+-Z]\)/\1/')
+    fi
+
     if command -v gdate &>/dev/null; then
         # macOS with coreutils
-        session_time=$(gdate -d "$timestamp" +%s 2>/dev/null)
+        session_time=$(gdate -d "$clean_timestamp" +%s 2>/dev/null)
     elif date --version 2>&1 | grep -q GNU; then
         # GNU date (Linux)
-        session_time=$(date -d "$timestamp" +%s 2>/dev/null)
+        session_time=$(date -d "$clean_timestamp" +%s 2>/dev/null)
     else
         # BSD date (macOS without coreutils) - try parsing ISO format
-        # Format: 2026-01-09T10:30:00+00:00 or similar
-        session_time=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${timestamp%[+-]*}" +%s 2>/dev/null)
+        # Format: 2026-01-09T10:30:00+00:00 or 2026-01-09T10:30:00Z
+        # Strip timezone suffix for BSD date parsing
+        local date_only="${clean_timestamp%[+-Z]*}"
+        session_time=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$date_only" +%s 2>/dev/null)
     fi
 
     # If we couldn't parse the timestamp, consider session expired

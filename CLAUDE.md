@@ -36,7 +36,7 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Supports both flat JSON format and Claude CLI format (`result`, `sessionId`, `metadata`)
    - Extracts structured fields: status, exit_signal, work_type, files_modified
    - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
-   - Automatic session persistence to `.session_id` file with 24-hour expiration
+   - Automatic session persistence to `.claude_session_id` file with 24-hour expiration
    - Detects test-only loops and stuck error patterns
    - Two-stage error filtering to eliminate false positives
    - Multi-line error matching for accurate stuck loop detection
@@ -314,7 +314,7 @@ bats tests/unit/test_cli_parsing.bats
   - `get_last_session_id()` - Retrieves stored session ID
   - `should_resume_session()` - Checks session validity (24-hour expiration)
 - Added `get_epoch_seconds()` to date_utils.sh for cross-platform epoch time
-- Auto-persists sessionId to `.session_id` file during response analysis
+- Auto-persists sessionId to `.claude_session_id` file during response analysis
 - Added 16 new tests covering Claude CLI format and session management
 - Test count: 239 (up from 223)
 
