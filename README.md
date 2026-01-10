@@ -219,6 +219,17 @@ Ralph-import creates a complete project with:
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
+### Modern CLI Features (v0.9.8)
+
+Ralph-import uses modern Claude Code CLI features for improved reliability:
+
+- **JSON Output Format**: Structured responses enable precise parsing of conversion results
+- **Automatic Fallback**: Gracefully handles older CLI versions with text-based parsing
+- **Enhanced Error Reporting**: Extracts specific error messages and codes from JSON responses
+- **Session Tracking**: Captures session IDs for potential continuation of interrupted conversions
+
+> **Note**: These features require Claude Code CLI version 2.0.76 or later. Older versions will work with standard text output.
+
 ## Configuration
 
 ### Rate Limiting & Circuit Breaker

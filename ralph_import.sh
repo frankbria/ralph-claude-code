@@ -1,10 +1,21 @@
 #!/bin/bash
 
 # Ralph Import - Convert PRDs to Ralph format using Claude Code
+# Version: 0.9.8 - Modern CLI support with JSON output parsing
 set -e
 
 # Configuration
 CLAUDE_CODE_CMD="claude"
+
+# Modern CLI Configuration (Phase 1.1)
+# These flags enable structured JSON output and controlled file operations
+CLAUDE_OUTPUT_FORMAT="json"
+CLAUDE_ALLOWED_TOOLS='"Read" "Write" "Bash(mkdir:*)" "Bash(cp:*)"'
+CLAUDE_MIN_VERSION="2.0.76"  # Minimum version for modern CLI features
+
+# Temporary file names
+CONVERSION_OUTPUT_FILE=".ralph_conversion_output.json"
+CONVERSION_PROMPT_FILE=".ralph_conversion_prompt.md"
 
 # Colors
 RED='\033[0;31m'
@@ -17,15 +28,120 @@ log() {
     local level=$1
     local message=$2
     local color=""
-    
+
     case $level in
         "INFO")  color=$BLUE ;;
         "WARN")  color=$YELLOW ;;
         "ERROR") color=$RED ;;
         "SUCCESS") color=$GREEN ;;
     esac
-    
+
     echo -e "${color}[$(date '+%H:%M:%S')] [$level] $message${NC}"
+}
+
+# =============================================================================
+# JSON OUTPUT FORMAT DETECTION AND PARSING
+# =============================================================================
+
+# Detect output format (json or text)
+# Returns: "json" if valid JSON, "text" otherwise
+detect_response_format() {
+    local output_file=$1
+
+    if [[ ! -f "$output_file" ]] || [[ ! -s "$output_file" ]]; then
+        echo "text"
+        return
+    fi
+
+    # Check if file starts with { or [ (JSON indicators)
+    local first_char=$(head -c 1 "$output_file" 2>/dev/null | tr -d '[:space:]')
+
+    if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
+        echo "text"
+        return
+    fi
+
+    # Validate as JSON using jq
+    if command -v jq &>/dev/null && jq empty "$output_file" 2>/dev/null; then
+        echo "json"
+    else
+        echo "text"
+    fi
+}
+
+# Parse JSON response and extract conversion status
+# Returns: 0 on success, 1 on error
+# Sets global variables for parsed values
+parse_conversion_response() {
+    local output_file=$1
+
+    if [[ ! -f "$output_file" ]]; then
+        return 1
+    fi
+
+    # Check if jq is available
+    if ! command -v jq &>/dev/null; then
+        log "WARN" "jq not found, skipping JSON parsing"
+        return 1
+    fi
+
+    # Validate JSON first
+    if ! jq empty "$output_file" 2>/dev/null; then
+        log "WARN" "Invalid JSON in output, falling back to text parsing"
+        return 1
+    fi
+
+    # Extract fields from JSON response
+    # Supports both flat format and Claude CLI format with metadata
+
+    # Result/summary field
+    PARSED_RESULT=$(jq -r '.result // .summary // ""' "$output_file" 2>/dev/null)
+
+    # Session ID (for potential continuation)
+    PARSED_SESSION_ID=$(jq -r '.sessionId // .session_id // ""' "$output_file" 2>/dev/null)
+
+    # Files changed count
+    PARSED_FILES_CHANGED=$(jq -r '.metadata.files_changed // .files_changed // 0' "$output_file" 2>/dev/null)
+
+    # Has errors flag
+    PARSED_HAS_ERRORS=$(jq -r '.metadata.has_errors // .has_errors // false' "$output_file" 2>/dev/null)
+
+    # Completion status
+    PARSED_COMPLETION_STATUS=$(jq -r '.metadata.completion_status // .completion_status // "unknown"' "$output_file" 2>/dev/null)
+
+    # Error message (if any)
+    PARSED_ERROR_MESSAGE=$(jq -r '.metadata.error_message // .error_message // ""' "$output_file" 2>/dev/null)
+
+    # Error code (if any)
+    PARSED_ERROR_CODE=$(jq -r '.metadata.error_code // .error_code // ""' "$output_file" 2>/dev/null)
+
+    # Files created (as array)
+    PARSED_FILES_CREATED=$(jq -r '.metadata.files_created // [] | @json' "$output_file" 2>/dev/null)
+
+    # Missing files (as array)
+    PARSED_MISSING_FILES=$(jq -r '.metadata.missing_files // [] | @json' "$output_file" 2>/dev/null)
+
+    return 0
+}
+
+# Check Claude Code CLI version for modern features
+check_claude_version() {
+    local version
+    version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
+    if [[ -z "$version" ]]; then
+        log "WARN" "Could not determine Claude Code CLI version"
+        return 1
+    fi
+
+    # Simple version comparison (assumes semantic versioning)
+    # For production use, consider a more robust version comparison
+    if [[ "$version" < "$CLAUDE_MIN_VERSION" ]]; then
+        log "WARN" "Claude Code CLI version $version is below recommended $CLAUDE_MIN_VERSION"
+        return 1
+    fi
+
+    return 0
 }
 
 show_help() {
@@ -78,11 +194,21 @@ check_dependencies() {
 convert_prd() {
     local source_file=$1
     local project_name=$2
-    
+    local use_modern_cli=true
+    local cli_exit_code=0
+
     log "INFO" "Converting PRD to Ralph format using Claude Code..."
-    
+
+    # Check for modern CLI support
+    if ! check_claude_version 2>/dev/null; then
+        log "INFO" "Using standard CLI mode (modern features may not be available)"
+        use_modern_cli=false
+    else
+        log "INFO" "Using modern CLI with JSON output format"
+    fi
+
     # Create conversion prompt
-    cat > .ralph_conversion_prompt.md << 'PROMPTEOF'
+    cat > "$CONVERSION_PROMPT_FILE" << 'PROMPTEOF'
 # PRD to Ralph Conversion Task
 
 You are tasked with converting a Product Requirements Document (PRD) or specification into Ralph for Claude Code format.
@@ -90,7 +216,7 @@ You are tasked with converting a Product Requirements Document (PRD) or specific
 ## Input Analysis
 Analyze the provided specification file and extract:
 - Project goals and objectives
-- Core features and requirements  
+- Core features and requirements
 - Technical constraints and preferences
 - Priority levels and phases
 - Success criteria
@@ -138,7 +264,7 @@ You are Ralph, an autonomous AI development agent working on a [PROJECT NAME] pr
 Follow @fix_plan.md and choose the most important item to implement next.
 ```
 
-### 2. @fix_plan.md  
+### 2. @fix_plan.md
 Convert requirements into a prioritized task list:
 ```markdown
 # Ralph Fix Plan
@@ -146,7 +272,7 @@ Convert requirements into a prioritized task list:
 ## High Priority
 [Extract and convert critical features into actionable tasks]
 
-## Medium Priority  
+## Medium Priority
 [Secondary features and enhancements]
 
 ## Low Priority
@@ -166,7 +292,7 @@ Create detailed technical specifications:
 
 [Convert PRD into detailed technical requirements including:]
 - System architecture requirements
-- Data models and structures  
+- Data models and structures
 - API specifications
 - User interface requirements
 - Performance requirements
@@ -185,28 +311,113 @@ Create detailed technical specifications:
 
 PROMPTEOF
 
-    # Run Claude Code with the source file and prompt
-    if $CLAUDE_CODE_CMD < .ralph_conversion_prompt.md; then
-        log "SUCCESS" "PRD conversion completed"
-        
-        # Clean up temp file
-        rm -f .ralph_conversion_prompt.md
-        
-        # Verify files were created
-        local missing_files=()
-        if [[ ! -f "PROMPT.md" ]]; then missing_files+=("PROMPT.md"); fi
-        if [[ ! -f "@fix_plan.md" ]]; then missing_files+=("@fix_plan.md"); fi
-        if [[ ! -f "specs/requirements.md" ]]; then missing_files+=("specs/requirements.md"); fi
-        
-        if [[ ${#missing_files[@]} -ne 0 ]]; then
-            log "WARN" "Some files were not created: ${missing_files[*]}"
-            log "INFO" "You may need to create these files manually or run the conversion again"
+    # Build and execute Claude Code command
+    # Modern CLI: Use --output-format json and --allowedTools for structured output
+    # Fallback: Standard CLI invocation for older versions
+    if [[ "$use_modern_cli" == "true" ]]; then
+        # Modern CLI invocation with JSON output and controlled tool permissions
+        # Note: --allowedTools permits file operations without user prompts
+        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2>&1; then
+            cli_exit_code=0
+        else
+            cli_exit_code=$?
         fi
-        
     else
-        log "ERROR" "PRD conversion failed"
-        rm -f .ralph_conversion_prompt.md
+        # Standard CLI invocation (backward compatible)
+        if $CLAUDE_CODE_CMD < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2>&1; then
+            cli_exit_code=0
+        else
+            cli_exit_code=$?
+        fi
+    fi
+
+    # Process the response
+    local output_format="text"
+    local json_parsed=false
+
+    if [[ -f "$CONVERSION_OUTPUT_FILE" ]]; then
+        output_format=$(detect_response_format "$CONVERSION_OUTPUT_FILE")
+
+        if [[ "$output_format" == "json" ]]; then
+            if parse_conversion_response "$CONVERSION_OUTPUT_FILE"; then
+                json_parsed=true
+                log "INFO" "Parsed JSON response from Claude CLI"
+
+                # Check for errors in JSON response
+                if [[ "$PARSED_HAS_ERRORS" == "true" && "$PARSED_COMPLETION_STATUS" == "failed" ]]; then
+                    log "ERROR" "PRD conversion failed"
+                    if [[ -n "$PARSED_ERROR_MESSAGE" ]]; then
+                        log "ERROR" "Error: $PARSED_ERROR_MESSAGE"
+                    fi
+                    if [[ -n "$PARSED_ERROR_CODE" ]]; then
+                        log "ERROR" "Error code: $PARSED_ERROR_CODE"
+                    fi
+                    rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE"
+                    exit 1
+                fi
+
+                # Log session ID if available (for potential continuation)
+                if [[ -n "$PARSED_SESSION_ID" && "$PARSED_SESSION_ID" != "null" ]]; then
+                    log "INFO" "Session ID: $PARSED_SESSION_ID"
+                fi
+
+                # Log files changed from metadata
+                if [[ -n "$PARSED_FILES_CHANGED" && "$PARSED_FILES_CHANGED" != "0" ]]; then
+                    log "INFO" "Files changed: $PARSED_FILES_CHANGED"
+                fi
+            fi
+        fi
+    fi
+
+    # Check CLI exit code
+    if [[ $cli_exit_code -ne 0 ]]; then
+        log "ERROR" "PRD conversion failed (exit code: $cli_exit_code)"
+        rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE"
         exit 1
+    fi
+
+    log "SUCCESS" "PRD conversion completed"
+
+    # Clean up temp files
+    rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE"
+
+    # Verify files were created
+    local missing_files=()
+    local created_files=()
+
+    if [[ -f "PROMPT.md" ]]; then
+        created_files+=("PROMPT.md")
+    else
+        missing_files+=("PROMPT.md")
+    fi
+
+    if [[ -f "@fix_plan.md" ]]; then
+        created_files+=("@fix_plan.md")
+    else
+        missing_files+=("@fix_plan.md")
+    fi
+
+    if [[ -f "specs/requirements.md" ]]; then
+        created_files+=("specs/requirements.md")
+    else
+        missing_files+=("specs/requirements.md")
+    fi
+
+    # Report created files
+    if [[ ${#created_files[@]} -gt 0 ]]; then
+        log "INFO" "Created files: ${created_files[*]}"
+    fi
+
+    # Report and handle missing files
+    if [[ ${#missing_files[@]} -ne 0 ]]; then
+        log "WARN" "Some files were not created: ${missing_files[*]}"
+
+        # If JSON parsing provided missing files info, use that for better feedback
+        if [[ "$json_parsed" == "true" && -n "$PARSED_MISSING_FILES" && "$PARSED_MISSING_FILES" != "[]" ]]; then
+            log "INFO" "Missing files reported by Claude: $PARSED_MISSING_FILES"
+        fi
+
+        log "INFO" "You may need to create these files manually or run the conversion again"
     fi
 }
 
