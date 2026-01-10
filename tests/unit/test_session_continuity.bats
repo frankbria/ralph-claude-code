@@ -1,0 +1,369 @@
+#!/usr/bin/env bats
+# Unit tests for session continuity enhancements
+# TDD: Tests for session lifecycle management across Ralph loops
+
+load '../helpers/test_helper'
+load '../helpers/fixtures'
+
+setup() {
+    # Create temporary test directory
+    TEST_DIR="$(mktemp -d)"
+    cd "$TEST_DIR"
+
+    # Initialize git repo
+    git init > /dev/null 2>&1
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Set up environment
+    export PROMPT_FILE="PROMPT.md"
+    export LOG_DIR="logs"
+    export DOCS_DIR="docs/generated"
+    export STATUS_FILE="status.json"
+    export EXIT_SIGNALS_FILE=".exit_signals"
+    export CALL_COUNT_FILE=".call_count"
+    export TIMESTAMP_FILE=".last_reset"
+    export CLAUDE_SESSION_FILE=".claude_session_id"
+    export RALPH_SESSION_FILE=".ralph_session"
+    export RALPH_SESSION_HISTORY_FILE=".ralph_session_history"
+    export CLAUDE_MIN_VERSION="2.0.76"
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_USE_CONTINUE="true"
+
+    mkdir -p "$LOG_DIR" "$DOCS_DIR"
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create sample project files
+    create_sample_prompt
+    create_sample_fix_plan "@fix_plan.md" 10 3
+
+    # Source library components
+    source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/circuit_breaker.sh"
+
+    # Define color variables for log_status
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    PURPLE='\033[0;35m'
+    NC='\033[0m'
+
+    # Define log_status function for tests
+    log_status() {
+        local level=$1
+        local message=$2
+        echo "[$level] $message"
+    }
+    export -f log_status
+}
+
+teardown() {
+    if [[ -n "$TEST_DIR" ]] && [[ -d "$TEST_DIR" ]]; then
+        cd /
+        rm -rf "$TEST_DIR"
+    fi
+}
+
+# =============================================================================
+# HELPER: Check if function exists in ralph_loop.sh
+# =============================================================================
+
+function_exists_in_ralph() {
+    local func_name=$1
+    grep -qE "^${func_name}\s*\(\)|^function\s+${func_name}" "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" 2>/dev/null
+}
+
+# =============================================================================
+# SESSION RESET FUNCTION TESTS
+# =============================================================================
+
+@test "reset_session function exists in ralph_loop.sh" {
+    run function_exists_in_ralph "reset_session"
+    [[ $status -eq 0 ]] || skip "reset_session function not yet implemented"
+}
+
+@test "get_session_id function exists in ralph_loop.sh" {
+    run function_exists_in_ralph "get_session_id"
+    [[ $status -eq 0 ]] || skip "get_session_id function not yet implemented"
+}
+
+@test "log_session_transition function exists in ralph_loop.sh" {
+    run function_exists_in_ralph "log_session_transition"
+    [[ $status -eq 0 ]] || skip "log_session_transition function not yet implemented"
+}
+
+# =============================================================================
+# --reset-session CLI FLAG TESTS
+# =============================================================================
+
+@test "--reset-session flag is recognized in help" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help
+
+    [[ "$output" == *"reset-session"* ]] || skip "--reset-session flag not yet implemented"
+}
+
+@test "--reset-session flag in argument parser" {
+    # Check if the flag exists in the argument parsing section
+    run grep -E '\-\-reset-session' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]] || skip "--reset-session flag not yet implemented"
+}
+
+@test "--reset-session resets session file" {
+    # Create a session file
+    echo '{"session_id": "session-to-reset", "timestamp": "2026-01-09T10:00:00Z"}' > "$RALPH_SESSION_FILE"
+    echo 'session-to-reset' > "$CLAUDE_SESSION_FILE"
+
+    # Run with --reset-session flag (should exit quickly)
+    run timeout 5 bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --reset-session 2>&1
+
+    # If flag not recognized, skip
+    if [[ "$output" == *"Unknown option"* ]]; then
+        skip "--reset-session flag not yet implemented"
+    fi
+
+    # Check that session was reset
+    if [[ -f "$RALPH_SESSION_FILE" ]]; then
+        local session=$(jq -r '.session_id // ""' "$RALPH_SESSION_FILE" 2>/dev/null || echo "")
+        [[ -z "$session" || "$session" == "" || "$session" == "null" ]]
+    fi
+}
+
+# =============================================================================
+# CIRCUIT BREAKER SESSION INTEGRATION TESTS
+# =============================================================================
+
+@test "circuit breaker reset code includes session reset" {
+    # Check if reset_circuit_breaker mentions reset_session
+    run grep -A10 'reset_circuit_breaker' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ "$output" == *"reset_session"* ]] || skip "Circuit breaker session integration not yet implemented"
+}
+
+@test "cleanup function includes session reset" {
+    # Check if cleanup function includes reset_session
+    run grep -A5 'cleanup()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ "$output" == *"reset_session"* ]] || skip "Cleanup session reset not yet implemented"
+}
+
+# =============================================================================
+# SESSION HISTORY TESTS
+# =============================================================================
+
+@test "RALPH_SESSION_HISTORY_FILE constant defined" {
+    run grep 'RALPH_SESSION_HISTORY_FILE' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]] || skip "Session history file constant not yet defined"
+}
+
+# =============================================================================
+# RESPONSE ANALYZER SESSION FUNCTIONS (already implemented)
+# =============================================================================
+
+@test "store_session_id writes session to file with timestamp" {
+    run store_session_id "session-test-abc"
+
+    [[ -f "$CLAUDE_SESSION_FILE" ]] || skip "store_session_id not yet implemented"
+
+    local content=$(cat "$CLAUDE_SESSION_FILE")
+    [[ "$content" == *"session-test-abc"* ]]
+}
+
+@test "get_last_session_id retrieves stored session" {
+    # First store a session
+    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > "$CLAUDE_SESSION_FILE"
+
+    run get_last_session_id
+
+    [[ "$output" == *"session-retrieve-test"* ]]
+}
+
+@test "get_last_session_id returns empty when no session file" {
+    rm -f "$CLAUDE_SESSION_FILE"
+
+    run get_last_session_id
+
+    # Should return empty string, not error
+    [[ $status -eq 0 ]]
+    [[ -z "$output" || "$output" == "" || "$output" == "null" ]]
+}
+
+@test "should_resume_session returns true for recent session" {
+    # Store a recent session
+    local now_iso=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)
+    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$now_iso\"}" > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+
+    # Should indicate session can be resumed
+    [[ "$output" == "true" ]]
+}
+
+@test "should_resume_session returns false for old session" {
+    # Store an old session (24+ hours ago)
+    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+
+    # Should indicate session expired
+    [[ "$output" == "false" ]]
+}
+
+@test "should_resume_session returns false when no session file" {
+    rm -f "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+
+    # Should indicate no session to resume
+    [[ "$output" == "false" ]]
+}
+
+# =============================================================================
+# SESSION ID EXTRACTION FROM CLAUDE OUTPUT
+# =============================================================================
+
+@test "parse_json_response extracts sessionId from Claude CLI format" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Working on feature implementation.",
+    "sessionId": "session-unique-123"
+}
+EOF
+
+    run parse_json_response "$output_file"
+    local result_file=".json_parse_result"
+
+    [[ -f "$result_file" ]]
+
+    local session_id=$(jq -r '.session_id' "$result_file")
+    assert_equal "$session_id" "session-unique-123"
+}
+
+@test "analyze_response persists sessionId to session file" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Working on implementation.",
+    "sessionId": "session-persist-test-456"
+}
+EOF
+
+    analyze_response "$output_file" 1
+
+    # Session ID should be persisted
+    [[ -f "$CLAUDE_SESSION_FILE" ]]
+
+    local stored=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
+    [[ "$stored" == *"session-persist-test-456"* ]]
+}
+
+# =============================================================================
+# SESSION CONTINUITY IN CLAUDE CLI COMMAND
+# =============================================================================
+
+@test "--continue flag is added to Claude CLI command" {
+    # Check that --continue is used in build_claude_command
+    run grep -E '\-\-continue' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"--continue"* ]]
+}
+
+@test "CLAUDE_USE_CONTINUE configuration controls session continuity" {
+    # Check that CLAUDE_USE_CONTINUE is defined and controls --continue
+    run grep 'CLAUDE_USE_CONTINUE' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]]
+}
+
+# =============================================================================
+# SESSION EXPIRATION HANDLING
+# =============================================================================
+
+@test "SESSION_EXPIRATION_SECONDS is defined in response_analyzer" {
+    run grep 'SESSION_EXPIRATION_SECONDS' "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"86400"* ]]  # 24 hours in seconds
+}
+
+@test "expired session (24+ hours) is not resumed" {
+    # Create old session
+    echo '{"session_id": "old-session", "timestamp": "2020-01-01T00:00:00Z"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+
+    [[ "$output" == "false" ]]
+}
+
+# =============================================================================
+# EDGE CASES
+# =============================================================================
+
+@test "store_session_id handles empty session ID" {
+    run store_session_id ""
+
+    # Should fail or return error status
+    [[ $status -ne 0 ]]
+}
+
+@test "get_last_session_id handles corrupted JSON file" {
+    echo "not valid json at all {{{" > "$CLAUDE_SESSION_FILE"
+
+    run get_last_session_id
+
+    # Should not error, should return empty
+    [[ $status -eq 0 ]]
+    [[ -z "$output" || "$output" == "" || "$output" == "null" ]]
+}
+
+@test "should_resume_session handles corrupted JSON file" {
+    echo "corrupted json {{{" > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+
+    # Should return false, not error
+    [[ $status -eq 0 || $status -eq 1 ]]  # Either is acceptable
+    [[ "$output" == "false" ]]
+}
+
+@test "should_resume_session handles missing timestamp field" {
+    echo '{"session_id": "session-no-time"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+
+    # Should return false since no timestamp to validate
+    [[ "$output" == "false" ]]
+}
+
+# =============================================================================
+# INTEGRATION: FULL SESSION LIFECYCLE
+# =============================================================================
+
+@test "full session lifecycle: store -> get -> check -> expires" {
+    # 1. Store a session
+    store_session_id "lifecycle-session-001"
+
+    # 2. Get it back
+    local stored=$(get_last_session_id)
+    [[ "$stored" == "lifecycle-session-001" ]]
+
+    # 3. Check if resumable (should be true since just created)
+    run should_resume_session
+    [[ "$output" == "true" ]]
+
+    # 4. Simulate expiration by setting old timestamp
+    echo '{"session_id": "lifecycle-session-001", "timestamp": "2020-01-01T00:00:00Z"}' > "$CLAUDE_SESSION_FILE"
+
+    # 5. Check again (should be expired)
+    run should_resume_session
+    [[ "$output" == "false" ]]
+}

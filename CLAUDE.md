@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.6 | **Tests**: 239 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.9.7 | **Tests**: 265 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -37,6 +37,9 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Extracts structured fields: status, exit_signal, work_type, files_modified
    - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
    - Automatic session persistence to `.claude_session_id` file with 24-hour expiration
+   - Session lifecycle: `get_session_id()`, `reset_session()`, `log_session_transition()`, `init_session_tracking()`
+   - Session history tracked in `.ralph_session_history` (last 50 transitions)
+   - Session auto-reset on: circuit breaker open, manual interrupt, project completion
    - Detects test-only loops and stuck error patterns
    - Two-stage error filtering to eliminate false positives
    - Multi-line error matching for accurate stuck loop detection
@@ -81,6 +84,9 @@ ralph --status
 # Circuit breaker management
 ralph --reset-circuit
 ralph --circuit-status
+
+# Session management
+ralph --reset-session    # Reset session state manually
 ```
 
 ### Monitoring
@@ -275,13 +281,14 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (239 tests total)
+### Test Files (265 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
 | `test_json_parsing.bats` | 36 | JSON output format parsing + Claude CLI format + session management |
+| `test_session_continuity.bats` | 26 | Session lifecycle management + circuit breaker integration |
 | `test_exit_detection.bats` | 20 | Exit signal detection |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
@@ -303,6 +310,23 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Session Lifecycle Management (v0.9.7)
+- Added complete session lifecycle management with automatic reset triggers:
+  - `get_session_id()` - Retrieves current session from `.ralph_session`
+  - `reset_session(reason)` - Clears session with reason logging
+  - `log_session_transition()` - Records transitions to `.ralph_session_history`
+  - `init_session_tracking()` - Initializes session file with validation
+- Session auto-reset integration points:
+  - Circuit breaker open events (stagnation detection)
+  - Manual interrupt (Ctrl+C / SIGINT)
+  - Project completion (graceful exit)
+  - Manual circuit breaker reset (`--reset-circuit`)
+- Added `--reset-session` CLI flag for manual session reset
+- Session history tracking (last 50 transitions) for debugging
+- New configuration constants: `RALPH_SESSION_FILE`, `RALPH_SESSION_HISTORY_FILE`
+- Added 26 new tests for session continuity features
+- Test count: 265 (up from 239)
 
 ### JSON Output & Session Management (v0.9.6)
 - Extended `parse_json_response()` to support Claude Code CLI JSON format

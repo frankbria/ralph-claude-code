@@ -33,6 +33,11 @@ CLAUDE_USE_CONTINUE=true                 # Enable session continuity
 CLAUDE_SESSION_FILE=".claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
+# Session management configuration (Phase 1.2)
+RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking
+RALPH_SESSION_HISTORY_FILE=".ralph_session_history"  # Session transition history
+SESSION_EXPIRATION_SECONDS=86400                 # 24 hours in seconds
+
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
 VALID_TOOL_PATTERNS=(
@@ -477,6 +482,125 @@ save_claude_session() {
     fi
 }
 
+# =============================================================================
+# SESSION LIFECYCLE MANAGEMENT FUNCTIONS (Phase 1.2)
+# =============================================================================
+
+# Get current session ID from Ralph session file
+# Returns: session ID string or empty if not found
+get_session_id() {
+    if [[ ! -f "$RALPH_SESSION_FILE" ]]; then
+        echo ""
+        return 0
+    fi
+
+    # Extract session_id from JSON file
+    local session_id=$(jq -r '.session_id // ""' "$RALPH_SESSION_FILE" 2>/dev/null)
+    if [[ "$session_id" == "null" ]]; then
+        session_id=""
+    fi
+    echo "$session_id"
+    return 0
+}
+
+# Reset session with reason logging
+# Usage: reset_session "reason_for_reset"
+reset_session() {
+    local reason=${1:-"manual_reset"}
+
+    # Log the transition before clearing
+    local old_session_id=$(get_session_id)
+
+    # Clear the session file
+    if [[ -f "$RALPH_SESSION_FILE" ]]; then
+        cat > "$RALPH_SESSION_FILE" << EOF
+{
+    "session_id": "",
+    "created_at": "",
+    "last_used": "",
+    "reset_at": "$(get_iso_timestamp)",
+    "reset_reason": "$reason"
+}
+EOF
+    fi
+
+    # Also clear the Claude session file for consistency
+    if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
+        rm -f "$CLAUDE_SESSION_FILE"
+    fi
+
+    # Log the session transition
+    log_session_transition "active" "reset" "$reason" "${loop_count:-0}"
+
+    log_status "INFO" "Session reset: $reason"
+}
+
+# Log session state transitions to history file
+# Usage: log_session_transition from_state to_state reason loop_number
+log_session_transition() {
+    local from_state=$1
+    local to_state=$2
+    local reason=$3
+    local loop_number=${4:-0}
+
+    # Initialize history file if needed
+    if [[ ! -f "$RALPH_SESSION_HISTORY_FILE" ]]; then
+        echo '[]' > "$RALPH_SESSION_HISTORY_FILE"
+    fi
+
+    # Create transition entry
+    local transition
+    transition=$(jq -n \
+        --arg timestamp "$(get_iso_timestamp)" \
+        --arg from_state "$from_state" \
+        --arg to_state "$to_state" \
+        --arg reason "$reason" \
+        --argjson loop_number "$loop_number" \
+        '{
+            timestamp: $timestamp,
+            from_state: $from_state,
+            to_state: $to_state,
+            reason: $reason,
+            loop_number: $loop_number
+        }')
+
+    # Append to history and keep only last 50 entries
+    local history=$(cat "$RALPH_SESSION_HISTORY_FILE" 2>/dev/null || echo '[]')
+    history=$(echo "$history" | jq ". += [$transition] | .[-50:]")
+    echo "$history" > "$RALPH_SESSION_HISTORY_FILE"
+}
+
+# Initialize session tracking (called at loop start)
+init_session_tracking() {
+    # Create session file if it doesn't exist
+    if [[ ! -f "$RALPH_SESSION_FILE" ]]; then
+        cat > "$RALPH_SESSION_FILE" << EOF
+{
+    "session_id": "",
+    "created_at": "$(get_iso_timestamp)",
+    "last_used": "",
+    "reset_at": "",
+    "reset_reason": ""
+}
+EOF
+        log_status "INFO" "Initialized session tracking"
+    fi
+
+    # Validate existing session file
+    if ! jq empty "$RALPH_SESSION_FILE" 2>/dev/null; then
+        log_status "WARN" "Corrupted session file detected, recreating..."
+        cat > "$RALPH_SESSION_FILE" << EOF
+{
+    "session_id": "",
+    "created_at": "$(get_iso_timestamp)",
+    "last_used": "",
+    "reset_at": "",
+    "reset_reason": "corrupted_file_recovery"
+}
+EOF
+    fi
+}
+
 # Global array for Claude command arguments (avoids shell injection)
 declare -a CLAUDE_CMD_ARGS=()
 
@@ -731,6 +855,7 @@ EOF
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+    reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
 }
@@ -785,6 +910,7 @@ main() {
         
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
+            reset_session "circuit_breaker_open"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
             break
@@ -800,13 +926,14 @@ main() {
         local exit_reason=$(should_exit_gracefully)
         if [[ "$exit_reason" != "" ]]; then
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
+            reset_session "project_complete"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
-            
+
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
             log_status "INFO" "  - Total loops: $loop_count"
             log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
             log_status "INFO" "  - Exit reason: $exit_reason"
-            
+
             break
         fi
         
@@ -825,6 +952,7 @@ main() {
             sleep 5
         elif [ $exec_result -eq 3 ]; then
             # Circuit breaker opened
+            reset_session "circuit_breaker_trip"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
@@ -896,6 +1024,7 @@ Options:
     -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
+    --reset-session         Reset session state and exit (clears session continuity)
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -968,7 +1097,17 @@ while [[ $# -gt 0 ]]; do
             # Source the circuit breaker library
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+            source "$SCRIPT_DIR/lib/date_utils.sh"
             reset_circuit_breaker "Manual reset via command line"
+            reset_session "manual_circuit_reset"
+            exit 0
+            ;;
+        --reset-session)
+            # Reset session state only
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$SCRIPT_DIR/lib/date_utils.sh"
+            reset_session "manual_reset_flag"
+            echo -e "${GREEN}✅ Session state reset successfully${NC}"
             exit 0
             ;;
         --circuit-status)
