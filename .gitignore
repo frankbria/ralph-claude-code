@@ -3,6 +3,9 @@
 .last_reset
 .exit_signals
 status.json
+.ralph_session
+.ralph_session_history
+.claude_session_id
 
 # Logs
 logs/*

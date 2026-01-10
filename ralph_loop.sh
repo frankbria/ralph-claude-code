@@ -33,6 +33,11 @@ CLAUDE_USE_CONTINUE=true                 # Enable session continuity
 CLAUDE_SESSION_FILE=".claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
+# Session management configuration (Phase 1.2)
+# Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
+RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking (lifecycle)
+RALPH_SESSION_HISTORY_FILE=".ralph_session_history"  # Session transition history
+
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
 VALID_TOOL_PATTERNS=(
@@ -477,6 +482,196 @@ save_claude_session() {
     fi
 }
 
+# =============================================================================
+# SESSION LIFECYCLE MANAGEMENT FUNCTIONS (Phase 1.2)
+# =============================================================================
+
+# Get current session ID from Ralph session file
+# Returns: session ID string or empty if not found
+get_session_id() {
+    if [[ ! -f "$RALPH_SESSION_FILE" ]]; then
+        echo ""
+        return 0
+    fi
+
+    # Extract session_id from JSON file (SC2155: separate declare from assign)
+    local session_id
+    session_id=$(jq -r '.session_id // ""' "$RALPH_SESSION_FILE" 2>/dev/null)
+    local jq_status=$?
+
+    # Handle jq failure or null/empty results
+    if [[ $jq_status -ne 0 || -z "$session_id" || "$session_id" == "null" ]]; then
+        session_id=""
+    fi
+    echo "$session_id"
+    return 0
+}
+
+# Reset session with reason logging
+# Usage: reset_session "reason_for_reset"
+reset_session() {
+    local reason=${1:-"manual_reset"}
+
+    # Get current timestamp
+    local reset_timestamp
+    reset_timestamp=$(get_iso_timestamp)
+
+    # Always create/overwrite the session file using jq for safe JSON escaping
+    jq -n \
+        --arg session_id "" \
+        --arg created_at "" \
+        --arg last_used "" \
+        --arg reset_at "$reset_timestamp" \
+        --arg reset_reason "$reason" \
+        '{
+            session_id: $session_id,
+            created_at: $created_at,
+            last_used: $last_used,
+            reset_at: $reset_at,
+            reset_reason: $reset_reason
+        }' > "$RALPH_SESSION_FILE"
+
+    # Also clear the Claude session file for consistency
+    rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+
+    # Log the session transition (non-fatal to prevent script exit under set -e)
+    log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true
+
+    log_status "INFO" "Session reset: $reason"
+}
+
+# Log session state transitions to history file
+# Usage: log_session_transition from_state to_state reason loop_number
+log_session_transition() {
+    local from_state=$1
+    local to_state=$2
+    local reason=$3
+    local loop_number=${4:-0}
+
+    # Get timestamp once (SC2155: separate declare from assign)
+    local ts
+    ts=$(get_iso_timestamp)
+
+    # Create transition entry using jq for safe JSON (SC2155: separate declare from assign)
+    local transition
+    transition=$(jq -n -c \
+        --arg timestamp "$ts" \
+        --arg from_state "$from_state" \
+        --arg to_state "$to_state" \
+        --arg reason "$reason" \
+        --argjson loop_number "$loop_number" \
+        '{
+            timestamp: $timestamp,
+            from_state: $from_state,
+            to_state: $to_state,
+            reason: $reason,
+            loop_number: $loop_number
+        }')
+
+    # Read history file defensively - fallback to empty array on any failure
+    local history
+    if [[ -f "$RALPH_SESSION_HISTORY_FILE" ]]; then
+        history=$(cat "$RALPH_SESSION_HISTORY_FILE" 2>/dev/null)
+        # Validate JSON, fallback to empty array if corrupted
+        if ! echo "$history" | jq empty 2>/dev/null; then
+            history='[]'
+        fi
+    else
+        history='[]'
+    fi
+
+    # Append transition and keep only last 50 entries
+    local updated_history
+    updated_history=$(echo "$history" | jq ". += [$transition] | .[-50:]" 2>/dev/null)
+    local jq_status=$?
+
+    # Only write if jq succeeded
+    if [[ $jq_status -eq 0 && -n "$updated_history" ]]; then
+        echo "$updated_history" > "$RALPH_SESSION_HISTORY_FILE"
+    else
+        # Fallback: start fresh with just this transition
+        echo "[$transition]" > "$RALPH_SESSION_HISTORY_FILE"
+    fi
+}
+
+# Generate a unique session ID using timestamp and random component
+generate_session_id() {
+    local ts
+    ts=$(date +%s)
+    local rand
+    rand=$RANDOM
+    echo "ralph-${ts}-${rand}"
+}
+
+# Initialize session tracking (called at loop start)
+init_session_tracking() {
+    local ts
+    ts=$(get_iso_timestamp)
+
+    # Create session file if it doesn't exist
+    if [[ ! -f "$RALPH_SESSION_FILE" ]]; then
+        local new_session_id
+        new_session_id=$(generate_session_id)
+
+        jq -n \
+            --arg session_id "$new_session_id" \
+            --arg created_at "$ts" \
+            --arg last_used "$ts" \
+            --arg reset_at "" \
+            --arg reset_reason "" \
+            '{
+                session_id: $session_id,
+                created_at: $created_at,
+                last_used: $last_used,
+                reset_at: $reset_at,
+                reset_reason: $reset_reason
+            }' > "$RALPH_SESSION_FILE"
+
+        log_status "INFO" "Initialized session tracking (session: $new_session_id)"
+        return 0
+    fi
+
+    # Validate existing session file
+    if ! jq empty "$RALPH_SESSION_FILE" 2>/dev/null; then
+        log_status "WARN" "Corrupted session file detected, recreating..."
+        local new_session_id
+        new_session_id=$(generate_session_id)
+
+        jq -n \
+            --arg session_id "$new_session_id" \
+            --arg created_at "$ts" \
+            --arg last_used "$ts" \
+            --arg reset_at "$ts" \
+            --arg reset_reason "corrupted_file_recovery" \
+            '{
+                session_id: $session_id,
+                created_at: $created_at,
+                last_used: $last_used,
+                reset_at: $reset_at,
+                reset_reason: $reset_reason
+            }' > "$RALPH_SESSION_FILE"
+    fi
+}
+
+# Update last_used timestamp in session file (called on each loop iteration)
+update_session_last_used() {
+    if [[ ! -f "$RALPH_SESSION_FILE" ]]; then
+        return 0
+    fi
+
+    local ts
+    ts=$(get_iso_timestamp)
+
+    # Update last_used in existing session file
+    local updated
+    updated=$(jq --arg last_used "$ts" '.last_used = $last_used' "$RALPH_SESSION_FILE" 2>/dev/null)
+    local jq_status=$?
+
+    if [[ $jq_status -eq 0 && -n "$updated" ]]; then
+        echo "$updated" > "$RALPH_SESSION_FILE"
+    fi
+}
+
 # Global array for Claude command arguments (avoids shell injection)
 declare -a CLAUDE_CMD_ARGS=()
 
@@ -731,6 +926,7 @@ EOF
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+    reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
 }
@@ -771,13 +967,20 @@ main() {
         echo "Ralph projects should contain: PROMPT.md, @fix_plan.md, specs/, src/, etc."
         exit 1
     fi
-    
+
+    # Initialize session tracking before entering the loop
+    init_session_tracking
+
     log_status "INFO" "Starting main loop..."
     log_status "INFO" "DEBUG: About to enter while loop, loop_count=$loop_count"
     
     while true; do
         loop_count=$((loop_count + 1))
         log_status "INFO" "DEBUG: Successfully incremented loop_count to $loop_count"
+
+        # Update session last_used timestamp
+        update_session_last_used
+
         log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
         
@@ -785,6 +988,7 @@ main() {
         
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
+            reset_session "circuit_breaker_open"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
             break
@@ -800,13 +1004,14 @@ main() {
         local exit_reason=$(should_exit_gracefully)
         if [[ "$exit_reason" != "" ]]; then
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
+            reset_session "project_complete"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
-            
+
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
             log_status "INFO" "  - Total loops: $loop_count"
             log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
             log_status "INFO" "  - Exit reason: $exit_reason"
-            
+
             break
         fi
         
@@ -825,6 +1030,7 @@ main() {
             sleep 5
         elif [ $exec_result -eq 3 ]; then
             # Circuit breaker opened
+            reset_session "circuit_breaker_trip"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
@@ -896,6 +1102,7 @@ Options:
     -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
+    --reset-session         Reset session state and exit (clears session continuity)
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -906,6 +1113,10 @@ Files created:
     - $LOG_DIR/: All execution logs
     - $DOCS_DIR/: Generated documentation
     - $STATUS_FILE: Current status (JSON)
+    - .ralph_session: Session lifecycle tracking
+    - .ralph_session_history: Session transition history (last 50)
+    - .call_count: API call counter for rate limiting
+    - .last_reset: Timestamp of last rate limit reset
 
 Example workflow:
     ralph-setup my-project     # Create project
@@ -968,7 +1179,17 @@ while [[ $# -gt 0 ]]; do
             # Source the circuit breaker library
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+            source "$SCRIPT_DIR/lib/date_utils.sh"
             reset_circuit_breaker "Manual reset via command line"
+            reset_session "manual_circuit_reset"
+            exit 0
+            ;;
+        --reset-session)
+            # Reset session state only
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$SCRIPT_DIR/lib/date_utils.sh"
+            reset_session "manual_reset_flag"
+            echo -e "\033[0;32m✅ Session state reset successfully\033[0m"
             exit 0
             ;;
         --circuit-status)
