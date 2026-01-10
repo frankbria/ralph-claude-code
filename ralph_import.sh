@@ -18,6 +18,18 @@ CLAUDE_MIN_VERSION="2.0.76"  # Minimum version for modern CLI features
 CONVERSION_OUTPUT_FILE=".ralph_conversion_output.json"
 CONVERSION_PROMPT_FILE=".ralph_conversion_prompt.md"
 
+# Global parsed conversion result variables
+# Set by parse_conversion_response() when parsing JSON output from Claude CLI
+declare PARSED_RESULT=""           # Result/summary text from Claude response
+declare PARSED_SESSION_ID=""       # Session ID for potential continuation
+declare PARSED_FILES_CHANGED=""    # Count of files changed
+declare PARSED_HAS_ERRORS=""       # Boolean flag indicating errors occurred
+declare PARSED_COMPLETION_STATUS="" # Completion status (complete/partial/failed)
+declare PARSED_ERROR_MESSAGE=""    # Error message if conversion failed
+declare PARSED_ERROR_CODE=""       # Error code if conversion failed
+declare PARSED_FILES_CREATED=""    # JSON array of files created
+declare PARSED_MISSING_FILES=""    # JSON array of files that should exist but don't
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -44,8 +56,18 @@ log() {
 # JSON OUTPUT FORMAT DETECTION AND PARSING
 # =============================================================================
 
-# Detect output format (json or text)
-# Returns: "json" if valid JSON, "text" otherwise
+# detect_response_format - Detect whether file contains JSON or plain text output
+#
+# Parameters:
+#   $1 (output_file) - Path to the file to inspect
+#
+# Returns:
+#   Echoes "json" if file is non-empty, starts with { or [, and validates as JSON
+#   Echoes "text" otherwise (empty file, non-JSON content, or invalid JSON)
+#
+# Dependencies:
+#   - jq (used for JSON validation; if unavailable, falls back to "text")
+#
 detect_response_format() {
     local output_file=$1
 
@@ -71,9 +93,29 @@ detect_response_format() {
     fi
 }
 
-# Parse JSON response and extract conversion status
-# Returns: 0 on success, 1 on error
-# Sets global variables for parsed values
+# parse_conversion_response - Parse JSON response and extract conversion status
+#
+# Parameters:
+#   $1 (output_file) - Path to JSON file containing Claude CLI response
+#
+# Returns:
+#   0 on success (valid JSON parsed)
+#   1 on error (file not found, jq unavailable, or invalid JSON)
+#
+# Sets Global Variables:
+#   PARSED_RESULT           - Result/summary text from response
+#   PARSED_SESSION_ID       - Session ID for continuation
+#   PARSED_FILES_CHANGED    - Count of files changed
+#   PARSED_HAS_ERRORS       - "true"/"false" indicating errors
+#   PARSED_COMPLETION_STATUS - Status: "complete", "partial", "failed", "unknown"
+#   PARSED_ERROR_MESSAGE    - Error message if conversion failed
+#   PARSED_ERROR_CODE       - Error code if conversion failed
+#   PARSED_FILES_CREATED    - JSON array string of created files
+#   PARSED_MISSING_FILES    - JSON array string of missing files
+#
+# Dependencies:
+#   - jq (required for JSON parsing)
+#
 parse_conversion_response() {
     local output_file=$1
 
@@ -126,8 +168,21 @@ parse_conversion_response() {
     return 0
 }
 
-# Check Claude Code CLI version for modern features
-# Uses numeric comparison for proper semantic versioning
+# check_claude_version - Verify Claude Code CLI version meets minimum requirements
+#
+# Checks if the installed Claude Code CLI version is at or above CLAUDE_MIN_VERSION.
+# Uses numeric semantic version comparison (major.minor.patch).
+#
+# Parameters:
+#   None (uses global CLAUDE_CODE_CMD and CLAUDE_MIN_VERSION)
+#
+# Returns:
+#   0 if version is >= CLAUDE_MIN_VERSION
+#   1 if version cannot be determined or is below CLAUDE_MIN_VERSION
+#
+# Side Effects:
+#   Logs warning via log() if version check fails
+#
 check_claude_version() {
     local version
     version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -537,12 +592,14 @@ main() {
     log "INFO" "Creating Ralph project: $project_name"
     ralph-setup "$project_name"
     cd "$project_name"
-    
-    # Copy source file to project
-    cp "../$source_file" .
-    
-    # Run conversion
-    convert_prd "$source_file" "$project_name"
+
+    # Copy source file to project (uses basename since we cd'd into project)
+    local source_basename
+    source_basename=$(basename "$source_file")
+    cp "../$source_file" "$source_basename"
+
+    # Run conversion using local copy (basename, not original path)
+    convert_prd "$source_basename" "$project_name"
     
     log "SUCCESS" "🎉 PRD imported successfully!"
     echo ""
