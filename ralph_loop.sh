@@ -34,9 +34,9 @@ CLAUDE_SESSION_FILE=".claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
 # Session management configuration (Phase 1.2)
-RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking
+# Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
+RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking (lifecycle)
 RALPH_SESSION_HISTORY_FILE=".ralph_session_history"  # Session transition history
-SESSION_EXPIRATION_SECONDS=86400                 # 24 hours in seconds
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
@@ -508,12 +508,8 @@ get_session_id() {
 reset_session() {
     local reason=${1:-"manual_reset"}
 
-    # Log the transition before clearing
-    local old_session_id=$(get_session_id)
-
-    # Clear the session file
-    if [[ -f "$RALPH_SESSION_FILE" ]]; then
-        cat > "$RALPH_SESSION_FILE" << EOF
+    # Always create/overwrite the session file to ensure consistent state
+    cat > "$RALPH_SESSION_FILE" << EOF
 {
     "session_id": "",
     "created_at": "",
@@ -522,12 +518,9 @@ reset_session() {
     "reset_reason": "$reason"
 }
 EOF
-    fi
 
     # Also clear the Claude session file for consistency
-    if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
-        rm -f "$CLAUDE_SESSION_FILE"
-    fi
+    rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
 
     # Log the session transition
     log_session_transition "active" "reset" "$reason" "${loop_count:-0}"
@@ -896,7 +889,10 @@ main() {
         echo "Ralph projects should contain: PROMPT.md, @fix_plan.md, specs/, src/, etc."
         exit 1
     fi
-    
+
+    # Initialize session tracking before entering the loop
+    init_session_tracking
+
     log_status "INFO" "Starting main loop..."
     log_status "INFO" "DEBUG: About to enter while loop, loop_count=$loop_count"
     
@@ -1107,7 +1103,7 @@ while [[ $# -gt 0 ]]; do
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/date_utils.sh"
             reset_session "manual_reset_flag"
-            echo -e "${GREEN}✅ Session state reset successfully${NC}"
+            echo -e "\033[0;32m✅ Session state reset successfully\033[0m"
             exit 0
             ;;
         --circuit-status)
