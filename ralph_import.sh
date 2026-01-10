@@ -336,6 +336,23 @@ Create detailed technical specifications:
 
 PROMPTEOF
 
+    # Append the PRD source content to the conversion prompt
+    local source_basename
+    source_basename=$(basename "$source_file")
+    
+    if [[ -f "$source_file" ]]; then
+        echo "" >> "$CONVERSION_PROMPT_FILE"
+        echo "---" >> "$CONVERSION_PROMPT_FILE"
+        echo "" >> "$CONVERSION_PROMPT_FILE"
+        echo "## Source PRD File: $source_basename" >> "$CONVERSION_PROMPT_FILE"
+        echo "" >> "$CONVERSION_PROMPT_FILE"
+        cat "$source_file" >> "$CONVERSION_PROMPT_FILE"
+    else
+        log "ERROR" "Source file not found: $source_file"
+        rm -f "$CONVERSION_PROMPT_FILE"
+        exit 1
+    fi
+
     # Build and execute Claude Code command
     # Modern CLI: Use --output-format json and --allowedTools for structured output
     # Fallback: Standard CLI invocation for older versions
