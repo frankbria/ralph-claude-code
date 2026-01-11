@@ -1315,11 +1315,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# If tmux mode requested, set it up
-if [[ "$USE_TMUX" == "true" ]]; then
-    check_tmux_available
-    setup_tmux_session
-fi
+# Only execute when run directly, not when sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # If tmux mode requested, set it up
+    if [[ "$USE_TMUX" == "true" ]]; then
+        check_tmux_available
+        setup_tmux_session
+    fi
 
-# Start the main loop
-main
+    # Start the main loop
+    main
+fi

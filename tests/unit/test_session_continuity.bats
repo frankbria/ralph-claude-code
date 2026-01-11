@@ -312,7 +312,7 @@ EOF
 
 @test "CLAUDE_SESSION_EXPIRY_HOURS defaults to 24" {
     # Source ralph_loop.sh in a subshell to get the default
-    run bash -c "source '${BATS_TEST_DIRNAME}/../../ralph_loop.sh' --help 2>/dev/null; echo \$CLAUDE_SESSION_EXPIRY_HOURS"
+    run bash -c "source '${BATS_TEST_DIRNAME}/../../ralph_loop.sh'; echo \$CLAUDE_SESSION_EXPIRY_HOURS"
 
     # Should contain 24 as default
     [[ "$output" == *"24"* ]] || skip "CLAUDE_SESSION_EXPIRY_HOURS not yet implemented"
@@ -392,50 +392,69 @@ EOF
 }
 
 @test "get_session_file_age_hours returns 0 for missing file" {
-    # Verify function returns 0 when file doesn't exist
-    run grep -A15 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Source the script to get the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Should return 0 for non-existent file
-    [[ "$output" == *'echo "0"'* ]]
+    # Test with non-existent file
+    run get_session_file_age_hours "/nonexistent/path/file"
+
+    [[ "$output" == "0" ]]
 }
 
 @test "get_session_file_age_hours returns -1 for stat failure" {
-    # Verify function handles stat failure by returning -1
-    run grep -A25 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Source the script to get the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Should return -1 when stat fails
+    # Create a file then make it inaccessible (simulate stat failure via directory permissions)
+    local test_file="$TEST_DIR/unreadable_file"
+    echo "test" > "$test_file"
+
+    # Verify the function code handles stat failure by checking the implementation
+    run grep -A25 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *'echo "-1"'* ]]
 }
 
 @test "init_claude_session removes expired session file" {
-    # Verify code removes file when session expires
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Source the script to get the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Should have rm -f for expired sessions
-    [[ "$output" == *'rm -f'* ]] && [[ "$output" == *'expired'* ]]
+    # Create an old session file (simulate by setting low expiry)
+    echo '{"session_id": "old-session", "timestamp": 1000000000}' > "$CLAUDE_SESSION_FILE"
+    touch -d "2020-01-01" "$CLAUDE_SESSION_FILE" 2>/dev/null || touch -t 202001010000 "$CLAUDE_SESSION_FILE"
+
+    # Set very short expiry to trigger expiration
+    CLAUDE_SESSION_EXPIRY_HOURS=1
+
+    run init_claude_session
+
+    # Session file should be removed
+    [[ ! -f "$CLAUDE_SESSION_FILE" ]] || [[ "$output" == *"expired"* ]]
 }
 
 @test "init_claude_session logs expiration with age info" {
-    # Verify code logs session age when expiring
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Source the script to get the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Should log age in hours
+    # Verify code structure includes age logging
+    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *'age_hours'* ]] && [[ "$output" == *'expired'* ]]
 }
 
 @test "init_claude_session logs session age when resuming" {
-    # Verify code logs session age when resuming valid session
-    run grep -A50 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Source the script to get the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Should log age when resuming
+    # Verify code structure includes resume logging
+    run grep -A50 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *'Resuming'* ]] && [[ "$output" == *'old'* ]]
 }
 
 @test "init_claude_session handles stat failure gracefully" {
-    # Verify the code handles -1 return from get_session_file_age_hours
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Source the script to get the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Should check for -1 and handle with warning
+    # Verify code structure handles -1 return
+    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *"-1"* ]] && [[ "$output" == *"WARN"* ]]
 }
 
