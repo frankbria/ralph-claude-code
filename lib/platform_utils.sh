@@ -95,7 +95,7 @@ has_windows_terminal() {
 
         # Check via cmd.exe with timeout (may hang in some environments)
         # Only try this as a last resort
-        if timeout 2s cmd.exe /c "where wt" &>/dev/null 2>&1; then
+        if timeout 2s cmd.exe /c "where wt" &>/dev/null; then
             return 0
         fi
     fi
