@@ -516,89 +516,34 @@ tail -f logs/ralph.log
 
 Ralph is actively seeking contributors! We're working toward v1.0.0 with clear priorities and a detailed roadmap.
 
-### Quick Start for Contributors
+**See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete contributor guide** including:
+- Getting started and setup instructions
+- Development workflow and commit conventions
+- Code style guidelines
+- Testing requirements (100% pass rate mandatory)
+- Pull request process and code review guidelines
+- Quality standards and checklists
 
-1. **Fork and Clone**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/ralph-claude-code.git
-   cd ralph-claude-code
-   ```
+### Quick Start
 
-2. **Install Dependencies**
-   ```bash
-   npm install -g bats bats-support bats-assert
-   ./install.sh  # Install Ralph globally for testing
-   ```
+```bash
+# Fork and clone
+git clone https://github.com/YOUR_USERNAME/ralph-claude-code.git
+cd ralph-claude-code
 
-3. **Run Tests**
-   ```bash
-   npm test                    # Run all tests
-   npm run test:unit          # Run unit tests only
-   npm run test:integration   # Run integration tests only
-   ```
+# Install dependencies and run tests
+npm install
+npm test  # All 276 tests must pass
+```
 
 ### Priority Contribution Areas
 
-**High Priority (Help Needed!)**
-1. **Test Implementation** - We need more tests to reach comprehensive coverage
-   - See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed test specifications
+1. **Test Implementation** - Help expand test coverage
+2. **Feature Development** - Log rotation, dry-run mode, config files, metrics
+3. **Documentation** - Tutorials, troubleshooting guides, examples
+4. **Real-World Testing** - Use Ralph, report bugs, share feedback
 
-2. **Feature Development**
-   - Log rotation functionality
-   - Dry-run mode
-   - Config file support
-   - Metrics tracking
-   - Notifications
-   - Backup/rollback
-
-3. **Documentation**
-   - TESTING.md guide
-   - CONTRIBUTING.md (expand this section)
-   - Usage tutorials and examples
-   - Troubleshooting guides
-
-4. **Real-World Testing**
-   - Use Ralph on your projects
-   - Report bugs and edge cases
-   - Share your experience
-
-### Development Guidelines
-
-- **Tests Required**: All new features must include tests
-- **Code Style**: Follow existing bash patterns and conventions
-- **Documentation**: Update README and relevant docs for user-facing changes
-- **Commit Messages**: Clear, descriptive commit messages
-- **Branch Naming**: `feature/feature-name` or `fix/bug-description`
-
-### Pull Request Process
-
-1. Create a feature branch (`git checkout -b feature/amazing-feature`)
-2. Make your changes with tests
-3. Run full test suite: `npm test` (must pass 100%)
-4. Update documentation if needed
-5. Commit changes (`git commit -m 'Add amazing feature'`)
-6. Push to your fork (`git push origin feature/amazing-feature`)
-7. Open a Pull Request with:
-   - Clear description of changes
-   - Link to related issues
-   - Test results
-   - Screenshots (if UI/output changes)
-
-### Development Roadmap Reference
-
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap including:
-- Detailed test specifications
-- Feature implementation guides
-- Code examples for new functionality
-- Success metrics and milestones
-
-### Questions or Ideas?
-
-- Open an issue for discussion
-- Check existing issues for planned work
-- Join discussions on pull requests
-
-**Every contribution matters** - from fixing typos to implementing major features. Thank you for helping make Ralph better!
+**Every contribution matters** - from fixing typos to implementing major features!
 
 ## License
 
@@ -712,13 +657,11 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed progress tracking.
 
 ### How to Contribute
-Ralph is seeking contributors! Priority areas:
+Ralph is seeking contributors! See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete guide. Priority areas:
 1. **Test Implementation** - Help expand test coverage ([see plan](IMPLEMENTATION_PLAN.md))
 2. **Feature Development** - Log rotation, dry-run mode, config files
 3. **Documentation** - Usage examples, tutorials, troubleshooting guides
 4. **Bug Reports** - Real-world usage feedback and edge cases
-
-See [Contributing](#contributing) section above for guidelines.
 
 ---
 
