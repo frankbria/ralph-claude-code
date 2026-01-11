@@ -421,6 +421,8 @@ my-project/
 
 ### Testing Requirements (Development)
 
+See [TESTING.md](TESTING.md) for the comprehensive testing guide.
+
 If you want to run the test suite:
 
 ```bash
