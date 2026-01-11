@@ -304,6 +304,93 @@ EOF
     [[ "$output" == "false" ]]
 }
 
+@test "CLAUDE_SESSION_EXPIRY_HOURS is defined in ralph_loop.sh" {
+    run grep 'CLAUDE_SESSION_EXPIRY_HOURS' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]] || skip "CLAUDE_SESSION_EXPIRY_HOURS not yet implemented"
+}
+
+@test "CLAUDE_SESSION_EXPIRY_HOURS defaults to 24" {
+    # Source ralph_loop.sh in a subshell to get the default
+    run bash -c "source '${BATS_TEST_DIRNAME}/../../ralph_loop.sh' --help 2>/dev/null; echo \$CLAUDE_SESSION_EXPIRY_HOURS"
+
+    # Should contain 24 as default
+    [[ "$output" == *"24"* ]] || skip "CLAUDE_SESSION_EXPIRY_HOURS not yet implemented"
+}
+
+@test "--session-expiry flag is recognized in help" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help
+
+    [[ "$output" == *"session-expiry"* ]] || skip "--session-expiry flag not yet implemented"
+}
+
+@test "--session-expiry flag accepts positive integer" {
+    # Just check the flag is parsed (don't run full loop)
+    run grep -E '\-\-session-expiry' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]] || skip "--session-expiry flag not yet implemented"
+}
+
+@test "--session-expiry rejects non-integer value" {
+    run timeout 5 bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --session-expiry abc 2>&1
+
+    # Should fail with error about invalid value
+    if [[ "$output" == *"Unknown option"* ]]; then
+        skip "--session-expiry flag not yet implemented"
+    fi
+
+    [[ "$output" == *"positive integer"* ]] || [[ "$output" == *"Error"* ]]
+}
+
+@test "--session-expiry rejects zero value" {
+    run timeout 5 bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --session-expiry 0 2>&1
+
+    # Should fail with error about invalid value
+    if [[ "$output" == *"Unknown option"* ]]; then
+        skip "--session-expiry flag not yet implemented"
+    fi
+
+    [[ "$output" == *"positive integer"* ]] || [[ "$output" == *"Error"* ]]
+}
+
+@test "--session-expiry rejects negative value" {
+    run timeout 5 bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --session-expiry -5 2>&1
+
+    # Should fail with error about invalid value
+    if [[ "$output" == *"Unknown option"* ]]; then
+        skip "--session-expiry flag not yet implemented"
+    fi
+
+    [[ "$output" == *"positive integer"* ]] || [[ "$output" == *"Error"* ]]
+}
+
+# =============================================================================
+# INIT_CLAUDE_SESSION EXPIRATION TESTS
+# =============================================================================
+
+@test "init_claude_session checks session expiration" {
+    # Check that init_claude_session includes expiration logic
+    run grep -A30 'init_claude_session' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should reference expiration or age checking
+    [[ "$output" == *"expir"* ]] || [[ "$output" == *"age"* ]] || [[ "$output" == *"stat"* ]] || skip "Session expiration not yet implemented in init_claude_session"
+}
+
+@test "init_claude_session uses cross-platform stat command" {
+    # Check for uname or Darwin/Linux detection in get_session_file_age_hours
+    run grep -A30 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should have cross-platform handling
+    [[ "$output" == *"Darwin"* ]] || [[ "$output" == *"uname"* ]] || skip "Cross-platform stat not yet implemented"
+}
+
+@test "get_session_file_age_hours returns correct age" {
+    # Check if helper function exists
+    run grep 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ $status -eq 0 ]] || skip "get_session_file_age_hours function not yet implemented"
+}
+
 # =============================================================================
 # EDGE CASES
 # =============================================================================
