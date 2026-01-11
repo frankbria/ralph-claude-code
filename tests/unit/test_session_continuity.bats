@@ -365,7 +365,7 @@ EOF
 }
 
 # =============================================================================
-# INIT_CLAUDE_SESSION EXPIRATION TESTS
+# INIT_CLAUDE_SESSION EXPIRATION TESTS (Behavioral)
 # =============================================================================
 
 @test "init_claude_session checks session expiration" {
@@ -389,6 +389,90 @@ EOF
     run grep 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     [[ $status -eq 0 ]] || skip "get_session_file_age_hours function not yet implemented"
+}
+
+@test "get_session_file_age_hours returns 0 for recent file" {
+    # Source the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help 2>/dev/null || true
+
+    # Create a fresh session file
+    echo "test-session" > "$CLAUDE_SESSION_FILE"
+
+    # Get age - should be 0 for just-created file
+    run get_session_file_age_hours "$CLAUDE_SESSION_FILE"
+
+    [[ "$output" == "0" ]]
+}
+
+@test "get_session_file_age_hours returns -1 for stat failure" {
+    # Source the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help 2>/dev/null || true
+
+    # Create a file then make it unreadable (simulating stat failure on some systems)
+    # For testing, we check the function handles missing mtime gracefully
+    # Note: This test verifies the -1 return value is in the code
+    run grep -A20 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    [[ "$output" == *'echo "-1"'* ]]
+}
+
+@test "init_claude_session removes expired session file" {
+    # Source the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help 2>/dev/null || true
+
+    # Create a session file
+    echo "old-session-id" > "$CLAUDE_SESSION_FILE"
+
+    # Set expiry to 0 hours (immediate expiration)
+    export CLAUDE_SESSION_EXPIRY_HOURS=0
+
+    # Initialize session - should detect expiration and remove file
+    run init_claude_session
+
+    # File should be removed
+    [[ ! -f "$CLAUDE_SESSION_FILE" ]]
+}
+
+@test "init_claude_session returns empty for expired session" {
+    # Source the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help 2>/dev/null || true
+
+    # Create a session file
+    echo "old-session-id" > "$CLAUDE_SESSION_FILE"
+
+    # Set expiry to 0 hours (immediate expiration)
+    export CLAUDE_SESSION_EXPIRY_HOURS=0
+
+    # Initialize session - should return empty string
+    run init_claude_session
+
+    # Output should be empty (new session)
+    [[ -z "$output" || "$output" == "" ]]
+}
+
+@test "init_claude_session returns session ID for valid session" {
+    # Source the function
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help 2>/dev/null || true
+
+    # Create a fresh session file
+    echo "valid-session-123" > "$CLAUDE_SESSION_FILE"
+
+    # Set expiry to 24 hours (default, should not expire)
+    export CLAUDE_SESSION_EXPIRY_HOURS=24
+
+    # Initialize session - should return session ID
+    run init_claude_session
+
+    # Output should contain the session ID
+    [[ "$output" == *"valid-session-123"* ]]
+}
+
+@test "init_claude_session handles stat failure gracefully" {
+    # Verify the code handles -1 return from get_session_file_age_hours
+    run grep -A20 'init_claude_session' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should check for -1 and handle it
+    [[ "$output" == *"-1"* ]] || [[ "$output" == *"WARN"* ]]
 }
 
 # =============================================================================

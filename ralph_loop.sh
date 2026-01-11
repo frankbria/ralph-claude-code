@@ -37,7 +37,9 @@ CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
 RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking (lifecycle)
 RALPH_SESSION_HISTORY_FILE=".ralph_session_history"  # Session transition history
-CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}  # Session expiration in hours (default: 24)
+# Session expiration: 24 hours default balances project continuity with fresh context
+# Too short = frequent context loss; Too long = stale context causes unpredictable behavior
+CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
@@ -455,6 +457,8 @@ build_loop_context() {
 }
 
 # Get session file age in hours (cross-platform)
+# Returns: age in hours on stdout, or -1 if stat fails
+# Note: Returns 0 for files less than 1 hour old
 get_session_file_age_hours() {
     local file=$1
 
@@ -469,10 +473,17 @@ get_session_file_age_hours() {
     local file_mtime
     if [[ "$os_type" == "Darwin" ]]; then
         # macOS (BSD stat)
-        file_mtime=$(stat -f %m "$file" 2>/dev/null || echo 0)
+        file_mtime=$(stat -f %m "$file" 2>/dev/null)
     else
         # Linux (GNU stat)
-        file_mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+        file_mtime=$(stat -c %Y "$file" 2>/dev/null)
+    fi
+
+    # Handle stat failure - return -1 to indicate error
+    # This prevents false expiration when stat fails
+    if [[ -z "$file_mtime" || "$file_mtime" == "0" ]]; then
+        echo "-1"
+        return
     fi
 
     local current_time
@@ -485,11 +496,34 @@ get_session_file_age_hours() {
 }
 
 # Initialize or resume Claude session (with expiration check)
+#
+# Session Expiration Strategy:
+# - Default expiration: 24 hours (configurable via CLAUDE_SESSION_EXPIRY_HOURS)
+# - 24 hours chosen because: long enough for multi-day projects, short enough
+#   to prevent stale context from causing unpredictable behavior
+# - Sessions auto-expire to ensure Claude starts fresh periodically
+#
+# Returns (stdout):
+#   - Session ID string: when resuming a valid, non-expired session
+#   - Empty string: when starting new session (no file, expired, or stat error)
+#
+# Return codes:
+#   - 0: Always returns success (caller should check stdout for session ID)
+#
 init_claude_session() {
     if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
         # Check session age
         local age_hours
         age_hours=$(get_session_file_age_hours "$CLAUDE_SESSION_FILE")
+
+        # Handle stat failure (-1) - treat as needing new session
+        # Don't expire sessions when we can't determine age
+        if [[ $age_hours -eq -1 ]]; then
+            log_status "WARN" "Could not determine session age, starting new session"
+            rm -f "$CLAUDE_SESSION_FILE"
+            echo ""
+            return 0
+        fi
 
         # Check if session has expired
         if [[ $age_hours -ge $CLAUDE_SESSION_EXPIRY_HOURS ]]; then
