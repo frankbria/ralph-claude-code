@@ -2,7 +2,7 @@
 # Runs bats tests using Git Bash
 
 param(
-    [string]$TestPath = "tests/unit/ tests/integration/",
+    [string]$TestPath = "tests/unit tests/integration",
     [switch]$Unit,
     [switch]$Integration,
     [switch]$Help
@@ -16,14 +16,13 @@ if ($Help) {
     Write-Host "Options:"
     Write-Host "  -Unit          Run only unit tests"
     Write-Host "  -Integration   Run only integration tests"
-    Write-Host "  -TestPath      Custom test path (default: tests/unit/ tests/integration/)"
+    Write-Host "  -TestPath      Custom test path"
     Write-Host "  -Help          Show this help message"
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\test.ps1                    # Run all tests"
     Write-Host "  .\test.ps1 -Unit              # Run unit tests only"
     Write-Host "  .\test.ps1 -Integration       # Run integration tests only"
-    Write-Host "  .\test.ps1 -TestPath 'tests/unit/test_platform_utils.bats'"
     exit 0
 }
 
@@ -44,48 +43,26 @@ foreach ($path in $gitBashPaths) {
 
 if (-not $bashExe) {
     Write-Host "ERROR: Git Bash not found!" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Please install Git for Windows:" -ForegroundColor Yellow
-    Write-Host "  https://git-scm.com/download/win"
     exit 1
 }
 
 # Determine test path based on flags
 if ($Unit) {
-    $TestPath = "tests/unit/"
+    $TestPath = "tests/unit"
 } elseif ($Integration) {
-    $TestPath = "tests/integration/"
+    $TestPath = "tests/integration"
 }
 
 # Check if node_modules exists
 if (-not (Test-Path "node_modules/.bin/bats")) {
     Write-Host "Bats not found. Running npm install..." -ForegroundColor Yellow
     npm install
-    Write-Host ""
 }
 
-Write-Host "Running tests with Git Bash: $bashExe" -ForegroundColor Cyan
-Write-Host "Test path: $TestPath" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "Running tests..." -ForegroundColor Cyan
 
-# Run bats tests via Git Bash using local node_modules
+# Run: export RALPH_TEST_MODE=1 && ./node_modules/.bin/bats <tests>
 $unixPath = $PWD.Path -replace '\\', '/' -replace '^([A-Za-z]):', '/$1'
+& $bashExe -c "cd '$unixPath' && export RALPH_TEST_MODE=1 && ./node_modules/.bin/bats $TestPath"
 
-# Run tests - if running both unit and integration, run them separately to avoid Windows bats issues
-if ($TestPath -eq "tests/unit/ tests/integration/") {
-    Write-Host "Running unit tests..." -ForegroundColor Green
-    & $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats tests/unit/"
-    $unitResult = $LASTEXITCODE
-
-    if ($unitResult -eq 0) {
-        Write-Host ""
-        Write-Host "Running integration tests..." -ForegroundColor Green
-        & $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats tests/integration/"
-        exit $LASTEXITCODE
-    } else {
-        exit $unitResult
-    }
-} else {
-    & $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats $TestPath"
-    exit $LASTEXITCODE
-}
+exit $LASTEXITCODE

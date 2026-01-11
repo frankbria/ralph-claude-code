@@ -99,8 +99,9 @@ MOCK_NPX_EOF
     # Default behavior: create the expected output files
     create_mock_claude_success
 
-    # Export environment variables
-    export CLAUDE_CODE_CMD="claude"
+    # Export environment variables - use full path to mock to avoid PATH issues on Windows
+    export CLAUDE_CODE_CMD="$MOCK_BIN_DIR/claude"
+    export RALPH_TEST_MODE=1
 }
 
 teardown() {

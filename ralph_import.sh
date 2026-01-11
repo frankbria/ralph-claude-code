@@ -273,9 +273,12 @@ check_dependencies() {
         log "ERROR" "Ralph not installed. Run ./install.sh first"
         exit 1
     fi
-    
-    if ! npx @anthropic-ai/claude-code --version &> /dev/null 2>&1; then
-        log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
+
+    # Skip slow npx registry check in test mode (RALPH_TEST_MODE=1)
+    if [[ "${RALPH_TEST_MODE:-}" != "1" ]]; then
+        if ! npx @anthropic-ai/claude-code --version &> /dev/null 2>&1; then
+            log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
+        fi
     fi
 }
 
@@ -288,8 +291,11 @@ convert_prd() {
 
     log "INFO" "Converting PRD to Ralph format using Claude Code..."
 
-    # Check for modern CLI support
-    if ! check_claude_version 2>/dev/null; then
+    # Check for modern CLI support (skip in test mode)
+    if [[ "${RALPH_TEST_MODE:-}" == "1" ]]; then
+        log "INFO" "Test mode: skipping version check"
+        use_modern_cli=false
+    elif ! check_claude_version 2>/dev/null; then
         log "INFO" "Using standard CLI mode (modern features may not be available)"
         use_modern_cli=false
     else
