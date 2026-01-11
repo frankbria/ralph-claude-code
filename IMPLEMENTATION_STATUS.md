@@ -60,11 +60,11 @@
 - [x] #12 - Project setup tests (36 tests)
 - [x] #13 - PRD import tests (33 tests)
 - [x] #25 - Create CONTRIBUTING.md guide (P3)
+- [x] #24 - Create TESTING.md documentation (P3)
+- [x] #26 - Update README with testing instructions (P3)
 
 **Remaining**:
 - [ ] #51 - Session expiration for .claude_session_id (P2)
-- [ ] #24 - Create TESTING.md documentation (P3)
-- [ ] #26 - Update README with testing instructions (P3)
 - [ ] #27 - Add badges to README (P3)
 
 ### Phase 2: Agent SDK Integration (0% Complete)
