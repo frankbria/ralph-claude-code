@@ -70,6 +70,22 @@ Write-Host ""
 
 # Run bats tests via Git Bash using local node_modules
 $unixPath = $PWD.Path -replace '\\', '/' -replace '^([A-Za-z]):', '/$1'
-& $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats $TestPath"
 
-exit $LASTEXITCODE
+# Run tests - if running both unit and integration, run them separately to avoid Windows bats issues
+if ($TestPath -eq "tests/unit/ tests/integration/") {
+    Write-Host "Running unit tests..." -ForegroundColor Green
+    & $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats tests/unit/"
+    $unitResult = $LASTEXITCODE
+
+    if ($unitResult -eq 0) {
+        Write-Host ""
+        Write-Host "Running integration tests..." -ForegroundColor Green
+        & $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats tests/integration/"
+        exit $LASTEXITCODE
+    } else {
+        exit $unitResult
+    }
+} else {
+    & $bashExe -c "cd '$unixPath' && ./node_modules/.bin/bats $TestPath"
+    exit $LASTEXITCODE
+}
