@@ -37,6 +37,9 @@ CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
 RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking (lifecycle)
 RALPH_SESSION_HISTORY_FILE=".ralph_session_history"  # Session transition history
+# Session expiration: 24 hours default balances project continuity with fresh context
+# Too short = frequent context loss; Too long = stale context causes unpredictable behavior
+CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
@@ -453,12 +456,87 @@ build_loop_context() {
     echo "${context:0:500}"
 }
 
-# Initialize or resume Claude session
+# Get session file age in hours (cross-platform)
+# Returns: age in hours on stdout, or -1 if stat fails
+# Note: Returns 0 for files less than 1 hour old
+get_session_file_age_hours() {
+    local file=$1
+
+    if [[ ! -f "$file" ]]; then
+        echo "0"
+        return
+    fi
+
+    local os_type
+    os_type=$(uname)
+
+    local file_mtime
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS (BSD stat)
+        file_mtime=$(stat -f %m "$file" 2>/dev/null)
+    else
+        # Linux (GNU stat)
+        file_mtime=$(stat -c %Y "$file" 2>/dev/null)
+    fi
+
+    # Handle stat failure - return -1 to indicate error
+    # This prevents false expiration when stat fails
+    if [[ -z "$file_mtime" || "$file_mtime" == "0" ]]; then
+        echo "-1"
+        return
+    fi
+
+    local current_time
+    current_time=$(date +%s)
+
+    local age_seconds=$((current_time - file_mtime))
+    local age_hours=$((age_seconds / 3600))
+
+    echo "$age_hours"
+}
+
+# Initialize or resume Claude session (with expiration check)
+#
+# Session Expiration Strategy:
+# - Default expiration: 24 hours (configurable via CLAUDE_SESSION_EXPIRY_HOURS)
+# - 24 hours chosen because: long enough for multi-day projects, short enough
+#   to prevent stale context from causing unpredictable behavior
+# - Sessions auto-expire to ensure Claude starts fresh periodically
+#
+# Returns (stdout):
+#   - Session ID string: when resuming a valid, non-expired session
+#   - Empty string: when starting new session (no file, expired, or stat error)
+#
+# Return codes:
+#   - 0: Always returns success (caller should check stdout for session ID)
+#
 init_claude_session() {
     if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
+        # Check session age
+        local age_hours
+        age_hours=$(get_session_file_age_hours "$CLAUDE_SESSION_FILE")
+
+        # Handle stat failure (-1) - treat as needing new session
+        # Don't expire sessions when we can't determine age
+        if [[ $age_hours -eq -1 ]]; then
+            log_status "WARN" "Could not determine session age, starting new session"
+            rm -f "$CLAUDE_SESSION_FILE"
+            echo ""
+            return 0
+        fi
+
+        # Check if session has expired
+        if [[ $age_hours -ge $CLAUDE_SESSION_EXPIRY_HOURS ]]; then
+            log_status "INFO" "Session expired (${age_hours}h old, max ${CLAUDE_SESSION_EXPIRY_HOURS}h), starting new session"
+            rm -f "$CLAUDE_SESSION_FILE"
+            echo ""
+            return 0
+        fi
+
+        # Session is valid, try to read it
         local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
         if [[ -n "$session_id" ]]; then
-            log_status "INFO" "Resuming Claude session: ${session_id:0:20}..."
+            log_status "INFO" "Resuming Claude session: ${session_id:0:20}... (${age_hours}h old)"
             echo "$session_id"
             return 0
         fi
@@ -1108,6 +1186,7 @@ Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
     --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
     --no-continue           Disable session continuity across loops
+    --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -1130,6 +1209,7 @@ Examples:
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
     $0 --output-format text     # Use legacy text output format
     $0 --no-continue            # Disable session continuity
+    $0 --session-expiry 48      # 48-hour session expiration
 
 HELPEOF
 }
@@ -1219,6 +1299,14 @@ while [[ $# -gt 0 ]]; do
             CLAUDE_USE_CONTINUE=false
             shift
             ;;
+        --session-expiry)
+            if [[ -z "$2" || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: --session-expiry requires a positive integer (hours)"
+                exit 1
+            fi
+            CLAUDE_SESSION_EXPIRY_HOURS="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -1227,11 +1315,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# If tmux mode requested, set it up
-if [[ "$USE_TMUX" == "true" ]]; then
-    check_tmux_available
-    setup_tmux_session
-fi
+# Only execute when run directly, not when sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # If tmux mode requested, set it up
+    if [[ "$USE_TMUX" == "true" ]]; then
+        check_tmux_available
+        setup_tmux_session
+    fi
 
-# Start the main loop
-main
+    # Start the main loop
+    main
+fi
