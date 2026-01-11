@@ -18,9 +18,7 @@
       "Bash(./tests/test_stuck_loop_detection.sh:*)",
       "Bash(git mv:*)",
       "WebFetch(domain:about.codecov.io)",
-      "WebFetch(domain:github.com)",
-      "Bash(gh pr view:*)",
-      "Bash(gh api:*)"
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []
