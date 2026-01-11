@@ -51,6 +51,21 @@ EOF
 get_iso_timestamp() { date -Iseconds; }
 EOF
 
+    cat > "$MOCK_SOURCE_DIR/lib/platform_utils.sh" << 'EOF'
+#!/bin/bash
+# Mock platform_utils.sh
+get_platform() { echo "linux"; }
+is_windows() { return 1; }
+is_macos() { return 1; }
+is_linux() { return 0; }
+has_tmux() { command -v tmux &>/dev/null; }
+has_windows_terminal() { return 1; }
+get_git_bash_path() { echo ""; }
+get_available_multiplexer() { echo "none"; }
+unix_to_windows_path() { echo "$1"; }
+get_windows_cwd() { pwd; }
+EOF
+
     # Create mock main scripts
     cat > "$MOCK_SOURCE_DIR/ralph_loop.sh" << 'EOF'
 #!/bin/bash

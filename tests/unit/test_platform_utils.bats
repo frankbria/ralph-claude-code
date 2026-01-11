@@ -47,7 +47,7 @@ teardown() {
         Darwin*)
             expected_platform="darwin"
             ;;
-        MINGW*|MSYS*|CYGWIN*)
+        MINGW*|MSYS*|CYGWIN*|Windows_NT*)
             expected_platform="windows"
             ;;
         *)

@@ -2,6 +2,11 @@
 # Test Helper Utilities for Ralph Test Suite
 
 # Simple assertion functions (replacing bats-assert)
+fail() {
+    echo "$1"
+    return 1
+}
+
 assert_success() {
     if [ "$status" -ne 0 ]; then
         echo "Expected success but got status $status"
@@ -237,10 +242,10 @@ if is_windows_test_env; then
     # Find real xargs
     _REAL_XARGS=$(command -v xargs)
 
-    # Create wrapper script
+    # Create wrapper script - escape variables for runtime expansion
     cat > "$_XARGS_WRAPPER_DIR/xargs" << WRAPPER_EOF
 #!/bin/bash
-exec env -i PATH="$PATH" HOME="$HOME" TERM="$TERM" "$_REAL_XARGS" "\$@"
+exec env -i PATH="\$PATH" HOME="\$HOME" TERM="\$TERM" "$_REAL_XARGS" "\$@"
 WRAPPER_EOF
     chmod +x "$_XARGS_WRAPPER_DIR/xargs"
 

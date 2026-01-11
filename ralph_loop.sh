@@ -117,52 +117,54 @@ check_monitor_available() {
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
-    
+
     log_status "INFO" "Setting up tmux session: $session_name"
-    
+
     # Create new tmux session detached
     tmux new-session -d -s "$session_name" -c "$(pwd)"
-    
+
     # Split window vertically to create monitor pane on the right
     tmux split-window -h -t "$session_name" -c "$(pwd)"
-    
+
     # Start monitor in the right pane
     if command -v ralph-monitor &> /dev/null; then
         tmux send-keys -t "$session_name:0.1" "ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:0.1" "'$ralph_home/ralph_monitor.sh'" Enter
+        tmux send-keys -t "$session_name:0.1" "$(printf '%q' "$ralph_home/ralph_monitor.sh")" Enter
     fi
-    
-    # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
-    local ralph_cmd
+
+    # Build ralph command using array for shell-injection safety
+    local -a ralph_cmd_parts=()
     if command -v ralph &> /dev/null; then
-        ralph_cmd="ralph"
+        ralph_cmd_parts+=("ralph")
     else
-        ralph_cmd="'$ralph_home/ralph_loop.sh'"
+        ralph_cmd_parts+=("$(printf '%q' "$ralph_home/ralph_loop.sh")")
     fi
-    
+
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
-        ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
+        ralph_cmd_parts+=("--calls" "$MAX_CALLS_PER_HOUR")
     fi
     if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
-        ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
+        ralph_cmd_parts+=("--prompt" "$(printf '%q' "$PROMPT_FILE")")
     fi
-    
+
+    # Convert array to properly escaped string for tmux send-keys
+    local ralph_cmd="${ralph_cmd_parts[*]}"
     tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
-    
+
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:0.0"
-    
+
     # Set window title
     tmux rename-window -t "$session_name:0" "Ralph: Loop | Monitor"
-    
+
     log_status "SUCCESS" "Tmux session created. Attaching to session..."
     log_status "INFO" "Use Ctrl+B then D to detach from session"
     log_status "INFO" "Use 'tmux attach -t $session_name' to reattach"
-    
+
     # Attach to session (this will block until session ends)
     tmux attach-session -t "$session_name"
-    
+
     exit 0
 }
 
@@ -186,28 +188,32 @@ setup_windows_terminal_session() {
     local git_bash_win
     git_bash_win=$(unix_to_windows_path "$git_bash")
 
-    # Build the ralph command for the left pane
-    local ralph_cmd
+    # Build the ralph command using array for shell-injection safety
+    local -a ralph_cmd_parts=()
     if command -v ralph &> /dev/null; then
-        ralph_cmd="ralph"
+        ralph_cmd_parts+=("ralph")
     else
-        ralph_cmd="bash \"$ralph_home/ralph_loop.sh\""
+        ralph_cmd_parts+=("bash" "$(printf '%q' "$ralph_home/ralph_loop.sh")")
     fi
 
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
-        ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
+        ralph_cmd_parts+=("--calls" "$MAX_CALLS_PER_HOUR")
     fi
     if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
-        ralph_cmd="$ralph_cmd --prompt $PROMPT_FILE"
+        ralph_cmd_parts+=("--prompt" "$(printf '%q' "$PROMPT_FILE")")
     fi
 
-    # Build the monitor command for the right pane
-    local monitor_cmd
+    # Convert array to properly escaped string for Windows Terminal -c flag
+    local ralph_cmd="${ralph_cmd_parts[*]}"
+
+    # Build the monitor command using array for shell-injection safety
+    local -a monitor_cmd_parts=()
     if command -v ralph-monitor &> /dev/null; then
-        monitor_cmd="ralph-monitor"
+        monitor_cmd_parts+=("ralph-monitor")
     else
-        monitor_cmd="bash \"$ralph_home/ralph_monitor.sh\""
+        monitor_cmd_parts+=("bash" "$(printf '%q' "$ralph_home/ralph_monitor.sh")")
     fi
+    local monitor_cmd="${monitor_cmd_parts[*]}"
 
     # Get Windows Terminal executable
     local wt_exe

@@ -8,6 +8,9 @@ INSTALL_DIR="$HOME/.local/bin"
 RALPH_HOME="$HOME/.ralph"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source platform utilities for cross-platform support
+source "$SCRIPT_DIR/lib/platform_utils.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -61,15 +64,15 @@ check_dependencies() {
     log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
     
     # Check terminal multiplexer (optional, for --monitor flag)
-    if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+    if is_windows; then
         # Windows: check for Windows Terminal
         # WT_SESSION is set when running inside Windows Terminal
-        if [[ -z "$WT_SESSION" ]] && ! command -v wt.exe &> /dev/null && ! command -v wt &> /dev/null; then
+        if [[ -z "$WT_SESSION" ]] && ! has_windows_terminal; then
             log "WARN" "Windows Terminal not found. Install for integrated monitoring: winget install Microsoft.WindowsTerminal"
         fi
     else
         # Linux/macOS: check for tmux
-        if ! command -v tmux &> /dev/null; then
+        if ! has_tmux; then
             log "WARN" "tmux not found. Install for integrated monitoring: apt-get install tmux / brew install tmux"
         fi
     fi
@@ -157,20 +160,33 @@ EOF
     chmod +x "$RALPH_HOME/lib/"*.sh
 
     # Create Windows CMD wrappers for PowerShell/CMD compatibility
-    if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+    if is_windows; then
         log "INFO" "Creating Windows CMD wrappers for PowerShell/CMD compatibility..."
 
+        # Get Git Bash path dynamically
+        local git_bash_unix_path
+        git_bash_unix_path=$(get_git_bash_path)
+
+        if [[ -z "$git_bash_unix_path" ]]; then
+            log "WARN" "Git Bash not found at standard locations. CMD wrappers will use default path."
+            git_bash_unix_path="/c/Program Files/Git/bin/bash.exe"
+        fi
+
+        # Convert to Windows path format for CMD scripts
+        local git_bash_win_path
+        git_bash_win_path=$(unix_to_windows_path "$git_bash_unix_path")
+
         echo '@echo off' > "$INSTALL_DIR/ralph.cmd"
-        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph" %*' >> "$INSTALL_DIR/ralph.cmd"
+        echo "\"$git_bash_win_path\" \"%USERPROFILE%\\.local\\bin\\ralph\" %*" >> "$INSTALL_DIR/ralph.cmd"
 
         echo '@echo off' > "$INSTALL_DIR/ralph-monitor.cmd"
-        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph-monitor" %*' >> "$INSTALL_DIR/ralph-monitor.cmd"
+        echo "\"$git_bash_win_path\" \"%USERPROFILE%\\.local\\bin\\ralph-monitor\" %*" >> "$INSTALL_DIR/ralph-monitor.cmd"
 
         echo '@echo off' > "$INSTALL_DIR/ralph-setup.cmd"
-        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph-setup" %*' >> "$INSTALL_DIR/ralph-setup.cmd"
+        echo "\"$git_bash_win_path\" \"%USERPROFILE%\\.local\\bin\\ralph-setup\" %*" >> "$INSTALL_DIR/ralph-setup.cmd"
 
         echo '@echo off' > "$INSTALL_DIR/ralph-import.cmd"
-        echo '"%ProgramFiles%\Git\bin\bash.exe" "%USERPROFILE%\.local\bin\ralph-import" %*' >> "$INSTALL_DIR/ralph-import.cmd"
+        echo "\"$git_bash_win_path\" \"%USERPROFILE%\\.local\\bin\\ralph-import\" %*" >> "$INSTALL_DIR/ralph-import.cmd"
 
         log "SUCCESS" "Windows CMD wrappers created"
     fi
