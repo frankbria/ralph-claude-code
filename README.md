@@ -653,8 +653,8 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Session lifecycle management with auto-reset triggers
 
 **Test Coverage Breakdown:**
-- Unit Tests: 170 (CLI parsing, JSON, exit detection, rate limiting, session continuity, platform utils)
-- Integration Tests: 140 (loop execution, edge cases, installation, project setup, PRD import)
+- Unit Tests: 187 (CLI parsing, JSON, exit detection, rate limiting, session continuity, platform utils)
+- Integration Tests: 123 (loop execution, edge cases, installation, project setup, PRD import)
 - Test Files: 12
 
 ### Path to v1.0.0 (~4 weeks)

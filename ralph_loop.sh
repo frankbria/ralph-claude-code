@@ -130,26 +130,24 @@ setup_tmux_session() {
     if command -v ralph-monitor &> /dev/null; then
         tmux send-keys -t "$session_name:0.1" "ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:0.1" "$(printf '%q' "$ralph_home/ralph_monitor.sh")" Enter
+        tmux send-keys -t "$session_name:0.1" "'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
-    # Build ralph command using array for shell-injection safety
-    local -a ralph_cmd_parts=()
+    # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
+    local ralph_cmd
     if command -v ralph &> /dev/null; then
-        ralph_cmd_parts+=("ralph")
+        ralph_cmd="ralph"
     else
-        ralph_cmd_parts+=("$(printf '%q' "$ralph_home/ralph_loop.sh")")
+        ralph_cmd="'$ralph_home/ralph_loop.sh'"
     fi
 
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
-        ralph_cmd_parts+=("--calls" "$MAX_CALLS_PER_HOUR")
+        ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
     if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
-        ralph_cmd_parts+=("--prompt" "$(printf '%q' "$PROMPT_FILE")")
+        ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
 
-    # Convert array to properly escaped string for tmux send-keys
-    local ralph_cmd="${ralph_cmd_parts[*]}"
     tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
 
     # Focus on left pane (main ralph loop)
@@ -193,17 +191,17 @@ setup_windows_terminal_session() {
     if command -v ralph &> /dev/null; then
         ralph_cmd_parts+=("ralph")
     else
-        ralph_cmd_parts+=("bash" "$(printf '%q' "$ralph_home/ralph_loop.sh")")
+        ralph_cmd_parts+=("bash" "\"$ralph_home/ralph_loop.sh\"")
     fi
 
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd_parts+=("--calls" "$MAX_CALLS_PER_HOUR")
     fi
     if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
-        ralph_cmd_parts+=("--prompt" "$(printf '%q' "$PROMPT_FILE")")
+        ralph_cmd_parts+=("--prompt" "\"$PROMPT_FILE\"")
     fi
 
-    # Convert array to properly escaped string for Windows Terminal -c flag
+    # Convert array to string for Windows Terminal -c flag
     local ralph_cmd="${ralph_cmd_parts[*]}"
 
     # Build the monitor command using array for shell-injection safety
@@ -211,7 +209,7 @@ setup_windows_terminal_session() {
     if command -v ralph-monitor &> /dev/null; then
         monitor_cmd_parts+=("ralph-monitor")
     else
-        monitor_cmd_parts+=("bash" "$(printf '%q' "$ralph_home/ralph_monitor.sh")")
+        monitor_cmd_parts+=("bash" "\"$ralph_home/ralph_monitor.sh\"")
     fi
     local monitor_cmd="${monitor_cmd_parts[*]}"
 
@@ -1374,7 +1372,6 @@ while [[ $# -gt 0 ]]; do
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
             source "$SCRIPT_DIR/lib/date_utils.sh"
-            source "$SCRIPT_DIR/lib/platform_utils.sh"
             reset_circuit_breaker "Manual reset via command line"
             reset_session "manual_circuit_reset"
             exit 0
@@ -1391,7 +1388,6 @@ while [[ $# -gt 0 ]]; do
             # Source the circuit breaker library
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
-            source "$SCRIPT_DIR/lib/platform_utils.sh"
             show_circuit_status
             exit 0
             ;;
