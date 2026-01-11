@@ -73,6 +73,11 @@ teardown() {
     if [[ -n "$TEST_TEMP_DIR" && -d "$TEST_TEMP_DIR" ]]; then
         rm -rf "$TEST_TEMP_DIR"
     fi
+
+    # Clean up xargs wrapper directory (Windows compatibility)
+    if [[ -n "$_XARGS_WRAPPER_DIR" && -d "$_XARGS_WRAPPER_DIR" ]]; then
+        rm -rf "$_XARGS_WRAPPER_DIR"
+    fi
 }
 
 # Helper: Strip ANSI color codes from output

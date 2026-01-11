@@ -239,13 +239,10 @@ teardown() {
     platform=$(get_platform)
 
     if [[ "$platform" == "windows" ]]; then
-        # Change to a directory with a drive letter (not /tmp which lacks it)
-        local orig_dir
-        orig_dir=$(pwd)
-        cd "${BATS_TEST_DIRNAME}" || return 1
-
+        # Use pushd/popd to isolate directory change
+        pushd "${BATS_TEST_DIRNAME}" > /dev/null || return 1
         run get_windows_cwd
-        cd "$orig_dir" || return 1
+        popd > /dev/null
 
         assert_success
         # Should start with drive letter (e.g., C:) - check second char is colon
