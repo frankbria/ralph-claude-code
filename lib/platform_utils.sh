@@ -95,7 +95,8 @@ has_windows_terminal() {
 
         # Check via cmd.exe with timeout (may hang in some environments)
         # Only try this as a last resort
-        if timeout 2s cmd.exe /c "where wt" &>/dev/null; then
+        local -a cmd_args=(timeout 2s cmd.exe /c "where wt")
+        if "${cmd_args[@]}" &>/dev/null; then
             return 0
         fi
     fi
@@ -133,8 +134,9 @@ get_windows_terminal_path() {
         done
 
         # Check via cmd.exe with timeout (may hang in some environments)
+        local -a cmd_args=(timeout 2s cmd.exe /c "where wt")
         local wt_path
-        wt_path=$(timeout 2s cmd.exe /c "where wt" 2>/dev/null | head -1 | tr -d '\r')
+        wt_path=$("${cmd_args[@]}" 2>/dev/null | head -1 | tr -d '\r')
         if [[ -n "$wt_path" ]]; then
             echo "$wt_path"
             return 0
