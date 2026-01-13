@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.9.8-blue)
-![Tests](https://img.shields.io/badge/tests-276%20passing-green)
+![Version](https://img.shields.io/badge/version-0.9.9-blue)
+![Tests](https://img.shields.io/badge/tests-308%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,26 +16,38 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.8 - Active Development
+**Version**: v0.9.9 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 276 tests, 100% pass rate
+**Test Coverage**: 308 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
+- **Dual-condition exit gate**: Requires BOTH completion indicators AND explicit EXIT_SIGNAL
 - Rate limiting with hourly reset (100 calls/hour, configurable)
 - Circuit breaker with advanced error detection (prevents runaway loops)
 - Response analyzer with semantic understanding and two-stage error filtering
 - **JSON output format support with automatic fallback to text parsing**
 - **Session continuity with `--continue` flag for context preservation**
+- **Session expiration with configurable timeout (default: 24 hours)**
 - **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
-- 276 passing tests across 11 test files
+- **Dedicated uninstall script for clean removal**
+- 308 passing tests across 11 test files
 
 ### Recent Improvements
+
+**v0.9.9 - EXIT_SIGNAL Gate & Uninstall Script**
+- Fixed premature exit bug: completion indicators now require Claude's explicit `EXIT_SIGNAL: true`
+- Added dual-condition check preventing exits when Claude reports work in progress
+- Added `response_analyzer.sh` fix to respect explicit EXIT_SIGNAL over heuristics
+- Added dedicated `uninstall.sh` script for clean Ralph removal
+- Session expiration with configurable timeout (default: 24 hours)
+- Added 32 new tests for EXIT_SIGNAL behavior and session expiration
+- Test count: 308 (up from 276)
 
 **v0.9.8 - Modern CLI for PRD Import**
 - Modernized `ralph_import.sh` to use Claude Code CLI JSON output format
@@ -44,7 +56,6 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Improved file verification with JSON-derived status information
 - Backward compatibility with older CLI versions (automatic text fallback)
 - Added 11 new tests for modern CLI features
-- Test count: 276 (up from 265)
 
 **v0.9.7 - Session Lifecycle Management**
 - Complete session lifecycle management with automatic reset triggers
@@ -101,8 +112,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 ## Features
 
 - **Autonomous Development Loop** - Continuously executes Claude Code with your project requirements
-- **Intelligent Exit Detection** - Automatically stops when project objectives are complete
+- **Intelligent Exit Detection** - Dual-condition check requiring BOTH completion indicators AND explicit EXIT_SIGNAL
 - **Session Continuity** - Preserves context across loop iterations with automatic session management
+- **Session Expiration** - Configurable timeout (default: 24 hours) with automatic session reset
 - **Rate Limiting** - Built-in API call management with hourly limits and countdown timers
 - **5-Hour API Limit Handling** - Detects Claude's 5-hour usage limit and offers wait/exit options
 - **Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
@@ -114,6 +126,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Response Analyzer** - AI-powered analysis of Claude Code responses with semantic understanding
 - **Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
 - **CI/CD Integration** - GitHub Actions workflow with automated testing
+- **Clean Uninstall** - Dedicated uninstall script for complete removal
 
 ## Quick Start
 
@@ -190,6 +203,18 @@ ralph                        # Terminal 1: Ralph loop
 ralph-monitor               # Terminal 2: Live monitor dashboard
 ```
 
+### Uninstalling Ralph
+
+To completely remove Ralph from your system:
+
+```bash
+# Run the uninstall script
+./uninstall.sh
+
+# Or if you deleted the repo, download and run:
+curl -sL https://raw.githubusercontent.com/frankbria/ralph-claude-code/main/uninstall.sh | bash
+```
+
 ## How It Works
 
 Ralph operates on a simple but powerful cycle:
@@ -202,11 +227,29 @@ Ralph operates on a simple but powerful cycle:
 
 ### Intelligent Exit Detection
 
-Ralph automatically stops when it detects:
+Ralph uses a **dual-condition check** to prevent premature exits during productive iterations:
+
+**Exit requires BOTH conditions:**
+1. `completion_indicators >= 2` (heuristic detection from natural language patterns)
+2. Claude's explicit `EXIT_SIGNAL: true` in the RALPH_STATUS block
+
+**Example behavior:**
+```
+Loop 5: Claude outputs "Phase complete, moving to next feature"
+        → completion_indicators: 3 (high confidence from patterns)
+        → EXIT_SIGNAL: false (Claude says more work needed)
+        → Result: CONTINUE (respects Claude's explicit intent)
+
+Loop 8: Claude outputs "All tasks complete, project ready"
+        → completion_indicators: 4
+        → EXIT_SIGNAL: true (Claude confirms done)
+        → Result: EXIT with "project_complete"
+```
+
+**Other exit conditions:**
 - All tasks in `@fix_plan.md` marked complete
 - Multiple consecutive "done" signals from Claude Code
 - Too many test-focused loops (indicating feature completeness)
-- Strong completion indicators in responses
 - Claude API 5-hour usage limit reached (with user prompt to wait or exit)
 
 ## Importing Existing Requirements
@@ -350,8 +393,9 @@ cat .ralph_session_history      # View session transition history
 - Manual interrupt (Ctrl+C / SIGINT)
 - Project completion (graceful exit)
 - Manual circuit breaker reset (`--reset-circuit`)
+- Session expiration (default: 24 hours)
 
-Sessions are persisted to `.ralph_session` with a 24-hour expiration. The last 50 session transitions are logged to `.ralph_session_history` for debugging.
+Sessions are persisted to `.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph_session_history` for debugging.
 
 ### Exit Thresholds
 
@@ -370,6 +414,15 @@ CB_NO_PROGRESS_THRESHOLD=3       # Open circuit after 3 loops with no file chang
 CB_SAME_ERROR_THRESHOLD=5        # Open circuit after 5 loops with repeated errors
 CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
 ```
+
+**Completion Indicators with EXIT_SIGNAL Gate:**
+
+| completion_indicators | EXIT_SIGNAL | Result |
+|-----------------------|-------------|--------|
+| >= 2 | `true` | **Exit** ("project_complete") |
+| >= 2 | `false` | **Continue** (Claude still working) |
+| >= 2 | missing | **Continue** (defaults to false) |
+| < 2 | `true` | **Continue** (threshold not met) |
 
 ## Project Structure
 
@@ -430,7 +483,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (276 tests)
+# Run all tests (308 tests)
 npm test
 
 # Run specific test suites
@@ -451,10 +504,10 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **276 tests** across 11 test files
-- **100% pass rate** (276/276 passing)
+- **308 tests** across 11 test files
+- **100% pass rate** (308/308 passing)
 - Comprehensive unit and integration tests
-- Specialized tests for JSON parsing, CLI flags, circuit breaker, and installation workflows
+- Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, and installation workflows
 
 > **Note on Coverage**: Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. Test pass rate (100%) is the quality gate. See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
 
@@ -511,9 +564,11 @@ tail -f logs/ralph.log
 - **5-Hour API Limit** - Ralph detects and prompts for user action (wait or exit)
 - **Stuck Loops** - Check `@fix_plan.md` for unclear or conflicting tasks
 - **Early Exit** - Review exit thresholds if Ralph stops too soon
+- **Premature Exit** - Check if Claude is setting `EXIT_SIGNAL: false` (Ralph now respects this)
 - **Execution Timeouts** - Increase `--timeout` value for complex operations
 - **Missing Dependencies** - Ensure Claude Code CLI and tmux are installed
 - **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
+- **Session Expired** - Sessions expire after 24 hours by default; use `--reset-session` to start fresh
 
 ## Contributing
 
@@ -536,7 +591,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 276 tests must pass
+npm test  # All 308 tests must pass
 ```
 
 ### Priority Contribution Areas
@@ -570,7 +625,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### Installation Commands (Run Once)
 ```bash
 ./install.sh              # Install Ralph globally
-./install.sh uninstall    # Remove Ralph from system
+./uninstall.sh            # Remove Ralph from system (dedicated script)
+./install.sh uninstall    # Alternative: Remove Ralph from system
 ./install.sh --help       # Show installation help
 ```
 
@@ -618,13 +674,14 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.9.8
+### Current Status: v0.9.9
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
+- **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- 276 comprehensive tests (100% pass rate)
+- 308 comprehensive tests (100% pass rate)
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
@@ -632,10 +689,12 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - CI/CD pipeline with GitHub Actions
 - Comprehensive installation test suite
 - Session lifecycle management with auto-reset triggers
+- Session expiration with configurable timeout
+- Dedicated uninstall script
 
 **Test Coverage Breakdown:**
-- Unit Tests: 154 (CLI parsing, JSON, exit detection, rate limiting, session continuity)
-- Integration Tests: 122 (loop execution, edge cases, installation, project setup, PRD import)
+- Unit Tests: 164 (CLI parsing, JSON, exit detection, rate limiting, session continuity)
+- Integration Tests: 144 (loop execution, edge cases, installation, project setup, PRD import)
 - Test Files: 11
 
 ### Path to v1.0.0 (~4 weeks)
