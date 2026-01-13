@@ -310,7 +310,7 @@ analyze_response() {
         # If EXIT_SIGNAL is explicitly provided, respect it
         if [[ -n "$exit_sig" ]]; then
             explicit_exit_signal_found=true
-            if [[ "$exit_sig" == "true" || "$status" == "COMPLETE" ]]; then
+            if [[ "$exit_sig" == "true" ]]; then
                 has_completion_signal=true
                 exit_signal=true
                 confidence_score=100
