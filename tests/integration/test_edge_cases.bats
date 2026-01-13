@@ -534,7 +534,34 @@ EOF
     assert_file_exists ".response_analysis"
 }
 
-# Edge Case 24: JSON format response with EXIT_SIGNAL handling
+# Edge Case 24: STATUS=COMPLETE but EXIT_SIGNAL=false conflict in RALPH_STATUS
+@test "analyze_response respects EXIT_SIGNAL=false even when STATUS=COMPLETE" {
+    local output_file="$LOG_DIR/conflict.log"
+
+    # Create output with conflicting signals
+    # This can happen when Claude completes a phase but has more phases to do
+    cat > "$output_file" << 'EOF'
+---RALPH_STATUS---
+STATUS: COMPLETE
+EXIT_SIGNAL: false
+WORK_TYPE: IMPLEMENTATION
+---END_RALPH_STATUS---
+
+Phase 1 implementation complete.
+Moving on to Phase 2 next.
+EOF
+
+    analyze_response "$output_file" 1
+
+    # EXIT_SIGNAL: false should take precedence over STATUS: COMPLETE
+    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_equal "$exit_signal" "false"
+
+    # has_completion_signal can still be true (STATUS was COMPLETE)
+    # but exit_signal must be false per Claude's explicit intent
+}
+
+# Edge Case 25: JSON format response with EXIT_SIGNAL handling
 @test "JSON format response correctly handles EXIT_SIGNAL" {
     local output_file="$LOG_DIR/json_response.log"
 

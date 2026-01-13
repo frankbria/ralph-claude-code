@@ -487,3 +487,33 @@ EOF
     result=$(should_exit_gracefully || true)
     assert_equal "$result" ""
 }
+
+# Test 31: STATUS=COMPLETE but EXIT_SIGNAL=false conflict - EXIT_SIGNAL takes precedence
+@test "should_exit_gracefully respects EXIT_SIGNAL=false even when STATUS=COMPLETE" {
+    # Setup: High completion indicators
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3]}' > "$EXIT_SIGNALS_FILE"
+
+    # Setup: Conflicting signals - STATUS says COMPLETE but EXIT_SIGNAL explicitly false
+    # This can happen when Claude marks a phase complete but has more work to do
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "text",
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": true,
+        "files_modified": 3,
+        "confidence_score": 100,
+        "exit_signal": false,
+        "work_summary": "Phase complete, but more phases remain"
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # EXIT_SIGNAL=false should take precedence, continue working
+    assert_equal "$result" ""
+}
