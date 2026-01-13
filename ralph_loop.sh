@@ -309,11 +309,21 @@ should_exit_gracefully() {
         return 0
     fi
     
-    # 3. Strong completion indicators
-    if [[ $recent_completion_indicators -ge 2 ]]; then
-        log_status "WARN" "Exit condition: Strong completion indicators ($recent_completion_indicators)"
+    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    # This prevents premature exits when heuristics detect completion patterns
+    # but Claude explicitly indicates work is still in progress via RALPH_STATUS block.
+    # The exit_signal in .response_analysis represents Claude's explicit intent.
+    local claude_exit_signal="false"
+    if [[ -f ".response_analysis" ]]; then
+        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' ".response_analysis" 2>/dev/null || echo "false")
+    fi
+
+    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
+        log_status "WARN" "Exit condition: Strong completion indicators ($recent_completion_indicators) with EXIT_SIGNAL=true" >&2
         echo "project_complete"
         return 0
+    elif [[ $recent_completion_indicators -ge 2 ]]; then
+        log_status "INFO" "DEBUG: Completion indicators ($recent_completion_indicators) present but EXIT_SIGNAL=false, continuing..." >&2
     fi
     
     # 4. Check fix_plan.md for completion

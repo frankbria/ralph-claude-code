@@ -165,11 +165,33 @@ Each loop iteration injects context via `build_loop_context()`:
 - Disable with `--no-continue` for isolated iterations
 
 ### Intelligent Exit Detection
-The loop automatically exits when it detects project completion through:
-- Multiple consecutive "done" signals from Claude Code
-- Too many test-only loops indicating feature completeness
+The loop uses a dual-condition check to prevent premature exits during productive iterations:
+
+**Exit requires BOTH conditions:**
+1. `recent_completion_indicators >= 2` (heuristic-based detection from natural language patterns)
+2. Claude's explicit `EXIT_SIGNAL: true` in the RALPH_STATUS block
+
+The `EXIT_SIGNAL` value is read from `.response_analysis` (at `.analysis.exit_signal`) which is populated by `response_analyzer.sh` from Claude's RALPH_STATUS output block.
+
+**Other exit conditions (checked before completion indicators):**
+- Multiple consecutive "done" signals from Claude Code (`done_signals >= 2`)
+- Too many test-only loops indicating feature completeness (`test_loops >= 3`)
 - All items in @fix_plan.md marked as completed
-- Strong completion indicators in responses
+
+**Example behavior when EXIT_SIGNAL is false:**
+```
+Loop 5: Claude outputs "Phase complete, moving to next feature"
+        → completion_indicators: 3 (high confidence from patterns)
+        → EXIT_SIGNAL: false (Claude explicitly says more work needed)
+        → Result: CONTINUE (respects Claude's explicit intent)
+
+Loop 8: Claude outputs "All tasks complete, project ready"
+        → completion_indicators: 4
+        → EXIT_SIGNAL: true (Claude confirms project is done)
+        → Result: EXIT with "project_complete"
+```
+
+**Rationale:** Natural language patterns like "done" or "complete" can trigger false positives during productive work (e.g., "feature done, moving to tests"). By requiring Claude's explicit EXIT_SIGNAL confirmation, Ralph avoids exiting mid-iteration when Claude is still working.
 
 ## CI/CD Pipeline
 
@@ -255,6 +277,33 @@ Ralph uses multiple mechanisms to detect when to exit:
 - `MAX_CONSECUTIVE_DONE_SIGNALS=2` - Exit on repeated completion signals
 - `TEST_PERCENTAGE_THRESHOLD=30%` - Flag if testing dominates recent loops
 - Completion detection via @fix_plan.md checklist items
+
+### Completion Indicators with EXIT_SIGNAL Gate
+
+The `completion_indicators` exit condition requires dual verification:
+
+| completion_indicators | EXIT_SIGNAL | .response_analysis | Result |
+|-----------------------|-------------|-------------------|--------|
+| >= 2 | `true` | exists | **Exit** ("project_complete") |
+| >= 2 | `false` | exists | **Continue** (Claude still working) |
+| >= 2 | N/A | missing | **Continue** (defaults to false) |
+| >= 2 | N/A | malformed | **Continue** (defaults to false) |
+| < 2 | `true` | exists | **Continue** (threshold not met) |
+
+**Implementation** (`ralph_loop.sh:312-327`):
+```bash
+local claude_exit_signal="false"
+if [[ -f ".response_analysis" ]]; then
+    claude_exit_signal=$(jq -r '.analysis.exit_signal // false' ".response_analysis" 2>/dev/null || echo "false")
+fi
+
+if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
+    echo "project_complete"
+    return 0
+fi
+```
+
+**Conflict Resolution:** When `STATUS: COMPLETE` but `EXIT_SIGNAL: false` in RALPH_STATUS, the explicit EXIT_SIGNAL takes precedence. This allows Claude to mark a phase complete while indicating more phases remain.
 
 ### Circuit Breaker Thresholds
 - `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
