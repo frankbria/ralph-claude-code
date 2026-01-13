@@ -297,13 +297,29 @@ analyze_response() {
 
     # Text parsing fallback (original logic)
 
+    # Track whether an explicit EXIT_SIGNAL was found in RALPH_STATUS block
+    # If explicit signal found, heuristics should NOT override Claude's intent
+    local explicit_exit_signal_found=false
+
     # 1. Check for explicit structured output (if Claude follows schema)
     if grep -q -- "---RALPH_STATUS---" "$output_file"; then
         # Parse structured output
         local status=$(grep "STATUS:" "$output_file" | cut -d: -f2 | xargs)
         local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | cut -d: -f2 | xargs)
 
-        if [[ "$exit_sig" == "true" || "$status" == "COMPLETE" ]]; then
+        # If EXIT_SIGNAL is explicitly provided, respect it
+        if [[ -n "$exit_sig" ]]; then
+            explicit_exit_signal_found=true
+            if [[ "$exit_sig" == "true" || "$status" == "COMPLETE" ]]; then
+                has_completion_signal=true
+                exit_signal=true
+                confidence_score=100
+            else
+                # Explicit EXIT_SIGNAL: false - Claude says to continue
+                exit_signal=false
+            fi
+        elif [[ "$status" == "COMPLETE" ]]; then
+            # No explicit EXIT_SIGNAL but STATUS is COMPLETE
             has_completion_signal=true
             exit_signal=true
             confidence_score=100
@@ -398,9 +414,13 @@ analyze_response() {
         fi
     fi
 
-    # 9. Determine exit signal based on confidence
-    if [[ $confidence_score -ge 40 || "$has_completion_signal" == "true" ]]; then
-        exit_signal=true
+    # 9. Determine exit signal based on confidence (heuristic)
+    # IMPORTANT: Only apply heuristics if no explicit EXIT_SIGNAL was found in RALPH_STATUS
+    # Claude's explicit intent takes precedence over natural language pattern matching
+    if [[ "$explicit_exit_signal_found" != "true" ]]; then
+        if [[ $confidence_score -ge 40 || "$has_completion_signal" == "true" ]]; then
+            exit_signal=true
+        fi
     fi
 
     # Write analysis results to file (text parsing path) using jq for safe construction

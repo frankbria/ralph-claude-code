@@ -9,6 +9,7 @@ setup() {
 
     # Set up environment
     export EXIT_SIGNALS_FILE=".exit_signals"
+    export RESPONSE_ANALYSIS_FILE=".response_analysis"
     export MAX_CONSECUTIVE_TEST_LOOPS=3
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
 
@@ -26,6 +27,7 @@ teardown() {
 }
 
 # Helper function: should_exit_gracefully (extracted from ralph_loop.sh)
+# Updated to respect EXIT_SIGNAL from .response_analysis for completion indicators
 should_exit_gracefully() {
     if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
         echo ""  # Return empty string instead of using return code
@@ -57,8 +59,15 @@ should_exit_gracefully() {
         return 0
     fi
 
-    # 3. Strong completion indicators
-    if [[ $recent_completion_indicators -ge 2 ]]; then
+    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    # This prevents premature exits when heuristics detect completion patterns
+    # but Claude explicitly indicates work is still in progress
+    local claude_exit_signal="false"
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+    fi
+
+    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
         echo "project_complete"
         return 0
     fi
@@ -138,9 +147,20 @@ should_exit_gracefully() {
     assert_equal "$result" ""
 }
 
-# Test 8: Exit on completion indicators (2 indicators)
+# Test 8: Exit on completion indicators (2 indicators) with EXIT_SIGNAL=true
 @test "should_exit_gracefully exits on 2 completion indicators" {
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+
+    # Must also have exit_signal=true in .response_analysis (after fix)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 2,
+    "analysis": {
+        "exit_signal": true,
+        "confidence_score": 80
+    }
+}
+EOF
 
     result=$(should_exit_gracefully || true)
     assert_equal "$result" "project_complete"
@@ -264,4 +284,206 @@ EOF
 
     result=$(should_exit_gracefully)
     assert_equal "$result" "completion_signals"
+}
+
+# =============================================================================
+# EXIT_SIGNAL RESPECT TESTS (Issue: Premature exit when EXIT_SIGNAL=false)
+# =============================================================================
+# These tests verify that completion indicators only trigger exit when
+# Claude's explicit EXIT_SIGNAL is true, preventing premature exits during
+# productive iterations.
+
+# Test 21: Completion indicators with EXIT_SIGNAL=false should continue
+@test "should_exit_gracefully continues when completion indicators high but EXIT_SIGNAL=false" {
+    # Setup: High completion indicators (would normally exit)
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3]}' > "$EXIT_SIGNALS_FILE"
+
+    # Setup: Claude's explicit exit signal is false (still working)
+    mkdir -p "$(dirname "$RESPONSE_ANALYSIS_FILE")"
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "text",
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": true,
+        "files_modified": 5,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Implementing feature, still in progress"
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # Should NOT exit because EXIT_SIGNAL is false
+    assert_equal "$result" ""
+}
+
+# Test 22: Completion indicators with EXIT_SIGNAL=true should exit
+@test "should_exit_gracefully exits when completion indicators high AND EXIT_SIGNAL=true" {
+    # Setup: High completion indicators
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+
+    # Setup: Claude's explicit exit signal is true (project complete)
+    mkdir -p "$(dirname "$RESPONSE_ANALYSIS_FILE")"
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 2,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "text",
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": false,
+        "files_modified": 0,
+        "confidence_score": 100,
+        "exit_signal": true,
+        "work_summary": "All tasks complete, project ready for review"
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully)
+    # Should exit because BOTH conditions are met
+    assert_equal "$result" "project_complete"
+}
+
+# Test 23: Completion indicators without .response_analysis file should continue
+@test "should_exit_gracefully continues when .response_analysis file missing" {
+    # Setup: High completion indicators
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3]}' > "$EXIT_SIGNALS_FILE"
+
+    # Don't create .response_analysis - defaults to exit_signal=false
+    rm -f "$RESPONSE_ANALYSIS_FILE"
+
+    result=$(should_exit_gracefully || true)
+    # Should NOT exit because exit_signal defaults to false
+    assert_equal "$result" ""
+}
+
+# Test 24: Completion indicators with malformed .response_analysis should continue
+@test "should_exit_gracefully continues when .response_analysis has invalid JSON" {
+    # Setup: High completion indicators
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+
+    # Setup: Corrupted/invalid JSON in .response_analysis
+    echo 'invalid json{broken' > "$RESPONSE_ANALYSIS_FILE"
+
+    result=$(should_exit_gracefully || true)
+    # Should NOT exit because jq parsing fails, defaults to false
+    assert_equal "$result" ""
+}
+
+# Test 25: EXIT_SIGNAL=true but completion indicators below threshold should continue
+@test "should_exit_gracefully continues when EXIT_SIGNAL=true but indicators below threshold" {
+    # Setup: Only 1 completion indicator (below threshold of 2)
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1]}' > "$EXIT_SIGNALS_FILE"
+
+    # Setup: Claude says exit is true
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "exit_signal": true,
+        "confidence_score": 100
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # Should NOT exit because indicators below threshold
+    assert_equal "$result" ""
+}
+
+# Test 26: EXIT_SIGNAL=false with explicit false value in JSON
+@test "should_exit_gracefully handles explicit false exit_signal" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3,4,5]}' > "$EXIT_SIGNALS_FILE"
+
+    # Explicit false value
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "analysis": {
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully || true)
+    assert_equal "$result" ""
+}
+
+# Test 27: EXIT_SIGNAL missing from analysis object should default to false
+@test "should_exit_gracefully defaults to false when exit_signal field missing" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+
+    # analysis object exists but no exit_signal field
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 5,
+    "analysis": {
+        "confidence_score": 80,
+        "has_completion_signal": true,
+        "is_test_only": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # Missing exit_signal should default to false, so continue
+    assert_equal "$result" ""
+}
+
+# Test 28: Test priority - test_saturation still takes priority over completion indicators
+@test "should_exit_gracefully test_saturation takes priority even with EXIT_SIGNAL=false" {
+    # Test loops should still trigger exit regardless of EXIT_SIGNAL
+    echo '{"test_only_loops": [1,2,3,4], "done_signals": [], "completion_indicators": [1]}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "analysis": {
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully)
+    # test_saturation is checked before completion_indicators
+    assert_equal "$result" "test_saturation"
+}
+
+# Test 29: done_signals still takes priority over completion indicators
+@test "should_exit_gracefully done_signals takes priority even with EXIT_SIGNAL=false" {
+    echo '{"test_only_loops": [], "done_signals": [1,2,3], "completion_indicators": [1]}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "analysis": {
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully)
+    # done_signals is checked before completion_indicators
+    assert_equal "$result" "completion_signals"
+}
+
+# Test 30: Empty analysis object in .response_analysis should default to false
+@test "should_exit_gracefully handles empty analysis object" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "analysis": {}
+}
+EOF
+
+    result=$(should_exit_gracefully || true)
+    assert_equal "$result" ""
 }

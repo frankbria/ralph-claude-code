@@ -411,3 +411,170 @@ EOF
 
     [[ "$result" -eq 0 || "$result" -eq 1 ]]
 }
+
+# =============================================================================
+# EXIT_SIGNAL INTEGRATION TESTS
+# Tests for the fix that ensures completion indicators only trigger exit
+# when Claude's explicit EXIT_SIGNAL is true
+# =============================================================================
+
+# Edge Case 21: Multiple loops with EXIT_SIGNAL=false should continue
+@test "multiple loops continue when confidence high but EXIT_SIGNAL=false" {
+    local output_file="$LOG_DIR/loop.log"
+
+    # Simulate 3 loops with explicit EXIT_SIGNAL: false
+    for i in {1..3}; do
+        cat > "$output_file" << 'EOF'
+---RALPH_STATUS---
+STATUS: IN_PROGRESS
+EXIT_SIGNAL: false
+WORK_TYPE: IMPLEMENTATION
+---END_RALPH_STATUS---
+
+Work complete for this iteration.
+Project progressing well, all tasks for this phase done.
+Ready for next steps.
+EOF
+
+        analyze_response "$output_file" $i
+        update_exit_signals
+
+        # After each loop, check that exit_signal is correctly captured as false
+        local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+        assert_equal "$exit_signal" "false"
+    done
+
+    # Verify that analyze_response correctly captures EXIT_SIGNAL=false
+    local final_exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_equal "$final_exit_signal" "false"
+
+    # Key test: Even with high completion indicators set externally,
+    # the exit_signal should still be false (respecting Claude's explicit intent)
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3]}' > "$EXIT_SIGNALS_FILE"
+    local last_exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_equal "$last_exit_signal" "false"
+}
+
+# Edge Case 22: Transition from IN_PROGRESS to COMPLETE
+@test "loop exits when transitioning from EXIT_SIGNAL=false to EXIT_SIGNAL=true" {
+    local output_file="$LOG_DIR/loop.log"
+
+    # Loop 1-2: IN_PROGRESS with EXIT_SIGNAL=false
+    for i in 1 2; do
+        cat > "$output_file" << 'EOF'
+---RALPH_STATUS---
+STATUS: IN_PROGRESS
+EXIT_SIGNAL: false
+---END_RALPH_STATUS---
+
+Feature implementation in progress.
+EOF
+
+        analyze_response "$output_file" $i
+        update_exit_signals
+
+        local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+        assert_equal "$exit_signal" "false"
+    done
+
+    # Loop 3: COMPLETE with EXIT_SIGNAL=true
+    cat > "$output_file" << 'EOF'
+---RALPH_STATUS---
+STATUS: COMPLETE
+EXIT_SIGNAL: true
+---END_RALPH_STATUS---
+
+All tasks complete. Project ready for review.
+EOF
+
+    analyze_response "$output_file" 3
+    update_exit_signals
+
+    # Exit signal should now be true
+    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_equal "$exit_signal" "true"
+
+    # Confidence should be >= 100 (100 from EXIT_SIGNAL: true, plus any natural language bonuses)
+    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    [[ "$confidence" -ge 100 ]]
+}
+
+# Edge Case 23: Missing .response_analysis mid-loop
+@test "graceful handling when .response_analysis deleted mid-loop" {
+    local output_file="$LOG_DIR/loop.log"
+
+    # Create initial analysis
+    cat > "$output_file" << 'EOF'
+---RALPH_STATUS---
+STATUS: IN_PROGRESS
+EXIT_SIGNAL: false
+---END_RALPH_STATUS---
+
+Working on implementation.
+EOF
+
+    analyze_response "$output_file" 1
+    update_exit_signals
+
+    # Verify file exists
+    assert_file_exists ".response_analysis"
+
+    # Simulate file deletion (e.g., cleanup script ran)
+    rm -f ".response_analysis"
+
+    # Add more completion indicators
+    cat > "$output_file" << 'EOF'
+Project complete.
+EOF
+
+    analyze_response "$output_file" 2
+    update_exit_signals
+
+    # File should be recreated
+    assert_file_exists ".response_analysis"
+}
+
+# Edge Case 24: JSON format response with EXIT_SIGNAL handling
+@test "JSON format response correctly handles EXIT_SIGNAL" {
+    local output_file="$LOG_DIR/json_response.log"
+
+    # Create JSON format response (Claude CLI format)
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Implementation in progress, more work needed",
+    "sessionId": "test-session-123",
+    "metadata": {
+        "files_changed": 5,
+        "has_errors": false,
+        "completion_status": "in_progress"
+    }
+}
+EOF
+
+    analyze_response "$output_file" 1
+    update_exit_signals
+
+    # Exit signal should be false (completion_status is in_progress)
+    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_equal "$exit_signal" "false"
+
+    # Now test with complete status
+    cat > "$output_file" << 'EOF'
+{
+    "result": "All tasks completed successfully",
+    "sessionId": "test-session-124",
+    "metadata": {
+        "files_changed": 0,
+        "has_errors": false,
+        "completion_status": "complete"
+    }
+}
+EOF
+
+    analyze_response "$output_file" 2
+    update_exit_signals
+
+    # Exit signal should be true (completion_status is complete)
+    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_equal "$exit_signal" "true"
+}
