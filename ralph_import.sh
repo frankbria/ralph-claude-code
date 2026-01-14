@@ -596,7 +596,13 @@ main() {
     # Copy source file to project (uses basename since we cd'd into project)
     local source_basename
     source_basename=$(basename "$source_file")
-    cp "../$source_file" "$source_basename"
+
+
+    if [[ "$source_file" == /* ]]; then
+        cp "$source_file" "$source_basename"
+    else
+        cp "../$source_file" "$source_basename"
+    fi
 
     # Run conversion using local copy (basename, not original path)
     convert_prd "$source_basename" "$project_name"
