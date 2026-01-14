@@ -596,8 +596,6 @@ main() {
     # Copy source file to project (uses basename since we cd'd into project)
     local source_basename
     source_basename=$(basename "$source_file")
-
-
     if [[ "$source_file" == /* ]]; then
         cp "$source_file" "$source_basename"
     else
