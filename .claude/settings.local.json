@@ -18,7 +18,12 @@
       "Bash(./tests/test_stuck_loop_detection.sh:*)",
       "Bash(git mv:*)",
       "WebFetch(domain:about.codecov.io)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(shellcheck:*)",
+      "Bash(timeout 30 bats:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(git fetch:*)",
+      "Bash(npm run test:unit:*)"
     ],
     "deny": [],
     "ask": []
