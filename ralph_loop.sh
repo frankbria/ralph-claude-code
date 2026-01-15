@@ -92,6 +92,24 @@ check_tmux_available() {
     fi
 }
 
+# Check if timeout command is available (required for execution timeouts)
+check_timeout_available() {
+    if ! command -v timeout &> /dev/null; then
+        log_status "ERROR" "timeout command not found. This is required for Claude Code execution timeouts."
+        echo ""
+        echo "The 'timeout' command is part of GNU coreutils."
+        echo ""
+        echo "Install coreutils:"
+        echo "  macOS:         brew install coreutils"
+        echo "  Ubuntu/Debian: sudo apt-get install coreutils"
+        echo "  CentOS/RHEL:   sudo yum install coreutils"
+        echo ""
+        echo "After installing on macOS, ensure /opt/homebrew/bin (Apple Silicon)"
+        echo "or /usr/local/bin (Intel) is in your PATH."
+        exit 1
+    fi
+}
+
 # Setup tmux session with monitor
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
@@ -1027,7 +1045,9 @@ loop_count=0
 
 # Main loop
 main() {
-    
+    # Check required dependencies
+    check_timeout_available
+
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
