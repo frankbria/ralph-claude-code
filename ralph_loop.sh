@@ -162,10 +162,10 @@ init_call_tracking() {
         log_status "INFO" "Call counter reset for new hour: $current_hour"
     fi
 
-    # Initialize exit signals tracking if it doesn't exist
-    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
-        echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-    fi
+    # Always reset exit signals tracking on startup to avoid stale signals from previous runs
+    # This prevents premature exit when Ralph is restarted after completion
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    log_status "INFO" "Exit signals reset (prevents stale signals from previous runs)"
 
     # Initialize circuit breaker
     init_circuit_breaker

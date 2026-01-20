@@ -517,3 +517,36 @@ EOF
     # EXIT_SIGNAL=false should take precedence, continue working
     assert_equal "$result" ""
 }
+
+# =============================================================================
+# STALE EXIT SIGNALS TESTS (Issue: Ralph exits immediately on restart)
+# =============================================================================
+# These tests verify that stale exit signals from previous runs don't cause
+# premature exits when Ralph is restarted.
+
+# Test 32: Stale completion indicators from previous run should not cause immediate exit
+@test "init_call_tracking clears stale exit signals on startup" {
+    # Source the main script to get init_call_tracking function
+    source "$BATS_TEST_DIRNAME/../../lib/date_utils.sh"
+    source "$BATS_TEST_DIRNAME/../../ralph_loop.sh" 2>/dev/null || true
+
+    # Simulate stale exit signals from a previous run
+    echo '{"test_only_loops": [1], "done_signals": [1], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+
+    # Verify stale signals exist
+    local stale_indicators=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$stale_indicators" "2"
+
+    # Call init_call_tracking which should reset exit signals
+    init_call_tracking
+
+    # Verify exit signals are now empty
+    local cleared_indicators=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$cleared_indicators" "0"
+
+    local cleared_done=$(jq '.done_signals | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$cleared_done" "0"
+
+    local cleared_test=$(jq '.test_only_loops | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$cleared_test" "0"
+}
