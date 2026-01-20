@@ -524,12 +524,14 @@ EOF
 # These tests verify that stale exit signals from previous runs don't cause
 # premature exits when Ralph is restarted.
 
-# Test 32: Stale completion indicators from previous run should not cause immediate exit
+# Test 32 (in this file): Stale completion indicators from previous run should not cause immediate exit
 @test "init_call_tracking clears stale exit signals on startup" {
     # Source required files to get init_call_tracking function
     # Note: date_utils.sh is required by ralph_loop.sh, so source it first
     source "$BATS_TEST_DIRNAME/../../lib/date_utils.sh"
-    # ralph_loop.sh may emit warnings to stderr when sourced in test context, suppress them
+    # ralph_loop.sh has initialization code that runs on source (mkdir, config checks)
+    # These may generate warnings in test context but don't affect the test
+    # We verify the function behavior afterward, so warnings can be safely suppressed
     source "$BATS_TEST_DIRNAME/../../ralph_loop.sh" 2>/dev/null || true
 
     # Simulate stale exit signals from a previous run
