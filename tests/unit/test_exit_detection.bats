@@ -526,8 +526,10 @@ EOF
 
 # Test 32: Stale completion indicators from previous run should not cause immediate exit
 @test "init_call_tracking clears stale exit signals on startup" {
-    # Source the main script to get init_call_tracking function
+    # Source required files to get init_call_tracking function
+    # Note: date_utils.sh is required by ralph_loop.sh, so source it first
     source "$BATS_TEST_DIRNAME/../../lib/date_utils.sh"
+    # ralph_loop.sh may emit warnings to stderr when sourced in test context, suppress them
     source "$BATS_TEST_DIRNAME/../../ralph_loop.sh" 2>/dev/null || true
 
     # Simulate stale exit signals from a previous run
