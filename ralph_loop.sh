@@ -1031,11 +1031,25 @@ loop_count=0
 
 # Main loop
 main() {
-    
+
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
-    
+
+    # Check if project uses old flat structure and needs migration
+    if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
+        log_status "ERROR" "This project uses the old flat structure."
+        echo ""
+        echo "Ralph v0.10.0+ uses a .ralph/ subfolder to keep your project root clean."
+        echo ""
+        echo "To upgrade your project, run:"
+        echo "  ralph-migrate"
+        echo ""
+        echo "This will move Ralph-specific files to .ralph/ while preserving src/ at root."
+        echo "A backup will be created before migration."
+        exit 1
+    fi
+
     # Check if this is a Ralph project directory
     if [[ ! -f "$PROMPT_FILE" ]]; then
         log_status "ERROR" "Prompt file '$PROMPT_FILE' not found!"
@@ -1206,10 +1220,10 @@ Files created:
     - $LOG_DIR/: All execution logs
     - $DOCS_DIR/: Generated documentation
     - $STATUS_FILE: Current status (JSON)
-    - .ralph_session: Session lifecycle tracking
-    - .ralph_session_history: Session transition history (last 50)
-    - .call_count: API call counter for rate limiting
-    - .last_reset: Timestamp of last rate limit reset
+    - .ralph/.ralph_session: Session lifecycle tracking
+    - .ralph/.ralph_session_history: Session transition history (last 50)
+    - .ralph/.call_count: API call counter for rate limiting
+    - .ralph/.last_reset: Timestamp of last rate limit reset
 
 Example workflow:
     ralph-setup my-project     # Create project

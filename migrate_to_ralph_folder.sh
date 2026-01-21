@@ -67,7 +67,15 @@ needs_migration() {
 # Backup function
 create_backup() {
     local project_dir=$1
-    local backup_dir="$project_dir/.ralph_backup_$(date +%Y%m%d_%H%M%S)"
+    local backup_dir
+    local backup_ts
+
+    # Get timestamp with proper error handling
+    backup_ts="$(date +%Y%m%d_%H%M%S)" || {
+        log "ERROR" "Failed to get timestamp for backup"
+        return 1
+    }
+    backup_dir="$project_dir/.ralph_backup_${backup_ts}"
 
     log "INFO" "Creating backup at $backup_dir" >&2
     mkdir -p "$backup_dir"
@@ -79,6 +87,7 @@ create_backup() {
     [[ -d "$project_dir/specs" ]] && cp -r "$project_dir/specs" "$backup_dir/"
     [[ -d "$project_dir/logs" ]] && cp -r "$project_dir/logs" "$backup_dir/"
     [[ -d "$project_dir/docs/generated" ]] && cp -r "$project_dir/docs/generated" "$backup_dir/docs_generated"
+    [[ -d "$project_dir/examples" ]] && cp -r "$project_dir/examples" "$backup_dir/"
 
     # Backup hidden state files
     [[ -f "$project_dir/.call_count" ]] && cp "$project_dir/.call_count" "$backup_dir/"
@@ -122,34 +131,52 @@ migrate_project() {
         mv "$project_dir/@AGENT.md" "$project_dir/.ralph/@AGENT.md"
     fi
 
-    # Move specs directory contents
+    # Move specs directory contents (fail-safe: preserve dotfiles, verify copy before delete)
     if [[ -d "$project_dir/specs" ]]; then
         log "INFO" "Moving specs/ to .ralph/specs/"
-        # Move contents, not the directory itself (to preserve any existing .ralph/specs structure)
         if [[ "$(ls -A "$project_dir/specs" 2>/dev/null)" ]]; then
-            cp -r "$project_dir/specs"/* "$project_dir/.ralph/specs/" 2>/dev/null || true
+            # Use cp -a with /. pattern to preserve dotfiles and attributes
+            if cp -a "$project_dir/specs/." "$project_dir/.ralph/specs/"; then
+                rm -rf "$project_dir/specs"
+            else
+                log "WARN" "Failed to copy specs/, keeping original (backup available)"
+            fi
+        else
+            rm -rf "$project_dir/specs"
         fi
-        rm -rf "$project_dir/specs"
     fi
 
-    # Move logs directory contents
+    # Move logs directory contents (fail-safe: preserve dotfiles, verify copy before delete)
     if [[ -d "$project_dir/logs" ]]; then
         log "INFO" "Moving logs/ to .ralph/logs/"
         if [[ "$(ls -A "$project_dir/logs" 2>/dev/null)" ]]; then
-            cp -r "$project_dir/logs"/* "$project_dir/.ralph/logs/" 2>/dev/null || true
+            # Use cp -a with /. pattern to preserve dotfiles and attributes
+            if cp -a "$project_dir/logs/." "$project_dir/.ralph/logs/"; then
+                rm -rf "$project_dir/logs"
+            else
+                log "WARN" "Failed to copy logs/, keeping original (backup available)"
+            fi
+        else
+            rm -rf "$project_dir/logs"
         fi
-        rm -rf "$project_dir/logs"
     fi
 
-    # Move docs/generated contents
+    # Move docs/generated contents (fail-safe: preserve dotfiles, verify copy before delete)
     if [[ -d "$project_dir/docs/generated" ]]; then
         log "INFO" "Moving docs/generated/ to .ralph/docs/generated/"
         if [[ "$(ls -A "$project_dir/docs/generated" 2>/dev/null)" ]]; then
-            cp -r "$project_dir/docs/generated"/* "$project_dir/.ralph/docs/generated/" 2>/dev/null || true
+            # Use cp -a with /. pattern to preserve dotfiles and attributes
+            if cp -a "$project_dir/docs/generated/." "$project_dir/.ralph/docs/generated/"; then
+                rm -rf "$project_dir/docs/generated"
+                # Remove docs directory if empty
+                rmdir "$project_dir/docs" 2>/dev/null || true
+            else
+                log "WARN" "Failed to copy docs/generated/, keeping original (backup available)"
+            fi
+        else
+            rm -rf "$project_dir/docs/generated"
+            rmdir "$project_dir/docs" 2>/dev/null || true
         fi
-        rm -rf "$project_dir/docs/generated"
-        # Remove docs directory if empty
-        rmdir "$project_dir/docs" 2>/dev/null || true
     fi
 
     # Move hidden state files
@@ -175,16 +202,22 @@ migrate_project() {
         fi
     done
 
-    # Move examples if source exists
+    # Move examples if source exists (fail-safe: preserve dotfiles, verify copy before delete)
     if [[ -d "$project_dir/examples" ]]; then
         # Only move if target doesn't exist or is empty
         if [[ ! -d "$project_dir/.ralph/examples" ]] || [[ -z "$(ls -A "$project_dir/.ralph/examples" 2>/dev/null)" ]]; then
             log "INFO" "Moving examples/ to .ralph/examples/"
             mkdir -p "$project_dir/.ralph/examples"
             if [[ "$(ls -A "$project_dir/examples" 2>/dev/null)" ]]; then
-                cp -r "$project_dir/examples"/* "$project_dir/.ralph/examples/" 2>/dev/null || true
+                # Use cp -a with /. pattern to preserve dotfiles and attributes
+                if cp -a "$project_dir/examples/." "$project_dir/.ralph/examples/"; then
+                    rm -rf "$project_dir/examples"
+                else
+                    log "WARN" "Failed to copy examples/, keeping original (backup available)"
+                fi
+            else
+                rm -rf "$project_dir/examples"
             fi
-            rm -rf "$project_dir/examples"
         fi
     fi
 

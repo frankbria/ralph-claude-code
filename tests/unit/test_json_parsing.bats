@@ -146,7 +146,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -167,7 +167,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -188,7 +188,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -208,7 +208,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -229,7 +229,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -249,7 +249,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -272,7 +272,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -313,7 +313,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -481,7 +481,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -501,7 +501,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -524,7 +524,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -547,7 +547,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -574,7 +574,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -598,7 +598,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -624,7 +624,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -671,9 +671,9 @@ EOF
     analyze_response "$output_file" 1
 
     # Session ID should be persisted for continuity
-    [[ -f ".claude_session_id" ]] || skip "Session persistence not yet implemented"
+    [[ -f "$RALPH_DIR/.claude_session_id" ]] || skip "Session persistence not yet implemented"
 
-    local stored_session=$(cat .claude_session_id)
+    local stored_session=$(cat "$RALPH_DIR/.claude_session_id")
     [[ "$stored_session" == *"session-persist-test-123"* ]]
 }
 
@@ -684,15 +684,15 @@ EOF
 @test "store_session_id writes session to file with timestamp" {
     run store_session_id "session-test-abc"
 
-    [[ -f ".claude_session_id" ]] || skip "store_session_id not yet implemented"
+    [[ -f "$RALPH_DIR/.claude_session_id" ]] || skip "store_session_id not yet implemented"
 
-    local content=$(cat .claude_session_id)
+    local content=$(cat "$RALPH_DIR/.claude_session_id")
     [[ "$content" == *"session-test-abc"* ]]
 }
 
 @test "get_last_session_id retrieves stored session" {
     # First store a session
-    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > .claude_session_id
+    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > "$RALPH_DIR/.claude_session_id"
 
     run get_last_session_id
 
@@ -700,7 +700,7 @@ EOF
 }
 
 @test "get_last_session_id returns empty when no session file" {
-    rm -f .claude_session_id
+    rm -f "$RALPH_DIR/.claude_session_id"
 
     run get_last_session_id
 
@@ -712,7 +712,7 @@ EOF
 @test "should_resume_session returns true for recent session" {
     # Store a recent session (simulated as current timestamp)
     local now=$(date +%s)
-    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > .claude_session_id
+    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > "$RALPH_DIR/.claude_session_id"
 
     run should_resume_session
 
@@ -722,7 +722,7 @@ EOF
 
 @test "should_resume_session returns false for old session" {
     # Store an old session (24+ hours ago)
-    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > .claude_session_id
+    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > "$RALPH_DIR/.claude_session_id"
 
     run should_resume_session
 
@@ -731,7 +731,7 @@ EOF
 }
 
 @test "should_resume_session returns false when no session file" {
-    rm -f .claude_session_id
+    rm -f "$RALPH_DIR/.claude_session_id"
 
     run should_resume_session
 

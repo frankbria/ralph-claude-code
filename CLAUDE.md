@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.8 | **Tests**: 276 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.10.0 | **Tests**: 310 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -75,6 +75,13 @@ The system uses a modular architecture with reusable components in the `lib/` di
 # Create a new Ralph-managed project (run from anywhere)
 ralph-setup my-project-name
 cd my-project-name
+```
+
+### Migrating Existing Projects
+```bash
+# Migrate from flat structure to .ralph/ subfolder (v0.10.0+)
+cd existing-project
+ralph-migrate
 ```
 
 ### Running the Ralph Loop
@@ -373,6 +380,15 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### .ralph/ Subfolder Structure (v0.10.0) - BREAKING CHANGE
+- **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder
+- Project root stays clean: only `src/`, `README.md`, and user files remain
+- Added `ralph-migrate` command for upgrading existing projects
+- Migration script with fail-safe copy pattern (`cp -a source/. dest/`)
+- Auto-detection of old structure with upgrade guidance
+- Updated all configuration variables to use `$RALPH_DIR` prefix
+- Test count: 310 (up from 308)
 
 ### Modern CLI for PRD Import (v0.9.8)
 - Modernized `ralph_import.sh` to use Claude Code CLI JSON output format

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 ![Tests](https://img.shields.io/badge/tests-308%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
@@ -16,7 +16,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.9 - Active Development
+**Version**: v0.10.0 - Active Development
 **Core Features**: Working and tested
 **Test Coverage**: 308 tests, 100% pass rate
 
@@ -39,6 +39,15 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - 308 passing tests across 11 test files
 
 ### Recent Improvements
+
+**v0.10.0 - .ralph/ Subfolder Structure (BREAKING CHANGE)**
+- **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder
+- Project root stays clean: only `src/`, `README.md`, and user files remain
+- Added `ralph-migrate` command for upgrading existing projects
+- Migration script creates backup before moving files
+- Fail-safe migration: preserves dotfiles with `cp -a source/. dest/` pattern
+- Auto-detection of old structure with helpful upgrade guidance
+- Updated all tests for new structure (310 tests)
 
 **v0.9.9 - EXIT_SIGNAL Gate & Uninstall Script**
 - Fixed premature exit bug: completion indicators now require Claude's explicit `EXIT_SIGNAL: true`

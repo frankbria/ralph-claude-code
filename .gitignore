@@ -1,20 +1,25 @@
-# Ralph generated files
-.call_count
-.last_reset
-.exit_signals
-status.json
-.ralph_session
-.ralph_session_history
-.claude_session_id
+# Ralph generated files (inside .ralph/ subfolder)
+.ralph/.call_count
+.ralph/.last_reset
+.ralph/.exit_signals
+.ralph/status.json
+.ralph/.ralph_session
+.ralph/.ralph_session_history
+.ralph/.claude_session_id
+.ralph/.response_analysis
+.ralph/.circuit_breaker_state
+.ralph/.circuit_breaker_history
+.ralph/.json_parse_result
+.ralph/.last_output_length
 
-# Logs
-logs/*
-!logs/.gitkeep
+# Ralph logs and generated docs
+.ralph/logs/*
+!.ralph/logs/.gitkeep
+.ralph/docs/generated/*
+!.ralph/docs/generated/.gitkeep
+
+# General logs
 *.log
-
-# Generated documentation
-docs/generated/*
-!docs/generated/.gitkeep
 
 # OS files
 .DS_Store
@@ -42,3 +47,6 @@ target/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Ralph backup directories (created by migration)
+.ralph_backup_*
