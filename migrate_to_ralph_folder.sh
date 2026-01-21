@@ -69,7 +69,7 @@ create_backup() {
     local project_dir=$1
     local backup_dir="$project_dir/.ralph_backup_$(date +%Y%m%d_%H%M%S)"
 
-    log "INFO" "Creating backup at $backup_dir"
+    log "INFO" "Creating backup at $backup_dir" >&2
     mkdir -p "$backup_dir"
 
     # Backup files that will be moved
