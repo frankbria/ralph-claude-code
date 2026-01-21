@@ -417,11 +417,15 @@ MAX_CONSECUTIVE_DONE_SIGNALS=2   # Exit after 2 "done" signals
 TEST_PERCENTAGE_THRESHOLD=30     # Flag if 30%+ loops are test-only
 ```
 
-**Circuit Breaker Thresholds:**
+**Circuit Breaker Thresholds (configurable via environment variables):**
 ```bash
-CB_NO_PROGRESS_THRESHOLD=3       # Open circuit after 3 loops with no file changes
-CB_SAME_ERROR_THRESHOLD=5        # Open circuit after 5 loops with repeated errors
-CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
+# Defaults (can be overridden at runtime)
+CB_NO_PROGRESS_THRESHOLD=3       # Open circuit after N loops with no file changes
+CB_SAME_ERROR_THRESHOLD=5        # Open circuit after N loops with repeated errors
+CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >N%
+
+# Example: increase thresholds for long-running tasks
+CB_NO_PROGRESS_THRESHOLD=10 ralph --monitor
 ```
 
 **Completion Indicators with EXIT_SIGNAL Gate:**

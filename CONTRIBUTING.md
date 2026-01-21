@@ -192,8 +192,9 @@ Ralph follows consistent bash conventions across all scripts:
 source "$(dirname "${BASH_SOURCE[0]}")/lib/date_utils.sh"
 
 # Configuration constants (UPPER_CASE)
+# Use env var defaults for user-configurable values
 MAX_CALLS_PER_HOUR=100
-CB_NO_PROGRESS_THRESHOLD=3
+CB_NO_PROGRESS_THRESHOLD=${CB_NO_PROGRESS_THRESHOLD:-3}
 STATUS_FILE="status.json"
 
 # Colors for output

@@ -324,9 +324,15 @@ fi
 **Conflict Resolution:** When `STATUS: COMPLETE` but `EXIT_SIGNAL: false` in RALPH_STATUS, the explicit EXIT_SIGNAL takes precedence. This allows Claude to mark a phase complete while indicating more phases remain.
 
 ### Circuit Breaker Thresholds
-- `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
-- `CB_SAME_ERROR_THRESHOLD=5` - Open circuit after 5 loops with repeated errors
-- `CB_OUTPUT_DECLINE_THRESHOLD=70%` - Open circuit if output declines by >70%
+All thresholds are configurable via environment variables:
+```bash
+# Override thresholds for long-running tasks
+CB_NO_PROGRESS_THRESHOLD=10 CB_SAME_ERROR_THRESHOLD=8 ralph --monitor
+```
+
+- `CB_NO_PROGRESS_THRESHOLD` (default: 3) - Open circuit after N loops with no file changes
+- `CB_SAME_ERROR_THRESHOLD` (default: 5) - Open circuit after N loops with repeated errors
+- `CB_OUTPUT_DECLINE_THRESHOLD` (default: 70) - Open circuit if output declines by >N%
 
 ### Error Detection
 
