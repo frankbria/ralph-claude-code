@@ -76,6 +76,12 @@ EOF
 echo "Setup running"
 EOF
 
+    cat > "$MOCK_SOURCE_DIR/migrate_to_ralph_folder.sh" << 'EOF'
+#!/bin/bash
+# Mock migrate_to_ralph_folder.sh
+echo "Migration running"
+EOF
+
     chmod +x "$MOCK_SOURCE_DIR"/*.sh
     chmod +x "$MOCK_SOURCE_DIR/lib"/*.sh
 }
@@ -155,17 +161,19 @@ run_install() {
 @test "install.sh creates ~/.local/bin commands" {
     run run_install
 
-    # Check all four wrapper commands exist
+    # Check all five wrapper commands exist
     assert_file_exists "$TEST_INSTALL_DIR/ralph"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-monitor"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-setup"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-import"
+    assert_file_exists "$TEST_INSTALL_DIR/ralph-migrate"
 
     # Verify each command contains proper shebang
     grep -q "#!/bin/bash" "$TEST_INSTALL_DIR/ralph"
     grep -q "#!/bin/bash" "$TEST_INSTALL_DIR/ralph-monitor"
     grep -q "#!/bin/bash" "$TEST_INSTALL_DIR/ralph-setup"
     grep -q "#!/bin/bash" "$TEST_INSTALL_DIR/ralph-import"
+    grep -q "#!/bin/bash" "$TEST_INSTALL_DIR/ralph-migrate"
 }
 
 @test "install.sh sets executable permissions" {
@@ -176,12 +184,14 @@ run_install() {
     [[ -x "$TEST_INSTALL_DIR/ralph-monitor" ]]
     [[ -x "$TEST_INSTALL_DIR/ralph-setup" ]]
     [[ -x "$TEST_INSTALL_DIR/ralph-import" ]]
+    [[ -x "$TEST_INSTALL_DIR/ralph-migrate" ]]
 
     # Verify executable bit on main scripts
     [[ -x "$TEST_RALPH_HOME/ralph_loop.sh" ]]
     [[ -x "$TEST_RALPH_HOME/ralph_monitor.sh" ]]
     [[ -x "$TEST_RALPH_HOME/setup.sh" ]]
     [[ -x "$TEST_RALPH_HOME/ralph_import.sh" ]]
+    [[ -x "$TEST_RALPH_HOME/migrate_to_ralph_folder.sh" ]]
 
     # Verify lib scripts are executable
     [[ -x "$TEST_RALPH_HOME/lib/circuit_breaker.sh" ]]
@@ -428,6 +438,7 @@ EOF
     assert_file_exists "$TEST_INSTALL_DIR/ralph-monitor"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-setup"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-import"
+    assert_file_exists "$TEST_INSTALL_DIR/ralph-migrate"
 
     # Run uninstall
     run run_install uninstall
@@ -438,6 +449,7 @@ EOF
     assert_file_not_exists "$TEST_INSTALL_DIR/ralph-monitor"
     assert_file_not_exists "$TEST_INSTALL_DIR/ralph-setup"
     assert_file_not_exists "$TEST_INSTALL_DIR/ralph-import"
+    assert_file_not_exists "$TEST_INSTALL_DIR/ralph-migrate"
 }
 
 @test "install.sh uninstall cleans up directories" {
@@ -511,6 +523,7 @@ EOF
     assert_file_exists "$TEST_INSTALL_DIR/ralph-monitor"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-setup"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-import"
+    assert_file_exists "$TEST_INSTALL_DIR/ralph-migrate"
 
     # Verify all templates copied
     assert_file_exists "$TEST_RALPH_HOME/templates/PROMPT.md"
@@ -527,6 +540,7 @@ EOF
     assert_file_exists "$TEST_RALPH_HOME/ralph_monitor.sh"
     assert_file_exists "$TEST_RALPH_HOME/setup.sh"
     assert_file_exists "$TEST_RALPH_HOME/ralph_import.sh"
+    assert_file_exists "$TEST_RALPH_HOME/migrate_to_ralph_folder.sh"
 
     # Verify all permissions correct
     [[ -x "$TEST_INSTALL_DIR/ralph" ]]

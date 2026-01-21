@@ -7,15 +7,17 @@ setup() {
     # Source helper functions
     source "$(dirname "$BATS_TEST_FILENAME")/../helpers/test_helper.bash"
 
-    # Set up environment
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export RESPONSE_ANALYSIS_FILE=".response_analysis"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
     export MAX_CONSECUTIVE_TEST_LOOPS=3
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
 
     # Create temp test directory
     export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
     cd "$TEST_TEMP_DIR"
+    mkdir -p "$RALPH_DIR"
 
     # Initialize exit signals file
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -73,9 +75,9 @@ should_exit_gracefully() {
     fi
 
     # 4. Check fix_plan.md for completion
-    if [[ -f "@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
+        local total_items=$(grep -c "^- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
@@ -176,7 +178,7 @@ EOF
 
 # Test 10: Exit when @fix_plan.md all items complete
 @test "should_exit_gracefully exits when all fix_plan items complete" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [x] Task 2
@@ -189,7 +191,7 @@ EOF
 
 # Test 11: No exit when @fix_plan.md partially complete
 @test "should_exit_gracefully continues when fix_plan partially complete" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [ ] Task 2
@@ -236,7 +238,7 @@ EOF
 
 # Test 16: @fix_plan.md with no checkboxes
 @test "should_exit_gracefully handles fix_plan with no checkboxes" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
 # Fix Plan
 This is just text, no tasks yet.
 EOF
@@ -247,7 +249,7 @@ EOF
 
 # Test 17: @fix_plan.md with mixed checkbox formats
 @test "should_exit_gracefully handles mixed checkbox formats" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 completed
 - [ ] Task 2 pending

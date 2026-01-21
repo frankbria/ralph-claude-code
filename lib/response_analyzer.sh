@@ -15,6 +15,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Use RALPH_DIR if set by main script, otherwise default to .ralph
+RALPH_DIR="${RALPH_DIR:-.ralph}"
+
 # Analysis configuration
 COMPLETION_KEYWORDS=("done" "complete" "finished" "all tasks complete" "project complete" "ready for review")
 TEST_ONLY_PATTERNS=("npm test" "bats" "pytest" "jest" "cargo test" "go test" "running tests")
@@ -51,13 +54,13 @@ detect_output_format() {
 }
 
 # Parse JSON response and extract structured fields
-# Creates .json_parse_result with normalized analysis data
+# Creates .ralph/.json_parse_result with normalized analysis data
 # Supports TWO JSON formats:
 # 1. Flat format: { status, exit_signal, work_type, files_modified, ... }
 # 2. Claude CLI format: { result, sessionId, metadata: { files_changed, has_errors, completion_status, ... } }
 parse_json_response() {
     local output_file=$1
-    local result_file="${2:-.json_parse_result}"
+    local result_file="${2:-$RALPH_DIR/.json_parse_result}"
 
     if [[ ! -f "$output_file" ]]; then
         echo "ERROR: Output file not found: $output_file" >&2
@@ -198,7 +201,7 @@ parse_json_response() {
 analyze_response() {
     local output_file=$1
     local loop_number=$2
-    local analysis_result_file=${3:-".response_analysis"}
+    local analysis_result_file=${3:-"$RALPH_DIR/.response_analysis"}
 
     # Initialize analysis result
     local has_completion_signal=false
@@ -224,16 +227,16 @@ analyze_response() {
 
     if [[ "$output_format" == "json" ]]; then
         # Try JSON parsing
-        if parse_json_response "$output_file" ".json_parse_result" 2>/dev/null; then
+        if parse_json_response "$output_file" "$RALPH_DIR/.json_parse_result" 2>/dev/null; then
             # Extract values from JSON parse result
-            has_completion_signal=$(jq -r '.has_completion_signal' .json_parse_result 2>/dev/null || echo "false")
-            exit_signal=$(jq -r '.exit_signal' .json_parse_result 2>/dev/null || echo "false")
-            is_test_only=$(jq -r '.is_test_only' .json_parse_result 2>/dev/null || echo "false")
-            is_stuck=$(jq -r '.is_stuck' .json_parse_result 2>/dev/null || echo "false")
-            work_summary=$(jq -r '.summary' .json_parse_result 2>/dev/null || echo "")
-            files_modified=$(jq -r '.files_modified' .json_parse_result 2>/dev/null || echo "0")
-            local json_confidence=$(jq -r '.confidence' .json_parse_result 2>/dev/null || echo "0")
-            local session_id=$(jq -r '.session_id' .json_parse_result 2>/dev/null || echo "")
+            has_completion_signal=$(jq -r '.has_completion_signal' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            exit_signal=$(jq -r '.exit_signal' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            is_test_only=$(jq -r '.is_test_only' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            is_stuck=$(jq -r '.is_stuck' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            work_summary=$(jq -r '.summary' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
+            files_modified=$(jq -r '.files_modified' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            local json_confidence=$(jq -r '.confidence' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            local session_id=$(jq -r '.session_id' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
 
             # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
@@ -289,7 +292,7 @@ analyze_response() {
                         output_length: $output_length
                     }
                 }' > "$analysis_result_file"
-            rm -f ".json_parse_result"
+            rm -f "$RALPH_DIR/.json_parse_result"
             return 0
         fi
         # If JSON parsing failed, fall through to text parsing
@@ -394,8 +397,8 @@ analyze_response() {
     fi
 
     # 7. Analyze output length trends (detect declining engagement)
-    if [[ -f ".last_output_length" ]]; then
-        local last_length=$(cat ".last_output_length")
+    if [[ -f "$RALPH_DIR/.last_output_length" ]]; then
+        local last_length=$(cat "$RALPH_DIR/.last_output_length")
         local length_ratio=$((output_length * 100 / last_length))
 
         if [[ $length_ratio -lt 50 ]]; then
@@ -403,7 +406,7 @@ analyze_response() {
             ((confidence_score+=10))
         fi
     fi
-    echo "$output_length" > ".last_output_length"
+    echo "$output_length" > "$RALPH_DIR/.last_output_length"
 
     # 8. Extract work summary from output
     if [[ -z "$work_summary" ]]; then
@@ -463,8 +466,8 @@ analyze_response() {
 
 # Update exit signals file based on analysis
 update_exit_signals() {
-    local analysis_file=${1:-".response_analysis"}
-    local exit_signals_file=${2:-".exit_signals"}
+    local analysis_file=${1:-"$RALPH_DIR/.response_analysis"}
+    local exit_signals_file=${2:-"$RALPH_DIR/.exit_signals"}
 
     if [[ ! -f "$analysis_file" ]]; then
         echo "ERROR: Analysis file not found: $analysis_file"
@@ -514,7 +517,7 @@ update_exit_signals() {
 
 # Log analysis results in human-readable format
 log_analysis_summary() {
-    local analysis_file=${1:-".response_analysis"}
+    local analysis_file=${1:-"$RALPH_DIR/.response_analysis"}
 
     if [[ ! -f "$analysis_file" ]]; then
         return 1
@@ -541,7 +544,7 @@ log_analysis_summary() {
 # Detect if Claude is stuck (repeating same errors)
 detect_stuck_loop() {
     local current_output=$1
-    local history_dir=${2:-"logs"}
+    local history_dir=${2:-"$RALPH_DIR/logs"}
 
     # Get last 3 output files
     local recent_outputs=$(ls -t "$history_dir"/claude_output_*.log 2>/dev/null | head -3)
@@ -592,7 +595,7 @@ detect_stuck_loop() {
 # =============================================================================
 
 # Session file location - standardized across ralph_loop.sh and response_analyzer.sh
-SESSION_FILE=".claude_session_id"
+SESSION_FILE="$RALPH_DIR/.claude_session_id"
 # Session expiration time in seconds (24 hours)
 SESSION_EXPIRATION_SECONDS=86400
 

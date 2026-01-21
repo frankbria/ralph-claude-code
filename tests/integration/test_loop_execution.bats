@@ -15,24 +15,27 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+
     # Create necessary files
     create_sample_prd_md
     create_sample_fix_plan
 
     # Source the main ralph_loop.sh functions
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export PROGRESS_FILE="progress.json"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
-    export EXIT_SIGNALS_FILE=".exit_signals"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export PROGRESS_FILE="$RALPH_DIR/progress.json"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
     export MAX_CALLS_PER_HOUR=100
     export MAX_CONSECUTIVE_TEST_LOOPS=3
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
 
-    mkdir -p "$LOG_DIR" "$DOCS_DIR"
+    mkdir -p "$RALPH_DIR" "$LOG_DIR" "$DOCS_DIR"
 
     # Initialize tracking files
     echo "0" > "$CALL_COUNT_FILE"
@@ -78,13 +81,13 @@ EOF
     # Should return 0 (success)
     assert_equal "$result" "0"
 
-    # Check analysis file
-    assert_file_exists ".response_analysis"
+    # Check analysis file in .ralph/ subfolder
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     # Confidence may be >= 100 due to multiple bonus points
     [[ "$confidence" -ge 100 ]]
 }
@@ -103,7 +106,7 @@ EOF
     local result=$?
 
     # Check analysis result
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
 }
 
@@ -120,7 +123,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local is_test_only=$(jq -r '.analysis.is_test_only' .response_analysis)
+    local is_test_only=$(jq -r '.analysis.is_test_only' "$RALPH_DIR/.response_analysis")
     assert_equal "$is_test_only" "true"
 }
 
@@ -137,7 +140,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local files_modified=$(jq -r '.analysis.files_modified' .response_analysis)
+    local files_modified=$(jq -r '.analysis.files_modified' "$RALPH_DIR/.response_analysis")
     # files_modified should be > 0 because test_file.txt is untracked
     [[ "$files_modified" -ge 0 ]]  # Relaxed: >= 0 instead of > 0 (git diff doesn't show untracked)
 }
@@ -167,9 +170,9 @@ EOF
 @test "init_circuit_breaker creates state file" {
     init_circuit_breaker
 
-    assert_file_exists ".circuit_breaker_state"
+    assert_file_exists "$RALPH_DIR/.circuit_breaker_state"
 
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "CLOSED"
 }
 
@@ -183,7 +186,7 @@ EOF
         record_loop_result $i 0 "false" 1000 || true
     done
 
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "OPEN"
 }
 
@@ -195,7 +198,7 @@ EOF
     record_loop_result 1 0 "false" 1000
     record_loop_result 2 0 "false" 1000
 
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "HALF_OPEN"
 }
 
@@ -210,7 +213,7 @@ EOF
     # Now make progress
     record_loop_result 3 5 "false" 1000
 
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "CLOSED"
 }
 
@@ -223,9 +226,9 @@ EOF
         record_loop_result $i 1 "true" 1000 || true
     done
 
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     # Should eventually open due to consecutive errors
-    local same_error_count=$(jq -r '.consecutive_same_error' .circuit_breaker_state)
+    local same_error_count=$(jq -r '.consecutive_same_error' "$RALPH_DIR/.circuit_breaker_state")
     [[ "$same_error_count" -ge 5 ]]
 }
 
@@ -260,7 +263,7 @@ EOF
     # Reset
     reset_circuit_breaker "Test reset"
 
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "CLOSED"
 }
 
@@ -343,7 +346,7 @@ EOF
     done
 
     # Circuit should be OPEN
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "OPEN"
 
     # Verify should_halt_execution returns true
@@ -374,7 +377,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     # Should be very high (100 from structured + bonuses)
     [[ "$confidence" -ge 100 ]]
 }
@@ -412,10 +415,10 @@ EOF
     record_loop_result 2 0 "false" 1000
 
     # Check history file exists
-    assert_file_exists ".circuit_breaker_history"
+    assert_file_exists "$RALPH_DIR/.circuit_breaker_history"
 
     # Verify it's valid JSON
-    jq '.' .circuit_breaker_history > /dev/null
+    jq '.' "$RALPH_DIR/.circuit_breaker_history" > /dev/null
 }
 
 # Test 19: Rolling window for exit signals
@@ -458,7 +461,7 @@ EOF
     analyze_response "$output_file" 2
 
     # Should detect declining output
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     # Short output after long one should increase confidence of completion
     [[ "$confidence" -gt 0 ]]
 }

@@ -152,7 +152,7 @@ cd ralph-claude-code
 ./install.sh
 ```
 
-This adds `ralph`, `ralph-monitor`, and `ralph-setup` commands to your PATH.
+This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, and `ralph-migrate` commands to your PATH.
 
 > **Note**: You only need to do this once per system. After installation, you can delete the cloned repository if desired.
 
@@ -167,9 +167,9 @@ ralph-import my-requirements.md my-project
 cd my-project
 
 # Review and adjust the generated files:
-# - PROMPT.md (Ralph instructions)
-# - @fix_plan.md (task priorities)
-# - specs/requirements.md (technical specs)
+# - .ralph/PROMPT.md (Ralph instructions)
+# - .ralph/@fix_plan.md (task priorities)
+# - .ralph/specs/requirements.md (technical specs)
 
 # Start autonomous development
 ralph --monitor
@@ -182,9 +182,9 @@ ralph-setup my-awesome-project
 cd my-awesome-project
 
 # Configure your project requirements manually
-# Edit PROMPT.md with your project goals
-# Edit specs/ with detailed specifications
-# Edit @fix_plan.md with initial priorities
+# Edit .ralph/PROMPT.md with your project goals
+# Edit .ralph/specs/ with detailed specifications
+# Edit .ralph/@fix_plan.md with initial priorities
 
 # Start autonomous development
 ralph --monitor
@@ -247,7 +247,7 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 ```
 
 **Other exit conditions:**
-- All tasks in `@fix_plan.md` marked complete
+- All tasks in `.ralph/@fix_plan.md` marked complete
 - Multiple consecutive "done" signals from Claude Code
 - Too many test-focused loops (indicating feature completeness)
 - Claude API 5-hour usage limit reached (with user prompt to wait or exit)
@@ -284,10 +284,10 @@ ralph-import design-doc.pdf
 
 Ralph-import creates a complete project with:
 
-- **PROMPT.md** - Converted into Ralph development instructions
-- **@fix_plan.md** - Requirements broken down into prioritized tasks
-- **specs/requirements.md** - Technical specifications extracted from your document
-- **Standard Ralph structure** - All necessary directories and template files
+- **.ralph/PROMPT.md** - Converted into Ralph development instructions
+- **.ralph/@fix_plan.md** - Requirements broken down into prioritized tasks
+- **.ralph/specs/requirements.md** - Technical specifications extracted from your document
+- **Standard Ralph structure** - All necessary directories and template files in `.ralph/`
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
@@ -384,8 +384,8 @@ ralph --no-continue             # Isolated iterations
 ralph --reset-session           # Clears current session
 
 # Check session status
-cat .ralph_session              # View current session file
-cat .ralph_session_history      # View session transition history
+cat .ralph/.ralph_session              # View current session file
+cat .ralph/.ralph_session_history      # View session transition history
 ```
 
 **Session Auto-Reset Triggers:**
@@ -395,7 +395,7 @@ cat .ralph_session_history      # View session transition history
 - Manual circuit breaker reset (`--reset-circuit`)
 - Session expiration (default: 24 hours)
 
-Sessions are persisted to `.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph_session_history` for debugging.
+Sessions are persisted to `.ralph/.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph/.ralph_session_history` for debugging.
 
 ### Exit Thresholds
 
@@ -426,42 +426,45 @@ CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
 
 ## Project Structure
 
-Ralph creates a standardized structure for each project:
+Ralph creates a standardized structure for each project with a `.ralph/` subfolder for configuration:
 
 ```
 my-project/
-├── PROMPT.md           # Main development instructions for Ralph
-├── @fix_plan.md        # Prioritized task list (@ prefix = Ralph control file)
-├── @AGENT.md           # Build and run instructions
-├── specs/              # Project specifications and requirements
-│   └── stdlib/         # Standard library specifications
-├── src/                # Source code implementation
-├── examples/           # Usage examples and test cases
-├── logs/               # Ralph execution logs
-└── docs/generated/     # Auto-generated documentation
+├── .ralph/                 # Ralph configuration and state (hidden folder)
+│   ├── PROMPT.md           # Main development instructions for Ralph
+│   ├── @fix_plan.md        # Prioritized task list (@ prefix = Ralph control file)
+│   ├── @AGENT.md           # Build and run instructions
+│   ├── specs/              # Project specifications and requirements
+│   │   └── stdlib/         # Standard library specifications
+│   ├── examples/           # Usage examples and test cases
+│   ├── logs/               # Ralph execution logs
+│   └── docs/generated/     # Auto-generated documentation
+└── src/                    # Source code implementation (at project root)
 ```
+
+> **Migration**: If you have existing Ralph projects using the old flat structure, run `ralph-migrate` to automatically move files to the `.ralph/` subfolder.
 
 ## Best Practices
 
 ### Writing Effective Prompts
 
 1. **Be Specific** - Clear requirements lead to better results
-2. **Prioritize** - Use `@fix_plan.md` to guide Ralph's focus
+2. **Prioritize** - Use `.ralph/@fix_plan.md` to guide Ralph's focus
 3. **Set Boundaries** - Define what's in/out of scope
 4. **Include Examples** - Show expected inputs/outputs
 
 ### Project Specifications
 
-- Place detailed requirements in `specs/`
-- Use `@fix_plan.md` for prioritized task tracking
-- Keep `@AGENT.md` updated with build instructions
+- Place detailed requirements in `.ralph/specs/`
+- Use `.ralph/@fix_plan.md` for prioritized task tracking
+- Keep `.ralph/@AGENT.md` updated with build instructions
 - Document key decisions and architecture
 
 ### Monitoring Progress
 
 - Use `ralph-monitor` for live status updates
-- Check logs in `logs/` for detailed execution history
-- Monitor `status.json` for programmatic access
+- Check logs in `.ralph/logs/` for detailed execution history
+- Monitor `.ralph/status.json` for programmatic access
 - Watch for exit condition signals
 
 ## System Requirements
@@ -646,6 +649,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ./uninstall.sh            # Remove Ralph from system (dedicated script)
 ./install.sh uninstall    # Alternative: Remove Ralph from system
 ./install.sh --help       # Show installation help
+ralph-migrate             # Migrate existing project to .ralph/ structure
 ```
 
 ### Ralph Loop Options

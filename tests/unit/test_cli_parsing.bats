@@ -19,13 +19,14 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up required environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
+    # Set up required environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 
     mkdir -p "$LOG_DIR"
 
@@ -38,6 +39,7 @@ setup() {
     # Create lib directory with circuit breaker stub
     mkdir -p lib
     cat > lib/circuit_breaker.sh << 'EOF'
+RALPH_DIR="${RALPH_DIR:-.ralph}"
 reset_circuit_breaker() { echo "Circuit breaker reset: $1"; }
 show_circuit_status() { echo "Circuit breaker status: CLOSED"; }
 init_circuit_breaker() { :; }
@@ -45,6 +47,7 @@ record_loop_result() { :; }
 EOF
 
     cat > lib/response_analyzer.sh << 'EOF'
+RALPH_DIR="${RALPH_DIR:-.ralph}"
 analyze_response() { :; }
 detect_output_format() { echo "text"; }
 EOF

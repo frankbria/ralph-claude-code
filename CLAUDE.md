@@ -39,9 +39,9 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Supports both flat JSON format and Claude CLI format (`result`, `sessionId`, `metadata`)
    - Extracts structured fields: status, exit_signal, work_type, files_modified
    - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
-   - Automatic session persistence to `.claude_session_id` file with 24-hour expiration
+   - Automatic session persistence to `.ralph/.claude_session_id` file with 24-hour expiration
    - Session lifecycle: `get_session_id()`, `reset_session()`, `log_session_transition()`, `init_session_tracking()`
-   - Session history tracked in `.ralph_session_history` (last 50 transitions)
+   - Session history tracked in `.ralph/.ralph_session_history` (last 50 transitions)
    - Session auto-reset on: circuit breaker open, manual interrupt, project completion
    - Detects test-only loops and stuck error patterns
    - Two-stage error filtering to eliminate false positives
@@ -129,13 +129,13 @@ bats tests/unit/test_cli_modern.bats
 
 ## Ralph Loop Configuration
 
-The loop is controlled by several key files and environment variables:
+The loop is controlled by several key files and environment variables within the `.ralph/` subfolder:
 
-- **PROMPT.md** - Main prompt file that drives each loop iteration
-- **@fix_plan.md** - Prioritized task list that Ralph follows
-- **@AGENT.md** - Build and run instructions maintained by Ralph
-- **status.json** - Real-time status tracking (JSON format)
-- **logs/** - Execution logs for each loop iteration
+- **.ralph/PROMPT.md** - Main prompt file that drives each loop iteration
+- **.ralph/@fix_plan.md** - Prioritized task list that Ralph follows
+- **.ralph/@AGENT.md** - Build and run instructions maintained by Ralph
+- **.ralph/status.json** - Real-time status tracking (JSON format)
+- **.ralph/logs/** - Execution logs for each loop iteration
 
 ### Rate Limiting
 - Default: 100 API calls per hour (configurable via `--calls` flag)
@@ -167,7 +167,7 @@ Each loop iteration injects context via `build_loop_context()`:
 - Previous loop work summary
 
 **Session Continuity:**
-- Sessions are preserved in `.claude_session_id`
+- Sessions are preserved in `.ralph/.claude_session_id`
 - Use `--continue` flag to maintain context across loops
 - Disable with `--no-continue` for isolated iterations
 
@@ -178,12 +178,12 @@ The loop uses a dual-condition check to prevent premature exits during productiv
 1. `recent_completion_indicators >= 2` (heuristic-based detection from natural language patterns)
 2. Claude's explicit `EXIT_SIGNAL: true` in the RALPH_STATUS block
 
-The `EXIT_SIGNAL` value is read from `.response_analysis` (at `.analysis.exit_signal`) which is populated by `response_analyzer.sh` from Claude's RALPH_STATUS output block.
+The `EXIT_SIGNAL` value is read from `.ralph/.response_analysis` (at `.analysis.exit_signal`) which is populated by `response_analyzer.sh` from Claude's RALPH_STATUS output block.
 
 **Other exit conditions (checked before completion indicators):**
 - Multiple consecutive "done" signals from Claude Code (`done_signals >= 2`)
 - Too many test-only loops indicating feature completeness (`test_loops >= 3`)
-- All items in @fix_plan.md marked as completed
+- All items in .ralph/@fix_plan.md marked as completed
 
 **Example behavior when EXIT_SIGNAL is false:**
 ```
@@ -223,18 +223,21 @@ Bash code coverage measurement with kcov has fundamental limitations when tracin
 
 ## Project Structure for Ralph-Managed Projects
 
-Each project created with `./setup.sh` follows this structure:
+Each project created with `./setup.sh` follows this structure with a `.ralph/` subfolder:
 ```
 project-name/
-├── PROMPT.md          # Main development instructions
-├── @fix_plan.md       # Prioritized TODO list
-├── @AGENT.md          # Build/run instructions
-├── specs/             # Project specifications
-├── src/               # Source code
-├── examples/          # Usage examples
-├── logs/              # Loop execution logs
-└── docs/generated/    # Auto-generated documentation
+├── .ralph/                # Ralph configuration and state (hidden folder)
+│   ├── PROMPT.md          # Main development instructions
+│   ├── @fix_plan.md       # Prioritized TODO list
+│   ├── @AGENT.md          # Build/run instructions
+│   ├── specs/             # Project specifications
+│   ├── examples/          # Usage examples
+│   ├── logs/              # Loop execution logs
+│   └── docs/generated/    # Auto-generated documentation
+└── src/                   # Source code (at project root)
 ```
+
+> **Migration**: Existing projects can be migrated with `ralph-migrate`.
 
 ## Template System
 
@@ -245,25 +248,26 @@ Templates in `templates/` provide starting points for new projects:
 
 ## File Naming Conventions
 
-- Files prefixed with `@` (e.g., `@fix_plan.md`) are Ralph-specific control files
-- Hidden files (e.g., `.call_count`, `.exit_signals`) track loop state
-- `logs/` contains timestamped execution logs
-- `docs/generated/` for Ralph-created documentation
-- `docs/code-review/` for code review reports
+- Files prefixed with `@` (e.g., `.ralph/@fix_plan.md`) are Ralph-specific control files
+- Hidden files within `.ralph/` (e.g., `.ralph/.call_count`, `.ralph/.exit_signals`) track loop state
+- `.ralph/logs/` contains timestamped execution logs
+- `.ralph/docs/generated/` for Ralph-created documentation
+- `docs/code-review/` for code review reports (at project root)
 
 ## Global Installation
 
 Ralph installs to:
-- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import)
+- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate)
 - **Templates**: `~/.ralph/templates/`
-- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh)
+- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
 - `ralph-monitor` - Launch the monitoring dashboard
 - `ralph-setup` - Create a new Ralph-managed project
 - `ralph-import` - Import PRD/specification documents to Ralph format
+- `ralph-migrate` - Migrate existing projects from flat structure to `.ralph/` subfolder
 
 ## Integration Points
 
@@ -283,7 +287,7 @@ Ralph uses multiple mechanisms to detect when to exit:
 - `MAX_CONSECUTIVE_TEST_LOOPS=3` - Exit if too many test-only iterations
 - `MAX_CONSECUTIVE_DONE_SIGNALS=2` - Exit on repeated completion signals
 - `TEST_PERCENTAGE_THRESHOLD=30%` - Flag if testing dominates recent loops
-- Completion detection via @fix_plan.md checklist items
+- Completion detection via .ralph/@fix_plan.md checklist items
 
 ### Completion Indicators with EXIT_SIGNAL Gate
 
@@ -300,8 +304,8 @@ The `completion_indicators` exit condition requires dual verification:
 **Implementation** (`ralph_loop.sh:312-327`):
 ```bash
 local claude_exit_signal="false"
-if [[ -f ".response_analysis" ]]; then
-    claude_exit_signal=$(jq -r '.analysis.exit_signal // false' ".response_analysis" 2>/dev/null || echo "false")
+if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
+    claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RALPH_DIR/.response_analysis" 2>/dev/null || echo "false")
 fi
 
 if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
@@ -566,9 +570,9 @@ Before moving to the next feature, ALL changes must be:
    - Create pull requests for all significant changes
 
 4. **Ralph Integration**:
-   - Update @fix_plan.md with new tasks before starting work
-   - Mark items complete in @fix_plan.md upon completion
-   - Update PROMPT.md if Ralph's behavior needs modification
+   - Update .ralph/@fix_plan.md with new tasks before starting work
+   - Mark items complete in .ralph/@fix_plan.md upon completion
+   - Update .ralph/PROMPT.md if Ralph's behavior needs modification
    - Test Ralph loop with new features before completion
 
 ### Documentation Requirements
@@ -613,7 +617,7 @@ Before marking ANY feature as complete, verify:
 - [ ] All changes committed with conventional commit messages
 - [ ] All commits pushed to remote repository
 - [ ] CI/CD pipeline passes
-- [ ] @fix_plan.md task marked as complete
+- [ ] .ralph/@fix_plan.md task marked as complete
 - [ ] Implementation documentation updated
 - [ ] Inline code comments updated or added
 - [ ] CLAUDE.md updated (if new patterns introduced)

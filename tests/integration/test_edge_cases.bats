@@ -16,16 +16,19 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+
     # Create necessary files
     create_sample_prd_md
     create_sample_fix_plan
 
     # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export EXIT_SIGNALS_FILE=".exit_signals"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
 
-    mkdir -p "$LOG_DIR"
+    mkdir -p "$RALPH_DIR" "$LOG_DIR"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
 
     # Source library components
@@ -48,8 +51,8 @@ teardown() {
     analyze_response "$output_file" 1
 
     # Should not crash, should create analysis file
-    assert_file_exists ".response_analysis"
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    assert_file_exists "$RALPH_DIR/.response_analysis"
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     # Empty output shouldn't trigger exit
     assert_equal "$exit_signal" "false"
 }
@@ -66,8 +69,8 @@ teardown() {
     analyze_response "$output_file" 1
 
     # Should handle without error
-    assert_file_exists ".response_analysis"
-    local output_length=$(jq -r '.analysis.output_length' .response_analysis)
+    assert_file_exists "$RALPH_DIR/.response_analysis"
+    local output_length=$(jq -r '.analysis.output_length' "$RALPH_DIR/.response_analysis")
     [[ "$output_length" -gt 50000 ]]
 }
 
@@ -86,7 +89,7 @@ EOF
     analyze_response "$output_file" 1
 
     # Should not crash, may not detect structured output
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 }
 
 # Edge Case 4: Missing exit signals file
@@ -117,7 +120,7 @@ EOF
     record_loop_result 1 -1 "false" 1000 || true
 
     # Should not crash
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     # Should still be valid state
     [[ "$state" == "CLOSED" || "$state" == "HALF_OPEN" ]]
 }
@@ -129,7 +132,7 @@ EOF
     # Simulate loop 9999
     record_loop_result 9999 5 "false" 1000
 
-    local current_loop=$(jq -r '.current_loop' .circuit_breaker_state)
+    local current_loop=$(jq -r '.current_loop' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$current_loop" "9999"
 }
 
@@ -145,10 +148,10 @@ EOF
 
     analyze_response "$output_file" 1
 
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
     # Should detect "Done" as completion keyword
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
 }
 
@@ -173,7 +176,7 @@ EOF
     analyze_response "$output_file" 1
 
     # Should detect structured output (picks first or last block)
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     # Should detect completion somehow
     [[ "$exit_signal" == "true" || "$exit_signal" == "false" ]]
 }
@@ -183,13 +186,13 @@ EOF
     init_circuit_breaker
 
     # Corrupt the state file
-    echo "invalid json{" > .circuit_breaker_state
+    echo "invalid json{" > "$RALPH_DIR/.circuit_breaker_state"
 
     # Should recover gracefully
     init_circuit_breaker
 
     # Should have valid state now
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "CLOSED"
 }
 
@@ -205,7 +208,7 @@ EOF
     analyze_response "$output_file" 1 || true
 
     # File should exist even if analysis struggled
-    [[ -f ".response_analysis" ]]
+    [[ -f "$RALPH_DIR/.response_analysis" ]]
 }
 
 # Edge Case 11: Simultaneous test-only and completion signals
@@ -222,8 +225,8 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local is_test_only=$(jq -r '.analysis.is_test_only' .response_analysis)
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local is_test_only=$(jq -r '.analysis.is_test_only' "$RALPH_DIR/.response_analysis")
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
 
     # Both can be true - completion signal should take precedence
     assert_equal "$has_completion" "true"
@@ -241,7 +244,7 @@ EOF
     record_loop_result 3 5 "false" 2000
 
     # Should recover to CLOSED
-    local state=$(jq -r '.state' .circuit_breaker_state)
+    local state=$(jq -r '.state' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$state" "CLOSED"
 }
 
@@ -264,7 +267,7 @@ EOF
     analyze_response "$output_file" 2
 
     # Should be at boundary
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 }
 
 # Edge Case 14: Missing git repository
@@ -278,10 +281,10 @@ EOF
     # Should not crash when git commands fail
     analyze_response "$output_file" 1
 
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
     # files_modified should be 0 (can't detect without git)
-    local files_modified=$(jq -r '.analysis.files_modified' .response_analysis)
+    local files_modified=$(jq -r '.analysis.files_modified' "$RALPH_DIR/.response_analysis")
     assert_equal "$files_modified" "0"
 }
 
@@ -318,7 +321,7 @@ EOF
     record_loop_result 3 1 "false" 1000
 
     # Should track all 3 correctly
-    local current_loop=$(jq -r '.current_loop' .circuit_breaker_state)
+    local current_loop=$(jq -r '.current_loop' "$RALPH_DIR/.circuit_breaker_state")
     assert_equal "$current_loop" "3"
 }
 
@@ -344,7 +347,7 @@ EOF
     analyze_response "$output_file" 1
 
     # Confidence should be very high (100 + bonuses)
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     [[ "$confidence" -ge 100 ]]
 }
 
@@ -353,7 +356,7 @@ EOF
     init_circuit_breaker
 
     # Corrupt history
-    echo "not valid json" > .circuit_breaker_history
+    echo "not valid json" > "$RALPH_DIR/.circuit_breaker_history"
 
     # Should handle gracefully on next transition
     record_loop_result 1 0 "false" 1000 || true
@@ -361,7 +364,7 @@ EOF
 
     # Depending on implementation, may recreate or skip history logging
     # Just verify no crash
-    [[ -f .circuit_breaker_state ]]
+    [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]
 }
 
 # Edge Case 19: Status block with extra fields
@@ -380,7 +383,7 @@ EOF
     analyze_response "$output_file" 1
 
     # Should successfully parse known fields
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 }
 
@@ -440,18 +443,18 @@ EOF
         update_exit_signals
 
         # After each loop, check that exit_signal is correctly captured as false
-        local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+        local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
         assert_equal "$exit_signal" "false"
     done
 
     # Verify that analyze_response correctly captures EXIT_SIGNAL=false
-    local final_exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local final_exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$final_exit_signal" "false"
 
     # Key test: Even with high completion indicators set externally,
     # the exit_signal should still be false (respecting Claude's explicit intent)
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3]}' > "$EXIT_SIGNALS_FILE"
-    local last_exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local last_exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$last_exit_signal" "false"
 }
 
@@ -473,7 +476,7 @@ EOF
         analyze_response "$output_file" $i
         update_exit_signals
 
-        local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+        local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
         assert_equal "$exit_signal" "false"
     done
 
@@ -491,11 +494,11 @@ EOF
     update_exit_signals
 
     # Exit signal should now be true
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 
     # Confidence should be >= 100 (100 from EXIT_SIGNAL: true, plus any natural language bonuses)
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     [[ "$confidence" -ge 100 ]]
 }
 
@@ -517,10 +520,10 @@ EOF
     update_exit_signals
 
     # Verify file exists
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
     # Simulate file deletion (e.g., cleanup script ran)
-    rm -f ".response_analysis"
+    rm -f "$RALPH_DIR/.response_analysis"
 
     # Add more completion indicators
     cat > "$output_file" << 'EOF'
@@ -531,7 +534,7 @@ EOF
     update_exit_signals
 
     # File should be recreated
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 }
 
 # Edge Case 24: STATUS=COMPLETE but EXIT_SIGNAL=false conflict in RALPH_STATUS
@@ -554,7 +557,7 @@ EOF
     analyze_response "$output_file" 1
 
     # EXIT_SIGNAL: false should take precedence over STATUS: COMPLETE
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "false"
 
     # has_completion_signal can still be true (STATUS was COMPLETE)
@@ -582,7 +585,7 @@ EOF
     update_exit_signals
 
     # Exit signal should be false (completion_status is in_progress)
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "false"
 
     # Now test with complete status
@@ -602,6 +605,6 @@ EOF
     update_exit_signals
 
     # Exit signal should be true (completion_status is complete)
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 }

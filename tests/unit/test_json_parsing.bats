@@ -15,12 +15,13 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
 
     mkdir -p "$LOG_DIR" "$DOCS_DIR"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -342,9 +343,9 @@ EOF
     local result=$?
 
     assert_equal "$result" "0"
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 }
 
@@ -361,10 +362,10 @@ EOF
     local result=$?
 
     assert_equal "$result" "0"
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
     # Should still detect completion via text parsing
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
 }
 
@@ -382,7 +383,7 @@ EOF
     analyze_response "$output_file" 1
 
     # JSON with explicit exit_signal should have high confidence
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     [[ "$confidence" -ge 50 ]]
 }
 
@@ -405,10 +406,10 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     [[ "$confidence" -ge 100 ]]
 }
 
@@ -423,7 +424,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
 }
 
@@ -438,7 +439,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local is_test_only=$(jq -r '.analysis.is_test_only' .response_analysis)
+    local is_test_only=$(jq -r '.analysis.is_test_only' "$RALPH_DIR/.response_analysis")
     assert_equal "$is_test_only" "true"
 }
 
@@ -648,12 +649,12 @@ EOF
 
     analyze_response "$output_file" 1
 
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 
-    local output_format=$(jq -r '.output_format' .response_analysis)
+    local output_format=$(jq -r '.output_format' "$RALPH_DIR/.response_analysis")
     assert_equal "$output_format" "json"
 }
 

@@ -94,9 +94,9 @@ Before moving to the next feature, ALL changes must be:
    - Create pull requests for all significant changes
 
 4. **Ralph Integration**:
-   - Update @fix_plan.md with new tasks before starting work
-   - Mark items complete in @fix_plan.md upon completion
-   - Update PROMPT.md if development patterns change
+   - Update .ralph/@fix_plan.md with new tasks before starting work
+   - Mark items complete in .ralph/@fix_plan.md upon completion
+   - Update .ralph/PROMPT.md if development patterns change
    - Test features work within Ralph's autonomous loop
 
 ### Documentation Requirements
@@ -137,10 +137,10 @@ Before marking ANY feature as complete, verify:
 - [ ] Type checking passes (if applicable)
 - [ ] All changes committed with conventional commit messages
 - [ ] All commits pushed to remote repository
-- [ ] @fix_plan.md task marked as complete
+- [ ] .ralph/@fix_plan.md task marked as complete
 - [ ] Implementation documentation updated
 - [ ] Inline code comments updated or added
-- [ ] AGENT.md updated (if new patterns introduced)
+- [ ] .ralph/@AGENT.md updated (if new patterns introduced)
 - [ ] Breaking changes documented
 - [ ] Features tested within Ralph loop (if applicable)
 - [ ] CI/CD pipeline passes
@@ -149,7 +149,7 @@ Before marking ANY feature as complete, verify:
 
 These standards ensure:
 - **Quality**: High test coverage and pass rates prevent regressions
-- **Traceability**: Git commits and @fix_plan.md provide clear history of changes
+- **Traceability**: Git commits and .ralph/@fix_plan.md provide clear history of changes
 - **Maintainability**: Current documentation reduces onboarding time and prevents knowledge loss
 - **Collaboration**: Pushed changes enable team visibility and code review
 - **Reliability**: Consistent quality gates maintain production stability

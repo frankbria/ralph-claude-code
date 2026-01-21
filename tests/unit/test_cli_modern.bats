@@ -15,15 +15,16 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
-    export CLAUDE_SESSION_FILE=".claude_session_id"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+    export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
     export CLAUDE_MIN_VERSION="2.0.76"
     export CLAUDE_CODE_CMD="claude"
 
@@ -34,7 +35,7 @@ setup() {
 
     # Create sample project files
     create_sample_prompt
-    create_sample_fix_plan "@fix_plan.md" 10 3
+    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -92,20 +93,20 @@ setup() {
 
         context="Loop #${loop_count}. "
 
-        if [[ -f "@fix_plan.md" ]]; then
-            local incomplete_tasks=$(grep -c "^- \[ \]" "@fix_plan.md" 2>/dev/null || echo "0")
+        if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
+            local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
             context+="Remaining tasks: ${incomplete_tasks}. "
         fi
 
-        if [[ -f ".circuit_breaker_state" ]]; then
-            local cb_state=$(jq -r '.state // "UNKNOWN"' .circuit_breaker_state 2>/dev/null)
+        if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
+            local cb_state=$(jq -r '.state // "UNKNOWN"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null)
             if [[ "$cb_state" != "CLOSED" && "$cb_state" != "null" && -n "$cb_state" ]]; then
                 context+="Circuit breaker: ${cb_state}. "
             fi
         fi
 
-        if [[ -f ".response_analysis" ]]; then
-            local prev_summary=$(jq -r '.analysis.work_summary // ""' .response_analysis 2>/dev/null | head -c 200)
+        if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
+            local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RALPH_DIR/.response_analysis" 2>/dev/null | head -c 200)
             if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
                 context+="Previous: ${prev_summary}"
             fi
@@ -252,7 +253,7 @@ EOF
 
 @test "build_loop_context includes previous loop summary" {
     # Create previous response analysis
-    cat > ".response_analysis" << 'EOF'
+    cat > "$RALPH_DIR/.response_analysis" << 'EOF'
 {
     "loop_number": 1,
     "analysis": {
@@ -270,7 +271,7 @@ EOF
 @test "build_loop_context limits output length to 500 chars" {
     # Create very long work summary
     local long_summary=$(printf 'x%.0s' {1..1000})
-    cat > ".response_analysis" << EOF
+    cat > "$RALPH_DIR/.response_analysis" << EOF
 {
     "loop_number": 1,
     "analysis": {
