@@ -12,6 +12,26 @@ echo "🚀 Setting up Ralph project: $PROJECT_NAME"
 mkdir -p "$PROJECT_NAME"
 cd "$PROJECT_NAME"
 
+# Determine templates directory location (checked AFTER cd into project)
+# Check local ../templates first, then global ~/.ralph/templates
+TEMPLATES_DIR=""
+if [[ -d "../templates" ]]; then
+    TEMPLATES_DIR="../templates"
+elif [[ -d "$HOME/.ralph/templates" ]]; then
+    TEMPLATES_DIR="$HOME/.ralph/templates"
+else
+    echo "❌ Error: Templates directory not found."
+    echo "   Expected at: ../templates or ~/.ralph/templates"
+    echo "   Please run ./install.sh first to install Ralph globally."
+    exit 1
+fi
+
+# Verify required template files exist
+if [[ ! -f "$TEMPLATES_DIR/PROMPT.md" ]]; then
+    echo "❌ Error: Required template file PROMPT.md not found in $TEMPLATES_DIR"
+    exit 1
+fi
+
 # Create structure:
 # - src/ stays at root for compatibility with existing tooling
 # - All Ralph-specific files go in .ralph/ subfolder
@@ -19,10 +39,10 @@ mkdir -p src
 mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
 
 # Copy templates to .ralph/
-cp ../templates/PROMPT.md .ralph/
-cp ../templates/fix_plan.md .ralph/@fix_plan.md
-cp ../templates/AGENT.md .ralph/@AGENT.md
-cp -r ../templates/specs/* .ralph/specs/ 2>/dev/null || true
+cp "$TEMPLATES_DIR/PROMPT.md" .ralph/
+cp "$TEMPLATES_DIR/fix_plan.md" .ralph/@fix_plan.md
+cp "$TEMPLATES_DIR/AGENT.md" .ralph/@AGENT.md
+cp -r "$TEMPLATES_DIR/specs"/* .ralph/specs/ 2>/dev/null || true
 
 # Initialize git
 git init

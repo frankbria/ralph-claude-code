@@ -36,8 +36,8 @@ setup() {
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
 
-    # Create sample project files
-    create_sample_prompt
+    # Create sample project files in .ralph/ directory
+    create_sample_prompt "$RALPH_DIR/PROMPT.md"
     create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
 
     # Source library components

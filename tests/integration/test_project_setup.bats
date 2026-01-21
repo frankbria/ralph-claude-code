@@ -443,10 +443,17 @@ teardown() {
 # =============================================================================
 
 @test "setup.sh fails if templates directory missing" {
-    # Remove templates directory
+    # Remove local templates directory
     rm -rf templates
 
+    # Also hide global templates by overriding HOME to a temp location
+    local original_home="$HOME"
+    export HOME="$(mktemp -d)"
+
     run bash "$SETUP_SCRIPT" test-project
+
+    # Restore HOME
+    export HOME="$original_home"
 
     assert_failure
 }

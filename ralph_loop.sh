@@ -127,7 +127,7 @@ setup_tmux_session() {
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
-    if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
+    if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
     

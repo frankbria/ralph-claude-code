@@ -101,9 +101,8 @@ migrate_project() {
 
     log "INFO" "Starting migration..."
 
-    # Create .ralph directory structure
+    # Create .ralph directory structure (examples created only if source exists)
     mkdir -p "$project_dir/.ralph/specs/stdlib"
-    mkdir -p "$project_dir/.ralph/examples"
     mkdir -p "$project_dir/.ralph/logs"
     mkdir -p "$project_dir/.ralph/docs/generated"
 
@@ -176,10 +175,17 @@ migrate_project() {
         fi
     done
 
-    # Move examples if they exist
-    if [[ -d "$project_dir/examples" && ! -d "$project_dir/.ralph/examples" ]]; then
-        log "INFO" "Moving examples/ to .ralph/examples/"
-        mv "$project_dir/examples" "$project_dir/.ralph/examples"
+    # Move examples if source exists
+    if [[ -d "$project_dir/examples" ]]; then
+        # Only move if target doesn't exist or is empty
+        if [[ ! -d "$project_dir/.ralph/examples" ]] || [[ -z "$(ls -A "$project_dir/.ralph/examples" 2>/dev/null)" ]]; then
+            log "INFO" "Moving examples/ to .ralph/examples/"
+            mkdir -p "$project_dir/.ralph/examples"
+            if [[ "$(ls -A "$project_dir/examples" 2>/dev/null)" ]]; then
+                cp -r "$project_dir/examples"/* "$project_dir/.ralph/examples/" 2>/dev/null || true
+            fi
+            rm -rf "$project_dir/examples"
+        fi
     fi
 
     log "SUCCESS" "Migration completed successfully!"

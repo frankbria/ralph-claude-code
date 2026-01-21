@@ -218,8 +218,8 @@ teardown() {
 }
 
 @test "build_loop_context counts remaining tasks from @fix_plan.md" {
-    # Create fix plan with 7 incomplete tasks
-    cat > "@fix_plan.md" << 'EOF'
+    # Create fix plan with 7 incomplete tasks in .ralph/ directory
+    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 done
 - [x] Task 2 done
@@ -287,7 +287,7 @@ EOF
 }
 
 @test "build_loop_context handles missing @fix_plan.md gracefully" {
-    rm -f "@fix_plan.md"
+    rm -f "$RALPH_DIR/@fix_plan.md"
 
     run build_loop_context 1
 
@@ -296,7 +296,7 @@ EOF
 }
 
 @test "build_loop_context handles missing .response_analysis gracefully" {
-    rm -f ".response_analysis"
+    rm -f "$RALPH_DIR/.response_analysis"
 
     run build_loop_context 1
 

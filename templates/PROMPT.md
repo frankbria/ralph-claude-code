@@ -279,7 +279,7 @@ RECOMMENDATION: Blocked on [specific dependency] - need [what's needed]
 - examples/: Example usage and test cases
 
 ## Current Task
-Follow @fix_plan.md and choose the most important item to implement next.
+Follow .ralph/@fix_plan.md and choose the most important item to implement next.
 Use your judgment to prioritize what will have the biggest impact on project progress.
 
 Remember: Quality over speed. Build it right the first time. Know when you're done.

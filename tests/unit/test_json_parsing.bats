@@ -125,7 +125,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     # Should create result file with parsed values
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
