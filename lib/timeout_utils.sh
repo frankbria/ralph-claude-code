@@ -7,7 +7,7 @@
 # On macOS: Uses `gtimeout` from Homebrew coreutils, or falls back to `timeout` if available
 
 # Cached timeout command to avoid repeated detection
-_TIMEOUT_CMD=""
+export _TIMEOUT_CMD=""
 
 # Detect the available timeout command for this platform
 # Sets _TIMEOUT_CMD to the appropriate command
