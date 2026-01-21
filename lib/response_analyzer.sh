@@ -55,12 +55,14 @@ detect_output_format() {
 
 # Parse JSON response and extract structured fields
 # Creates .ralph/.json_parse_result with normalized analysis data
-# Supports TWO JSON formats:
+# Supports THREE JSON formats:
 # 1. Flat format: { status, exit_signal, work_type, files_modified, ... }
-# 2. Claude CLI format: { result, sessionId, metadata: { files_changed, has_errors, completion_status, ... } }
+# 2. Claude CLI object format: { result, sessionId, metadata: { files_changed, has_errors, completion_status, ... } }
+# 3. Claude CLI array format: [ {type: "system", ...}, {type: "assistant", ...}, {type: "result", ...} ]
 parse_json_response() {
     local output_file=$1
     local result_file="${2:-$RALPH_DIR/.json_parse_result}"
+    local normalized_file=""
 
     if [[ ! -f "$output_file" ]]; then
         echo "ERROR: Output file not found: $output_file" >&2
@@ -71,6 +73,29 @@ parse_json_response() {
     if ! jq empty "$output_file" 2>/dev/null; then
         echo "ERROR: Invalid JSON in output file" >&2
         return 1
+    fi
+
+    # Check if JSON is an array (Claude CLI array format)
+    # Claude CLI outputs: [{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]
+    if jq -e 'type == "array"' "$output_file" >/dev/null 2>&1; then
+        normalized_file=$(mktemp)
+
+        # Extract the "result" type message from the array (usually the last entry)
+        # This contains: result, session_id, is_error, duration_ms, etc.
+        local result_obj=$(jq '[.[] | select(.type == "result")] | .[-1] // {}' "$output_file" 2>/dev/null)
+
+        # Also extract session_id from init message if not in result object
+        local init_session_id=$(jq -r '.[] | select(.type == "system" and .subtype == "init") | .session_id // empty' "$output_file" 2>/dev/null | head -1)
+
+        # Build normalized object merging result with session_id
+        if [[ -n "$init_session_id" && "$init_session_id" != "null" ]]; then
+            echo "$result_obj" | jq --arg sid "$init_session_id" '. + {sessionId: $sid}' > "$normalized_file"
+        else
+            echo "$result_obj" > "$normalized_file"
+        fi
+
+        # Use normalized file for subsequent parsing
+        output_file="$normalized_file"
     fi
 
     # Detect JSON format by checking for Claude CLI fields
@@ -193,6 +218,11 @@ parse_json_response() {
                 session_id: $session_id
             }
         }' > "$result_file"
+
+    # Cleanup temporary normalized file if created (for array format handling)
+    if [[ -n "$normalized_file" && -f "$normalized_file" ]]; then
+        rm -f "$normalized_file"
+    fi
 
     return 0
 }

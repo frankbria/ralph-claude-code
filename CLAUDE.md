@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.10.0 | **Tests**: 310 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.10.1 | **Tests**: 318 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -357,7 +357,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 |------|-------|-------------|
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
-| `test_json_parsing.bats` | 36 | JSON output format parsing + Claude CLI format + session management |
+| `test_json_parsing.bats` | 44 | JSON output format parsing + Claude CLI format + session management + array format |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + circuit breaker integration |
 | `test_exit_detection.bats` | 20 | Exit signal detection |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
@@ -380,6 +380,18 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### JSON Array Format Support (v0.10.1)
+- Fixed `parse_json_response` to handle Claude CLI JSON array output format (issue #112)
+- Claude CLI outputs `[{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]`
+- Previously expected single JSON object, now supports three formats:
+  1. Flat format: `{ status, exit_signal, work_type, ... }`
+  2. Claude CLI object format: `{ result, sessionId, metadata: {...} }`
+  3. Claude CLI array format: `[ {type: "result", ...}, ... ]`
+- Extracts `result` type message from array and normalizes to object format
+- Preserves `session_id` from init message for session continuity
+- Added 8 new tests for JSON array format handling
+- Test count: 318 (up from 310)
 
 ### .ralph/ Subfolder Structure (v0.10.0) - BREAKING CHANGE
 - **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder

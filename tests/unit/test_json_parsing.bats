@@ -738,3 +738,161 @@ EOF
     # Should indicate no session to resume
     [[ "$status" -ne 0 || "$output" == "false" ]] || skip "should_resume_session not yet implemented"
 }
+
+# =============================================================================
+# CLAUDE CLI JSON ARRAY FORMAT TESTS (Issue #112)
+# =============================================================================
+# Tests for the Claude CLI JSON array output format:
+# [ {type: "system", ...}, {type: "assistant", ...}, {type: "result", ...} ]
+
+@test "detect_output_format identifies JSON array as json" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Create Claude CLI array format output
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-init-123"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working..."}]}},
+    {"type": "result", "subtype": "success", "result": "Task completed", "session_id": "session-result-123"}
+]
+EOF
+
+    run detect_output_format "$output_file"
+    assert_equal "$output" "json"
+}
+
+@test "parse_json_response handles Claude CLI JSON array format" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Create Claude CLI array format output (as shown in issue #112)
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "hook_response", "session_id": "session-abc123"},
+    {"type": "system", "subtype": "init", "session_id": "session-abc123", "tools": ["Write", "Read"]},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "Implementing feature..."}]}},
+    {"type": "result", "subtype": "success", "result": "All tasks completed successfully.", "session_id": "session-abc123", "is_error": false, "duration_ms": 5000}
+]
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should extract result text into summary
+    local summary=$(jq -r '.summary' "$result_file")
+    [[ "$summary" == *"All tasks completed"* ]]
+}
+
+@test "parse_json_response extracts session_id from Claude CLI array init message" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-unique-from-init"},
+    {"type": "result", "subtype": "success", "result": "Done"}
+]
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    local session_id=$(jq -r '.session_id' "$result_file")
+    assert_equal "$session_id" "session-unique-from-init"
+}
+
+@test "parse_json_response handles empty array gracefully" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    echo '[]' > "$output_file"
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should have default/empty values
+    local status_val=$(jq -r '.status' "$result_file")
+    assert_equal "$status_val" "UNKNOWN"
+}
+
+@test "parse_json_response handles array without result type message" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-no-result"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working..."}]}}
+]
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should still work with defaults
+    local session_id=$(jq -r '.session_id' "$result_file")
+    assert_equal "$session_id" "session-no-result"
+}
+
+@test "parse_json_response extracts is_error from Claude CLI array result" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-error-test"},
+    {"type": "result", "subtype": "error", "result": "Failed to complete", "is_error": true, "duration_ms": 1000}
+]
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+}
+
+@test "analyze_response handles Claude CLI JSON array and extracts signals" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-analyze-array"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "All work complete."}]}},
+    {"type": "result", "subtype": "success", "result": "Project complete and ready for review.", "is_error": false}
+]
+EOF
+
+    analyze_response "$output_file" 1
+
+    assert_file_exists "$RALPH_DIR/.response_analysis"
+
+    local output_format=$(jq -r '.output_format' "$RALPH_DIR/.response_analysis")
+    assert_equal "$output_format" "json"
+}
+
+@test "analyze_response persists session_id from Claude CLI array format" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-persist-array-test"},
+    {"type": "result", "subtype": "success", "result": "Working on task."}
+]
+EOF
+
+    analyze_response "$output_file" 1
+
+    # Session ID should be persisted for continuity
+    [[ -f "$RALPH_DIR/.claude_session_id" ]]
+
+    local stored_session=$(cat "$RALPH_DIR/.claude_session_id")
+    [[ "$stored_session" == *"session-persist-array-test"* ]]
+}
