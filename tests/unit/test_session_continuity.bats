@@ -15,17 +15,18 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
-    export CLAUDE_SESSION_FILE=".claude_session_id"
-    export RALPH_SESSION_FILE=".ralph_session"
-    export RALPH_SESSION_HISTORY_FILE=".ralph_session_history"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+    export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
+    export RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"
+    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
     export CLAUDE_MIN_VERSION="2.0.76"
     export CLAUDE_CODE_CMD="claude"
     export CLAUDE_USE_CONTINUE="true"
@@ -35,9 +36,9 @@ setup() {
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
 
-    # Create sample project files
-    create_sample_prompt
-    create_sample_fix_plan "@fix_plan.md" 10 3
+    # Create sample project files in .ralph/ directory
+    create_sample_prompt "$RALPH_DIR/PROMPT.md"
+    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -238,7 +239,7 @@ function_exists_in_ralph() {
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]]
 

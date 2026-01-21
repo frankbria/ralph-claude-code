@@ -353,20 +353,25 @@ EOF
 }
 
 # Create complete test project structure
+# Creates .ralph/ subfolder structure for Ralph-specific files
 create_test_project() {
     local project_dir=${1:-"test_project"}
 
-    mkdir -p "$project_dir"/{specs/stdlib,src,examples,logs,docs/generated}
+    # Create project with .ralph/ subfolder structure
+    mkdir -p "$project_dir"/src
+    mkdir -p "$project_dir"/.ralph/{specs/stdlib,examples,logs,docs/generated}
 
     cd "$project_dir" || return 1
 
-    create_sample_prompt "PROMPT.md"
-    create_sample_fix_plan "@fix_plan.md" 10 3
-    create_sample_agent_md "@AGENT.md"
+    # Create Ralph files in .ralph/ subdirectory
+    create_sample_prompt ".ralph/PROMPT.md"
+    create_sample_fix_plan ".ralph/@fix_plan.md" 10 3
+    create_sample_agent_md ".ralph/@AGENT.md"
 
-    echo "0" > .call_count
-    echo "$(date +%Y%m%d%H)" > .last_reset
-    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > .exit_signals
+    # Create state files in .ralph/
+    echo "0" > .ralph/.call_count
+    echo "$(date +%Y%m%d%H)" > .ralph/.last_reset
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > .ralph/.exit_signals
 
     cd - > /dev/null || return 1
 }

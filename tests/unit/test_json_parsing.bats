@@ -15,12 +15,13 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
 
     mkdir -p "$LOG_DIR" "$DOCS_DIR"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -124,7 +125,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     # Should create result file with parsed values
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
@@ -145,7 +146,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -166,7 +167,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -187,7 +188,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -207,7 +208,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -228,7 +229,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -248,7 +249,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -271,7 +272,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -312,7 +313,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -342,9 +343,9 @@ EOF
     local result=$?
 
     assert_equal "$result" "0"
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 }
 
@@ -361,10 +362,10 @@ EOF
     local result=$?
 
     assert_equal "$result" "0"
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
     # Should still detect completion via text parsing
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
 }
 
@@ -382,7 +383,7 @@ EOF
     analyze_response "$output_file" 1
 
     # JSON with explicit exit_signal should have high confidence
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     [[ "$confidence" -ge 50 ]]
 }
 
@@ -405,10 +406,10 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 
-    local confidence=$(jq -r '.analysis.confidence_score' .response_analysis)
+    local confidence=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
     [[ "$confidence" -ge 100 ]]
 }
 
@@ -423,7 +424,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local has_completion=$(jq -r '.analysis.has_completion_signal' .response_analysis)
+    local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
 }
 
@@ -438,7 +439,7 @@ EOF
 
     analyze_response "$output_file" 1
 
-    local is_test_only=$(jq -r '.analysis.is_test_only' .response_analysis)
+    local is_test_only=$(jq -r '.analysis.is_test_only' "$RALPH_DIR/.response_analysis")
     assert_equal "$is_test_only" "true"
 }
 
@@ -480,7 +481,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -500,7 +501,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -523,7 +524,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -546,7 +547,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -573,7 +574,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -597,7 +598,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -623,7 +624,7 @@ EOF
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]] || skip "parse_json_response not yet implemented"
 
@@ -648,12 +649,12 @@ EOF
 
     analyze_response "$output_file" 1
 
-    assert_file_exists ".response_analysis"
+    assert_file_exists "$RALPH_DIR/.response_analysis"
 
-    local exit_signal=$(jq -r '.analysis.exit_signal' .response_analysis)
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 
-    local output_format=$(jq -r '.output_format' .response_analysis)
+    local output_format=$(jq -r '.output_format' "$RALPH_DIR/.response_analysis")
     assert_equal "$output_format" "json"
 }
 
@@ -670,9 +671,9 @@ EOF
     analyze_response "$output_file" 1
 
     # Session ID should be persisted for continuity
-    [[ -f ".claude_session_id" ]] || skip "Session persistence not yet implemented"
+    [[ -f "$RALPH_DIR/.claude_session_id" ]] || skip "Session persistence not yet implemented"
 
-    local stored_session=$(cat .claude_session_id)
+    local stored_session=$(cat "$RALPH_DIR/.claude_session_id")
     [[ "$stored_session" == *"session-persist-test-123"* ]]
 }
 
@@ -683,15 +684,15 @@ EOF
 @test "store_session_id writes session to file with timestamp" {
     run store_session_id "session-test-abc"
 
-    [[ -f ".claude_session_id" ]] || skip "store_session_id not yet implemented"
+    [[ -f "$RALPH_DIR/.claude_session_id" ]] || skip "store_session_id not yet implemented"
 
-    local content=$(cat .claude_session_id)
+    local content=$(cat "$RALPH_DIR/.claude_session_id")
     [[ "$content" == *"session-test-abc"* ]]
 }
 
 @test "get_last_session_id retrieves stored session" {
     # First store a session
-    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > .claude_session_id
+    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > "$RALPH_DIR/.claude_session_id"
 
     run get_last_session_id
 
@@ -699,7 +700,7 @@ EOF
 }
 
 @test "get_last_session_id returns empty when no session file" {
-    rm -f .claude_session_id
+    rm -f "$RALPH_DIR/.claude_session_id"
 
     run get_last_session_id
 
@@ -711,7 +712,7 @@ EOF
 @test "should_resume_session returns true for recent session" {
     # Store a recent session (simulated as current timestamp)
     local now=$(date +%s)
-    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > .claude_session_id
+    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > "$RALPH_DIR/.claude_session_id"
 
     run should_resume_session
 
@@ -721,7 +722,7 @@ EOF
 
 @test "should_resume_session returns false for old session" {
     # Store an old session (24+ hours ago)
-    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > .claude_session_id
+    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > "$RALPH_DIR/.claude_session_id"
 
     run should_resume_session
 
@@ -730,7 +731,7 @@ EOF
 }
 
 @test "should_resume_session returns false when no session file" {
-    rm -f .claude_session_id
+    rm -f "$RALPH_DIR/.claude_session_id"
 
     run should_resume_session
 

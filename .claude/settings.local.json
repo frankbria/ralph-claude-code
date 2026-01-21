@@ -23,7 +23,8 @@
       "Bash(timeout 30 bats:*)",
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(git fetch:*)",
-      "Bash(npm run test:unit:*)"
+      "Bash(npm run test:unit:*)",
+      "Bash(node_modules/.bin/bats:*)"
     ],
     "deny": [],
     "ask": []
