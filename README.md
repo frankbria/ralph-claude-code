@@ -471,6 +471,9 @@ my-project/
 - **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
+- **GNU coreutils** - For the `timeout` command (execution timeouts)
+  - Linux: Pre-installed on most distributions
+  - macOS: Install via `brew install coreutils` (provides `gtimeout`)
 - **Standard Unix tools** - grep, date, etc.
 
 ### Testing Requirements (Development)
@@ -524,6 +527,20 @@ brew install tmux
 sudo yum install tmux
 ```
 
+### Installing GNU coreutils (macOS)
+
+Ralph uses the `timeout` command for execution timeouts. On macOS, you need to install GNU coreutils:
+
+```bash
+# Install coreutils (provides gtimeout)
+brew install coreutils
+
+# Verify installation
+gtimeout --version
+```
+
+Ralph automatically detects and uses `gtimeout` on macOS. No additional configuration is required after installation.
+
 ## Monitoring and Debugging
 
 ### Live Dashboard
@@ -569,6 +586,7 @@ tail -f logs/ralph.log
 - **Missing Dependencies** - Ensure Claude Code CLI and tmux are installed
 - **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
 - **Session Expired** - Sessions expire after 24 hours by default; use `--reset-session` to start fresh
+- **timeout: command not found (macOS)** - Install GNU coreutils: `brew install coreutils`
 
 ## Contributing
 

@@ -8,6 +8,7 @@ set -e  # Exit on any error
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
+source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 
@@ -866,7 +867,7 @@ execute_claude_code() {
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern execution with command array (shell-injection safe)
         # Execute array directly without bash -c to prevent shell metacharacter interpretation
-        if timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
+        if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
@@ -879,7 +880,7 @@ execute_claude_code() {
 
     # Fall back to legacy stdin piping if modern mode failed or not enabled
     if [[ "$use_modern_cli" == "false" ]]; then
-        if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
+        if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
