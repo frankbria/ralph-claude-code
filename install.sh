@@ -33,38 +33,62 @@ log() {
 # Check dependencies
 check_dependencies() {
     log "INFO" "Checking dependencies..."
-    
+
     local missing_deps=()
-    
+    local os_type
+    os_type=$(uname)
+
     if ! command -v node &> /dev/null && ! command -v npx &> /dev/null; then
         missing_deps+=("Node.js/npm")
     fi
-    
+
     if ! command -v jq &> /dev/null; then
         missing_deps+=("jq")
     fi
-    
+
     if ! command -v git &> /dev/null; then
         missing_deps+=("git")
     fi
-    
+
+    # Check for timeout command (platform-specific)
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS: check for gtimeout from coreutils
+        if ! command -v gtimeout &> /dev/null && ! command -v timeout &> /dev/null; then
+            missing_deps+=("coreutils (for timeout command)")
+        fi
+    else
+        # Linux: check for standard timeout command
+        if ! command -v timeout &> /dev/null; then
+            missing_deps+=("coreutils")
+        fi
+    fi
+
     if [ ${#missing_deps[@]} -ne 0 ]; then
         log "ERROR" "Missing required dependencies: ${missing_deps[*]}"
         echo "Please install the missing dependencies:"
-        echo "  Ubuntu/Debian: sudo apt-get install nodejs npm jq git"
-        echo "  macOS: brew install node jq git"
-        echo "  CentOS/RHEL: sudo yum install nodejs npm jq git"
+        echo "  Ubuntu/Debian: sudo apt-get install nodejs npm jq git coreutils"
+        echo "  macOS: brew install node jq git coreutils"
+        echo "  CentOS/RHEL: sudo yum install nodejs npm jq git coreutils"
         exit 1
     fi
-    
+
+    # Additional macOS-specific warning for coreutils
+    if [[ "$os_type" == "Darwin" ]]; then
+        if command -v gtimeout &> /dev/null; then
+            log "INFO" "GNU coreutils detected (gtimeout available)"
+        elif command -v timeout &> /dev/null; then
+            log "INFO" "timeout command available"
+        fi
+    fi
+
     # Claude Code CLI will be downloaded automatically when first used
     log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
-    
+
     # Check tmux (optional)
     if ! command -v tmux &> /dev/null; then
         log "WARN" "tmux not found. Install for integrated monitoring: apt-get install tmux / brew install tmux"
     fi
-    
+
     log "SUCCESS" "Dependencies check completed"
 }
 

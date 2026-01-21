@@ -52,6 +52,13 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - ISO timestamp generation for logging
    - Epoch time calculations for rate limiting
 
+4. **lib/timeout_utils.sh** - Cross-platform timeout command utilities
+   - Detects and uses appropriate timeout command for the platform
+   - Linux: Uses standard `timeout` from GNU coreutils
+   - macOS: Uses `gtimeout` from Homebrew coreutils
+   - `portable_timeout()` function for seamless cross-platform execution
+   - Automatic detection with caching for performance
+
 ## Key Commands
 
 ### Installation
