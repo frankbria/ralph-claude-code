@@ -4,7 +4,7 @@
 set -e
 
 STATUS_FILE="status.json"
-LOG_FILE="logs/ralph.log"
+LOG_FILE=".ralph/logs/ralph.log"
 REFRESH_INTERVAL=2
 
 # Colors
