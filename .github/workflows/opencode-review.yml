@@ -80,7 +80,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           REPO_NAME: ${{ github.repository }}
         with:
-          model: zai-coding-plan/glm-4.6
+          model: zai-coding-plan/glm-4.7
           use_github_token: true
           prompt: |
             You are reviewing PR #${{ github.event.pull_request.number }} in repository ${{ github.repository }}.
