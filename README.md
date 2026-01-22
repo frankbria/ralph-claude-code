@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.10.0-blue)
-![Tests](https://img.shields.io/badge/tests-308%20passing-green)
+![Version](https://img.shields.io/badge/version-0.10.1-blue)
+![Tests](https://img.shields.io/badge/tests-310%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,9 +16,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.10.0 - Active Development
+**Version**: v0.10.1 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 308 tests, 100% pass rate
+**Test Coverage**: 310 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -36,9 +36,25 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
-- 308 passing tests across 11 test files
+- 310 passing tests across 11 test files
 
 ### Recent Improvements
+
+**v0.10.1 - Bug Fixes & Monitor Path Corrections**
+- Fixed `ralph_monitor.sh` hardcoded paths for v0.10.0 compatibility:
+  - `STATUS_FILE`: `status.json` → `.ralph/status.json`
+  - `LOG_FILE`: `logs/ralph.log` → `.ralph/logs/ralph.log`
+  - `progress.json` → `.ralph/progress.json`
+- Fixed EXIT_SIGNAL parsing in JSON format (Bug #1):
+  - Now extracts `EXIT_SIGNAL` from `.result` field when Claude CLI returns JSON
+  - Properly detects RALPH_STATUS blocks embedded in JSON response text
+- Added safety circuit breaker (Bug #2):
+  - Force exit after 5 consecutive completion indicators (prevents infinite loops)
+  - Higher threshold than normal (2) to avoid false positives while preventing API waste
+- Fixed checkbox parsing for indented markdown (Bug #3):
+  - Changed patterns from `^- \[` to `^[[:space:]]*- \[` (POSIX-compliant)
+  - Supports indented checkboxes in `@fix_plan.md`
+- Updated README.md documentation example for new log path
 
 **v0.10.0 - .ralph/ Subfolder Structure (BREAKING CHANGE)**
 - **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder
@@ -584,7 +600,7 @@ Shows real-time:
 ralph --status
 
 # Manual log inspection
-tail -f logs/ralph.log
+tail -f .ralph/logs/ralph.log
 ```
 
 ### Common Issues

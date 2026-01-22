@@ -84,14 +84,25 @@ parse_json_response() {
         # This contains: result, session_id, is_error, duration_ms, etc.
         local result_obj=$(jq '[.[] | select(.type == "result")] | .[-1] // {}' "$output_file" 2>/dev/null)
 
-        # Also extract session_id from init message if not in result object
+        # Guard against empty result_obj if jq fails (review fix: Macroscope)
+        [[ -z "$result_obj" ]] && result_obj="{}"
+
+        # Extract session_id from init message as fallback
         local init_session_id=$(jq -r '.[] | select(.type == "system" and .subtype == "init") | .session_id // empty' "$output_file" 2>/dev/null | head -1)
 
-        # Build normalized object merging result with session_id
-        if [[ -n "$init_session_id" && "$init_session_id" != "null" ]]; then
-            echo "$result_obj" | jq --arg sid "$init_session_id" '. + {sessionId: $sid}' > "$normalized_file"
+        # Prioritize result object's own session_id, then fall back to init message (review fix: CodeRabbit)
+        # This prevents session ID loss when arrays lack an init message with session_id
+        local effective_session_id
+        effective_session_id=$(echo "$result_obj" | jq -r '.sessionId // .session_id // empty' 2>/dev/null)
+        if [[ -z "$effective_session_id" || "$effective_session_id" == "null" ]]; then
+            effective_session_id="$init_session_id"
+        fi
+
+        # Build normalized object merging result with effective session_id
+        if [[ -n "$effective_session_id" && "$effective_session_id" != "null" ]]; then
+            echo "$result_obj" | jq --arg sid "$effective_session_id" '. + {sessionId: $sid} | del(.session_id)' > "$normalized_file"
         else
-            echo "$result_obj" > "$normalized_file"
+            echo "$result_obj" | jq 'del(.session_id)' > "$normalized_file"
         fi
 
         # Use normalized file for subsequent parsing
@@ -113,6 +124,27 @@ parse_json_response() {
 
     # Exit signal: from flat format OR derived from completion_status
     local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
+
+    # Bug #1 Fix: If exit_signal is still false, check for RALPH_STATUS block in .result field
+    # Claude CLI JSON format embeds the RALPH_STATUS block within the .result text field
+    if [[ "$exit_signal" == "false" && "$has_result_field" == "true" ]]; then
+        local result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
+        if [[ -n "$result_text" ]] && echo "$result_text" | grep -q -- "---RALPH_STATUS---"; then
+            # Extract EXIT_SIGNAL value from RALPH_STATUS block within result text
+            local embedded_exit_sig=$(echo "$result_text" | grep "EXIT_SIGNAL:" | cut -d: -f2 | xargs)
+            if [[ "$embedded_exit_sig" == "true" ]]; then
+                exit_signal="true"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Extracted EXIT_SIGNAL=true from .result RALPH_STATUS block" >&2
+            fi
+            # Also check STATUS field as fallback
+            local embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
+            if [[ "$embedded_status" == "COMPLETE" && "$exit_signal" != "true" ]]; then
+                # STATUS: COMPLETE without explicit EXIT_SIGNAL implies completion
+                exit_signal="true"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Inferred EXIT_SIGNAL=true from .result STATUS=COMPLETE" >&2
+            fi
+        fi
+    fi
 
     # Work type: from flat format
     local work_type=$(jq -r '.work_type // "UNKNOWN"' "$output_file" 2>/dev/null)
