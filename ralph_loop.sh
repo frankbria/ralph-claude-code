@@ -498,8 +498,9 @@ get_session_file_age_hours() {
 
     local file_mtime
     if [[ "$os_type" == "Darwin" ]]; then
-        # macOS (BSD stat)
-        file_mtime=$(stat -f %m "$file" 2>/dev/null)
+        # macOS - use date -r for reliable epoch time
+        # (stat -f %m can return full filesystem info on some systems)
+        file_mtime=$(date -r "$file" +%s 2>/dev/null)
     else
         # Linux (GNU stat)
         file_mtime=$(stat -c %Y "$file" 2>/dev/null)
