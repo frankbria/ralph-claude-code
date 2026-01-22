@@ -638,6 +638,16 @@ reset_session() {
     # Also clear the Claude session file for consistency
     rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
 
+    # Clear exit signals to prevent stale completion indicators from causing premature exit (issue #91)
+    # This ensures a fresh start without leftover state from previous sessions
+    if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+        [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "INFO" "Cleared exit signals file"
+    fi
+
+    # Clear response analysis to prevent stale EXIT_SIGNAL from previous session
+    rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
+
     # Log the session transition (non-fatal to prevent script exit under set -e)
     log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true
 

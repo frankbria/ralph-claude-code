@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.10.1 | **Tests**: 319 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.10.1 | **Tests**: 321 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -358,7 +358,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
 | `test_json_parsing.bats` | 45 | JSON output format parsing + Claude CLI format + session management + array format |
-| `test_session_continuity.bats` | 26 | Session lifecycle management + circuit breaker integration |
+| `test_session_continuity.bats` | 28 | Session lifecycle management + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 20 | Exit signal detection |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
@@ -380,6 +380,16 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Stale Completion Indicators Fix (v0.10.1) - Issue #91
+- Fixed premature exit caused by stale completion indicators persisting across sessions
+- Root cause: `.exit_signals` and `.response_analysis` files retained old completion counts
+- Enhanced `reset_session()` to clear exit-related state files:
+  - Resets `.exit_signals` to empty structure (no completion indicators)
+  - Removes `.response_analysis` to prevent stale EXIT_SIGNAL detection
+- Session reset now comprehensively clears: session ID, exit signals, and response analysis
+- Added 2 new tests validating exit signal clearing behavior
+- Test count: 321 (up from 319)
 
 ### JSON Array Format Support (v0.10.1)
 - Fixed `parse_json_response` to handle Claude CLI JSON array output format (issue #112)
