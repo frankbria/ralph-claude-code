@@ -28,8 +28,9 @@ get_next_hour_time() {
     if date -v+1H '+%H:%M:%S' 2>/dev/null; then
         return
     fi
-    # Ultimate fallback - just return current time
-    date '+%H:%M:%S'
+    # Ultimate fallback - compute using epoch arithmetic
+    local future_epoch=$(($(date +%s) + 3600))
+    date -r "$future_epoch" '+%H:%M:%S' 2>/dev/null || date '+%H:%M:%S'
 }
 
 # Get current timestamp in a basic format (fallback)
