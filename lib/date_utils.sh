@@ -7,9 +7,8 @@
 # Returns: YYYY-MM-DDTHH:MM:SS+00:00 format
 get_iso_timestamp() {
     # Try GNU date first (works on Linux and macOS with coreutils)
-    local result
-    result=$(date -u -Iseconds 2>/dev/null)
-    if [[ -n "$result" ]]; then
+    # Use if to guard against set -e terminating on unsupported flags
+    if result=$(date -u -Iseconds 2>/dev/null) && [[ -n "$result" ]]; then
         echo "$result"
         return
     fi
