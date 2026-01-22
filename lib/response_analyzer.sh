@@ -89,6 +89,27 @@ parse_json_response() {
     # Exit signal: from flat format OR derived from completion_status
     local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
 
+    # Bug #1 Fix: If exit_signal is still false, check for RALPH_STATUS block in .result field
+    # Claude CLI JSON format embeds the RALPH_STATUS block within the .result text field
+    if [[ "$exit_signal" == "false" && "$has_result_field" == "true" ]]; then
+        local result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
+        if [[ -n "$result_text" ]] && echo "$result_text" | grep -q -- "---RALPH_STATUS---"; then
+            # Extract EXIT_SIGNAL value from RALPH_STATUS block within result text
+            local embedded_exit_sig=$(echo "$result_text" | grep "EXIT_SIGNAL:" | cut -d: -f2 | xargs)
+            if [[ "$embedded_exit_sig" == "true" ]]; then
+                exit_signal="true"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Extracted EXIT_SIGNAL=true from .result RALPH_STATUS block" >&2
+            fi
+            # Also check STATUS field as fallback
+            local embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
+            if [[ "$embedded_status" == "COMPLETE" && "$exit_signal" != "true" ]]; then
+                # STATUS: COMPLETE without explicit EXIT_SIGNAL implies completion
+                exit_signal="true"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Inferred EXIT_SIGNAL=true from .result STATUS=COMPLETE" >&2
+            fi
+        fi
+    fi
+
     # Work type: from flat format
     local work_type=$(jq -r '.work_type // "UNKNOWN"' "$output_file" 2>/dev/null)
 

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.10.0 | **Tests**: 310 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.10.1 | **Tests**: 310 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
