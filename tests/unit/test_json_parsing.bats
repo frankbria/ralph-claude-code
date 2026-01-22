@@ -896,3 +896,26 @@ EOF
     local stored_session=$(cat "$RALPH_DIR/.claude_session_id")
     [[ "$stored_session" == *"session-persist-array-test"* ]]
 }
+
+# Regression test: arrays where only result element carries session_id (review fix: CodeRabbit)
+@test "parse_json_response extracts session_id from result object when no init message" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Array with session_id only in result object, no init message
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working..."}]}},
+    {"type": "result", "subtype": "success", "result": "Task complete.", "session_id": "session-in-result-only"}
+]
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Session ID should be extracted from result object
+    local session_id=$(jq -r '.session_id' "$result_file")
+    assert_equal "$session_id" "session-in-result-only"
+}

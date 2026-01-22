@@ -84,14 +84,25 @@ parse_json_response() {
         # This contains: result, session_id, is_error, duration_ms, etc.
         local result_obj=$(jq '[.[] | select(.type == "result")] | .[-1] // {}' "$output_file" 2>/dev/null)
 
-        # Also extract session_id from init message if not in result object
+        # Guard against empty result_obj if jq fails (review fix: Macroscope)
+        [[ -z "$result_obj" ]] && result_obj="{}"
+
+        # Extract session_id from init message as fallback
         local init_session_id=$(jq -r '.[] | select(.type == "system" and .subtype == "init") | .session_id // empty' "$output_file" 2>/dev/null | head -1)
 
-        # Build normalized object merging result with session_id
-        if [[ -n "$init_session_id" && "$init_session_id" != "null" ]]; then
-            echo "$result_obj" | jq --arg sid "$init_session_id" '. + {sessionId: $sid}' > "$normalized_file"
+        # Prioritize result object's own session_id, then fall back to init message (review fix: CodeRabbit)
+        # This prevents session ID loss when arrays lack an init message with session_id
+        local effective_session_id
+        effective_session_id=$(echo "$result_obj" | jq -r '.sessionId // .session_id // empty' 2>/dev/null)
+        if [[ -z "$effective_session_id" || "$effective_session_id" == "null" ]]; then
+            effective_session_id="$init_session_id"
+        fi
+
+        # Build normalized object merging result with effective session_id
+        if [[ -n "$effective_session_id" && "$effective_session_id" != "null" ]]; then
+            echo "$result_obj" | jq --arg sid "$effective_session_id" '. + {sessionId: $sid} | del(.session_id)' > "$normalized_file"
         else
-            echo "$result_obj" > "$normalized_file"
+            echo "$result_obj" | jq 'del(.session_id)' > "$normalized_file"
         fi
 
         # Use normalized file for subsequent parsing
