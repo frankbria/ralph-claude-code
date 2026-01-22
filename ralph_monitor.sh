@@ -3,8 +3,9 @@
 # Ralph Status Monitor - Live terminal dashboard for the Ralph loop
 set -e
 
-STATUS_FILE="status.json"
-LOG_FILE="logs/ralph.log"
+RALPH_DIR=".ralph"
+STATUS_FILE="$RALPH_DIR/status.json"
+LOG_FILE="$RALPH_DIR/logs/ralph.log"
 REFRESH_INTERVAL=2
 
 # Colors
@@ -68,7 +69,7 @@ display_status() {
         
     else
         echo -e "${RED}┌─ Status ────────────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${RED}│${NC} Status file not found. Ralph may not be running."
+        echo -e "${RED}│${NC} Status file not found:$STATUS_FILE. Ralph may not be running."
         echo -e "${RED}└─────────────────────────────────────────────────────────────────────────┘${NC}"
         echo
     fi
@@ -102,13 +103,13 @@ display_status() {
             echo -e "${BLUE}│${NC} $line"
         done
     else
-        echo -e "${BLUE}│${NC} No log file found"
+        echo -e "${BLUE}│${NC} No log file found:$LOG_FILE"
     fi
     echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────────┘${NC}"
     
     # Footer
     echo
-    echo -e "${YELLOW}Controls: Ctrl+C to exit | Refreshes every ${REFRESH_INTERVAL}s | $(date '+%H:%M:%S')${NC}"
+    echo -e "${YELLOW}Controls: Ctrl+C to exit | Refreshes every ${REFRESH_INTERVAL}s $LOG_FILE | $(date '+%H:%M:%S')${NC}"
 }
 
 # Main monitor loop
