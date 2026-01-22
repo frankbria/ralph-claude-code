@@ -204,9 +204,10 @@ should_exit_gracefully() {
     fi
     
     # 4. Check fix_plan.md for completion
+    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
         
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)"

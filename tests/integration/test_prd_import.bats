@@ -106,6 +106,13 @@ create_mock_claude_success() {
     cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_EOF'
 #!/bin/bash
 # Mock Claude Code CLI that creates expected output files in .ralph/ subfolder
+
+# Handle --version flag first (before reading stdin)
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 # Read from stdin (conversion prompt)
 cat > /dev/null
 
@@ -258,6 +265,13 @@ create_mock_claude_failure() {
     cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_FAIL_EOF'
 #!/bin/bash
 # Mock Claude Code CLI that fails
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 echo "Error: Mock Claude Code failed"
 exit 1
 MOCK_CLAUDE_FAIL_EOF
@@ -702,6 +716,13 @@ create_mock_claude_json_success() {
     cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_JSON_EOF'
 #!/bin/bash
 # Mock Claude Code CLI that outputs JSON format and creates expected files in .ralph/
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 # Read from stdin (conversion prompt)
 cat > /dev/null
 
@@ -781,6 +802,13 @@ create_mock_claude_json_partial() {
     cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_PARTIAL_EOF'
 #!/bin/bash
 # Mock Claude Code CLI that outputs JSON but only creates some files in .ralph/
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 cat > /dev/null
 
 # Ensure .ralph directory exists
@@ -819,6 +847,13 @@ create_mock_claude_json_error() {
     cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_JSON_ERROR_EOF'
 #!/bin/bash
 # Mock Claude Code CLI that outputs JSON error response
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 cat > /dev/null
 
 # Output JSON error response
@@ -846,6 +881,13 @@ create_mock_claude_text_output() {
     cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_TEXT_EOF'
 #!/bin/bash
 # Mock Claude Code CLI that outputs text (older CLI version) - files in .ralph/
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 cat > /dev/null
 
 # Ensure .ralph directory exists
@@ -1069,6 +1111,13 @@ CAPTURE_ARGS_EOF
 @test "ralph-import handles malformed JSON and falls back to text parsing" {
     cat > "$MOCK_BIN_DIR/claude" << 'MALFORMED_JSON_EOF'
 #!/bin/bash
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 cat > /dev/null
 
 # Ensure .ralph directory exists
@@ -1111,6 +1160,13 @@ MALFORMED_JSON_EOF
 @test "ralph-import extracts specific error message from JSON error" {
     cat > "$MOCK_BIN_DIR/claude" << 'DETAILED_ERROR_EOF'
 #!/bin/bash
+
+# Handle --version flag first
+if [[ "$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
 cat > /dev/null
 
 # Output detailed JSON error

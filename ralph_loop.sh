@@ -313,7 +313,17 @@ should_exit_gracefully() {
         return 0
     fi
     
-    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    # 3. Safety circuit breaker - force exit after 5 consecutive completion indicators
+    # Bug #2 Fix: Prevents infinite loops when EXIT_SIGNAL is not explicitly set
+    # but completion patterns clearly indicate work is done. Threshold of 5 is higher
+    # than normal threshold (2) to avoid false positives while preventing API waste.
+    if [[ $recent_completion_indicators -ge 5 ]]; then
+        log_status "WARN" "🚨 SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive completion indicators ($recent_completion_indicators)" >&2
+        echo "safety_circuit_breaker"
+        return 0
+    fi
+
+    # 4. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
     # This prevents premature exits when heuristics detect completion patterns
     # but Claude explicitly indicates work is still in progress via RALPH_STATUS block.
     # The exit_signal in .response_analysis represents Claude's explicit intent.
@@ -330,10 +340,11 @@ should_exit_gracefully() {
         log_status "INFO" "DEBUG: Completion indicators ($recent_completion_indicators) present but EXIT_SIGNAL=false, continuing..." >&2
     fi
     
-    # 4. Check fix_plan.md for completion
+    # 5. Check fix_plan.md for completion
+    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
@@ -445,8 +456,9 @@ build_loop_context() {
     context="Loop #${loop_count}. "
 
     # Extract incomplete tasks from @fix_plan.md
+    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
@@ -625,6 +637,16 @@ reset_session() {
 
     # Also clear the Claude session file for consistency
     rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+
+    # Clear exit signals to prevent stale completion indicators from causing premature exit (issue #91)
+    # This ensures a fresh start without leftover state from previous sessions
+    if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+        [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "INFO" "Cleared exit signals file"
+    fi
+
+    # Clear response analysis to prevent stale EXIT_SIGNAL from previous session
+    rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
 
     # Log the session transition (non-fatal to prevent script exit under set -e)
     log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true

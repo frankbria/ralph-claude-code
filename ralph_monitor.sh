@@ -3,9 +3,8 @@
 # Ralph Status Monitor - Live terminal dashboard for the Ralph loop
 set -e
 
-RALPH_DIR=".ralph"
-STATUS_FILE="$RALPH_DIR/status.json"
-LOG_FILE="$RALPH_DIR/logs/ralph.log"
+STATUS_FILE=".ralph/status.json"
+LOG_FILE=".ralph/logs/ralph.log"
 REFRESH_INTERVAL=2
 
 # Colors
@@ -75,8 +74,8 @@ display_status() {
     fi
     
     # Claude Code Progress section
-    if [[ -f "progress.json" ]]; then
-        local progress_data=$(cat "progress.json" 2>/dev/null)
+    if [[ -f ".ralph/progress.json" ]]; then
+        local progress_data=$(cat ".ralph/progress.json" 2>/dev/null)
         local progress_status=$(echo "$progress_data" | jq -r '.status // "idle"' 2>/dev/null || echo "idle")
         
         if [[ "$progress_status" == "executing" ]]; then
