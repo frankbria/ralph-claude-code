@@ -8,35 +8,38 @@ set -e  # Exit on any error
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
+source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 
 # Configuration
-PROMPT_FILE="PROMPT.md"
-LOG_DIR="logs"
-DOCS_DIR="docs/generated"
-STATUS_FILE="status.json"
-PROGRESS_FILE="progress.json"
+# Ralph-specific files live in .ralph/ subfolder
+RALPH_DIR=".ralph"
+PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+LOG_DIR="$RALPH_DIR/logs"
+DOCS_DIR="$RALPH_DIR/docs/generated"
+STATUS_FILE="$RALPH_DIR/status.json"
+PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="claude"
 MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
 VERBOSE_PROGRESS=false  # Default: no verbose progress updates
 CLAUDE_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for Claude Code execution
 SLEEP_DURATION=3600     # 1 hour in seconds
-CALL_COUNT_FILE=".call_count"
-TIMESTAMP_FILE=".last_reset"
+CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 
 # Modern Claude CLI configuration (Phase 1.1)
 CLAUDE_OUTPUT_FORMAT="json"              # Options: json, text
 CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Comma-separated list of allowed tools
 CLAUDE_USE_CONTINUE=true                 # Enable session continuity
-CLAUDE_SESSION_FILE=".claude_session_id" # Session ID persistence file
+CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
-RALPH_SESSION_FILE=".ralph_session"              # Ralph-specific session tracking (lifecycle)
-RALPH_SESSION_HISTORY_FILE=".ralph_session_history"  # Session transition history
+RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"              # Ralph-specific session tracking (lifecycle)
+RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"  # Session transition history
 # Session expiration: 24 hours default balances project continuity with fresh context
 # Too short = frequent context loss; Too long = stale context causes unpredictable behavior
 CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}
@@ -64,7 +67,8 @@ VALID_TOOL_PATTERNS=(
 )
 
 # Exit detection configuration
-EXIT_SIGNALS_FILE=".exit_signals"
+EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
@@ -123,7 +127,7 @@ setup_tmux_session() {
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
-    if [[ "$PROMPT_FILE" != "PROMPT.md" ]]; then
+    if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
     
@@ -309,13 +313,23 @@ should_exit_gracefully() {
         return 0
     fi
     
-    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    # 3. Safety circuit breaker - force exit after 5 consecutive completion indicators
+    # Bug #2 Fix: Prevents infinite loops when EXIT_SIGNAL is not explicitly set
+    # but completion patterns clearly indicate work is done. Threshold of 5 is higher
+    # than normal threshold (2) to avoid false positives while preventing API waste.
+    if [[ $recent_completion_indicators -ge 5 ]]; then
+        log_status "WARN" "🚨 SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive completion indicators ($recent_completion_indicators)" >&2
+        echo "safety_circuit_breaker"
+        return 0
+    fi
+
+    # 4. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
     # This prevents premature exits when heuristics detect completion patterns
     # but Claude explicitly indicates work is still in progress via RALPH_STATUS block.
     # The exit_signal in .response_analysis represents Claude's explicit intent.
     local claude_exit_signal="false"
-    if [[ -f ".response_analysis" ]]; then
-        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' ".response_analysis" 2>/dev/null || echo "false")
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
     fi
 
     if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
@@ -326,24 +340,25 @@ should_exit_gracefully() {
         log_status "INFO" "DEBUG: Completion indicators ($recent_completion_indicators) present but EXIT_SIGNAL=false, continuing..." >&2
     fi
     
-    # 4. Check fix_plan.md for completion
-    if [[ -f "@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null)
-        
+    # 5. Check fix_plan.md for completion
+    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
+    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
+        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
         [[ -z "$completed_items" ]] && completed_items=0
-        
-        log_status "INFO" "DEBUG: @fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
-        
+
+        log_status "INFO" "DEBUG: .ralph/@fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
+
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
             echo "plan_complete"
             return 0
         fi
     else
-        log_status "INFO" "DEBUG: @fix_plan.md file not found" >&2
+        log_status "INFO" "DEBUG: .ralph/@fix_plan.md file not found" >&2
     fi
     
     log_status "INFO" "DEBUG: No exit conditions met, continuing loop" >&2
@@ -441,22 +456,23 @@ build_loop_context() {
     context="Loop #${loop_count}. "
 
     # Extract incomplete tasks from @fix_plan.md
-    if [[ -f "@fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -c "^- \[ \]" "@fix_plan.md" 2>/dev/null || echo "0")
+    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
+    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
+        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
     # Add circuit breaker state
-    if [[ -f ".circuit_breaker_state" ]]; then
-        local cb_state=$(jq -r '.state // "UNKNOWN"' .circuit_breaker_state 2>/dev/null)
+    if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
+        local cb_state=$(jq -r '.state // "UNKNOWN"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null)
         if [[ "$cb_state" != "CLOSED" && "$cb_state" != "null" && -n "$cb_state" ]]; then
             context+="Circuit breaker: ${cb_state}. "
         fi
     fi
 
     # Add previous loop summary (truncated)
-    if [[ -f ".response_analysis" ]]; then
-        local prev_summary=$(jq -r '.analysis.work_summary // ""' .response_analysis 2>/dev/null | head -c 200)
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null | head -c 200)
         if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
             context+="Previous: ${prev_summary}"
         fi
@@ -621,6 +637,16 @@ reset_session() {
 
     # Also clear the Claude session file for consistency
     rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+
+    # Clear exit signals to prevent stale completion indicators from causing premature exit (issue #91)
+    # This ensures a fresh start without leftover state from previous sessions
+    if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+        [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "INFO" "Cleared exit signals file"
+    fi
+
+    # Clear response analysis to prevent stale EXIT_SIGNAL from previous session
+    rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
 
     # Log the session transition (non-fatal to prevent script exit under set -e)
     log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true
@@ -866,7 +892,7 @@ execute_claude_code() {
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern execution with command array (shell-injection safe)
         # Execute array directly without bash -c to prevent shell metacharacter interpretation
-        if timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
+        if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
@@ -879,7 +905,7 @@ execute_claude_code() {
 
     # Fall back to legacy stdin piping if modern mode failed or not enabled
     if [[ "$use_modern_cli" == "false" ]]; then
-        if timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
+        if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
         then
             :  # Continue to wait loop
         else
@@ -1027,32 +1053,46 @@ loop_count=0
 
 # Main loop
 main() {
-    
+
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
-    
+
+    # Check if project uses old flat structure and needs migration
+    if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
+        log_status "ERROR" "This project uses the old flat structure."
+        echo ""
+        echo "Ralph v0.10.0+ uses a .ralph/ subfolder to keep your project root clean."
+        echo ""
+        echo "To upgrade your project, run:"
+        echo "  ralph-migrate"
+        echo ""
+        echo "This will move Ralph-specific files to .ralph/ while preserving src/ at root."
+        echo "A backup will be created before migration."
+        exit 1
+    fi
+
     # Check if this is a Ralph project directory
     if [[ ! -f "$PROMPT_FILE" ]]; then
         log_status "ERROR" "Prompt file '$PROMPT_FILE' not found!"
         echo ""
         
         # Check if this looks like a partial Ralph project
-        if [[ -f "@fix_plan.md" ]] || [[ -d "specs" ]] || [[ -f "@AGENT.md" ]]; then
-            echo "This appears to be a Ralph project but is missing PROMPT.md."
+        if [[ -f "$RALPH_DIR/@fix_plan.md" ]] || [[ -d "$RALPH_DIR/specs" ]] || [[ -f "$RALPH_DIR/@AGENT.md" ]]; then
+            echo "This appears to be a Ralph project but is missing .ralph/PROMPT.md."
             echo "You may need to create or restore the PROMPT.md file."
         else
             echo "This directory is not a Ralph project."
         fi
-        
+
         echo ""
         echo "To fix this:"
         echo "  1. Create a new project: ralph-setup my-project"
         echo "  2. Import existing requirements: ralph-import requirements.md"
         echo "  3. Navigate to an existing Ralph project directory"
-        echo "  4. Or create PROMPT.md manually in this directory"
+        echo "  4. Or create .ralph/PROMPT.md manually in this directory"
         echo ""
-        echo "Ralph projects should contain: PROMPT.md, @fix_plan.md, specs/, src/, etc."
+        echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/specs/, src/, etc."
         exit 1
     fi
 
@@ -1202,10 +1242,10 @@ Files created:
     - $LOG_DIR/: All execution logs
     - $DOCS_DIR/: Generated documentation
     - $STATUS_FILE: Current status (JSON)
-    - .ralph_session: Session lifecycle tracking
-    - .ralph_session_history: Session transition history (last 50)
-    - .call_count: API call counter for rate limiting
-    - .last_reset: Timestamp of last rate limit reset
+    - .ralph/.ralph_session: Session lifecycle tracking
+    - .ralph/.ralph_session_history: Session transition history (last 50)
+    - .ralph/.call_count: API call counter for rate limiting
+    - .ralph/.last_reset: Timestamp of last rate limit reset
 
 Example workflow:
     ralph-setup my-project     # Create project

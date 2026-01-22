@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
-![Tests](https://img.shields.io/badge/tests-308%20passing-green)
+![Version](https://img.shields.io/badge/version-0.10.1-blue)
+![Tests](https://img.shields.io/badge/tests-310%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,9 +16,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.9.9 - Active Development
+**Version**: v0.10.1 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 308 tests, 100% pass rate
+**Test Coverage**: 310 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -36,9 +36,34 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
-- 308 passing tests across 11 test files
+- 310 passing tests across 11 test files
 
 ### Recent Improvements
+
+**v0.10.1 - Bug Fixes & Monitor Path Corrections**
+- Fixed `ralph_monitor.sh` hardcoded paths for v0.10.0 compatibility:
+  - `STATUS_FILE`: `status.json` → `.ralph/status.json`
+  - `LOG_FILE`: `logs/ralph.log` → `.ralph/logs/ralph.log`
+  - `progress.json` → `.ralph/progress.json`
+- Fixed EXIT_SIGNAL parsing in JSON format (Bug #1):
+  - Now extracts `EXIT_SIGNAL` from `.result` field when Claude CLI returns JSON
+  - Properly detects RALPH_STATUS blocks embedded in JSON response text
+- Added safety circuit breaker (Bug #2):
+  - Force exit after 5 consecutive completion indicators (prevents infinite loops)
+  - Higher threshold than normal (2) to avoid false positives while preventing API waste
+- Fixed checkbox parsing for indented markdown (Bug #3):
+  - Changed patterns from `^- \[` to `^[[:space:]]*- \[` (POSIX-compliant)
+  - Supports indented checkboxes in `@fix_plan.md`
+- Updated README.md documentation example for new log path
+
+**v0.10.0 - .ralph/ Subfolder Structure (BREAKING CHANGE)**
+- **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder
+- Project root stays clean: only `src/`, `README.md`, and user files remain
+- Added `ralph-migrate` command for upgrading existing projects
+- Migration script creates backup before moving files
+- Fail-safe migration: preserves dotfiles with `cp -a source/. dest/` pattern
+- Auto-detection of old structure with helpful upgrade guidance
+- Updated all tests for new structure (310 tests)
 
 **v0.9.9 - EXIT_SIGNAL Gate & Uninstall Script**
 - Fixed premature exit bug: completion indicators now require Claude's explicit `EXIT_SIGNAL: true`
@@ -152,7 +177,7 @@ cd ralph-claude-code
 ./install.sh
 ```
 
-This adds `ralph`, `ralph-monitor`, and `ralph-setup` commands to your PATH.
+This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, and `ralph-migrate` commands to your PATH.
 
 > **Note**: You only need to do this once per system. After installation, you can delete the cloned repository if desired.
 
@@ -167,9 +192,9 @@ ralph-import my-requirements.md my-project
 cd my-project
 
 # Review and adjust the generated files:
-# - PROMPT.md (Ralph instructions)
-# - @fix_plan.md (task priorities)
-# - specs/requirements.md (technical specs)
+# - .ralph/PROMPT.md (Ralph instructions)
+# - .ralph/@fix_plan.md (task priorities)
+# - .ralph/specs/requirements.md (technical specs)
 
 # Start autonomous development
 ralph --monitor
@@ -182,9 +207,9 @@ ralph-setup my-awesome-project
 cd my-awesome-project
 
 # Configure your project requirements manually
-# Edit PROMPT.md with your project goals
-# Edit specs/ with detailed specifications
-# Edit @fix_plan.md with initial priorities
+# Edit .ralph/PROMPT.md with your project goals
+# Edit .ralph/specs/ with detailed specifications
+# Edit .ralph/@fix_plan.md with initial priorities
 
 # Start autonomous development
 ralph --monitor
@@ -247,7 +272,7 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 ```
 
 **Other exit conditions:**
-- All tasks in `@fix_plan.md` marked complete
+- All tasks in `.ralph/@fix_plan.md` marked complete
 - Multiple consecutive "done" signals from Claude Code
 - Too many test-focused loops (indicating feature completeness)
 - Claude API 5-hour usage limit reached (with user prompt to wait or exit)
@@ -284,10 +309,10 @@ ralph-import design-doc.pdf
 
 Ralph-import creates a complete project with:
 
-- **PROMPT.md** - Converted into Ralph development instructions
-- **@fix_plan.md** - Requirements broken down into prioritized tasks
-- **specs/requirements.md** - Technical specifications extracted from your document
-- **Standard Ralph structure** - All necessary directories and template files
+- **.ralph/PROMPT.md** - Converted into Ralph development instructions
+- **.ralph/@fix_plan.md** - Requirements broken down into prioritized tasks
+- **.ralph/specs/requirements.md** - Technical specifications extracted from your document
+- **Standard Ralph structure** - All necessary directories and template files in `.ralph/`
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
@@ -384,8 +409,8 @@ ralph --no-continue             # Isolated iterations
 ralph --reset-session           # Clears current session
 
 # Check session status
-cat .ralph_session              # View current session file
-cat .ralph_session_history      # View session transition history
+cat .ralph/.ralph_session              # View current session file
+cat .ralph/.ralph_session_history      # View session transition history
 ```
 
 **Session Auto-Reset Triggers:**
@@ -395,7 +420,7 @@ cat .ralph_session_history      # View session transition history
 - Manual circuit breaker reset (`--reset-circuit`)
 - Session expiration (default: 24 hours)
 
-Sessions are persisted to `.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph_session_history` for debugging.
+Sessions are persisted to `.ralph/.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph/.ralph_session_history` for debugging.
 
 ### Exit Thresholds
 
@@ -426,42 +451,45 @@ CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
 
 ## Project Structure
 
-Ralph creates a standardized structure for each project:
+Ralph creates a standardized structure for each project with a `.ralph/` subfolder for configuration:
 
 ```
 my-project/
-├── PROMPT.md           # Main development instructions for Ralph
-├── @fix_plan.md        # Prioritized task list (@ prefix = Ralph control file)
-├── @AGENT.md           # Build and run instructions
-├── specs/              # Project specifications and requirements
-│   └── stdlib/         # Standard library specifications
-├── src/                # Source code implementation
-├── examples/           # Usage examples and test cases
-├── logs/               # Ralph execution logs
-└── docs/generated/     # Auto-generated documentation
+├── .ralph/                 # Ralph configuration and state (hidden folder)
+│   ├── PROMPT.md           # Main development instructions for Ralph
+│   ├── @fix_plan.md        # Prioritized task list (@ prefix = Ralph control file)
+│   ├── @AGENT.md           # Build and run instructions
+│   ├── specs/              # Project specifications and requirements
+│   │   └── stdlib/         # Standard library specifications
+│   ├── examples/           # Usage examples and test cases
+│   ├── logs/               # Ralph execution logs
+│   └── docs/generated/     # Auto-generated documentation
+└── src/                    # Source code implementation (at project root)
 ```
+
+> **Migration**: If you have existing Ralph projects using the old flat structure, run `ralph-migrate` to automatically move files to the `.ralph/` subfolder.
 
 ## Best Practices
 
 ### Writing Effective Prompts
 
 1. **Be Specific** - Clear requirements lead to better results
-2. **Prioritize** - Use `@fix_plan.md` to guide Ralph's focus
+2. **Prioritize** - Use `.ralph/@fix_plan.md` to guide Ralph's focus
 3. **Set Boundaries** - Define what's in/out of scope
 4. **Include Examples** - Show expected inputs/outputs
 
 ### Project Specifications
 
-- Place detailed requirements in `specs/`
-- Use `@fix_plan.md` for prioritized task tracking
-- Keep `@AGENT.md` updated with build instructions
+- Place detailed requirements in `.ralph/specs/`
+- Use `.ralph/@fix_plan.md` for prioritized task tracking
+- Keep `.ralph/@AGENT.md` updated with build instructions
 - Document key decisions and architecture
 
 ### Monitoring Progress
 
 - Use `ralph-monitor` for live status updates
-- Check logs in `logs/` for detailed execution history
-- Monitor `status.json` for programmatic access
+- Check logs in `.ralph/logs/` for detailed execution history
+- Monitor `.ralph/status.json` for programmatic access
 - Watch for exit condition signals
 
 ## System Requirements
@@ -471,6 +499,9 @@ my-project/
 - **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
+- **GNU coreutils** - For the `timeout` command (execution timeouts)
+  - Linux: Pre-installed on most distributions
+  - macOS: Install via `brew install coreutils` (provides `gtimeout`)
 - **Standard Unix tools** - grep, date, etc.
 
 ### Testing Requirements (Development)
@@ -524,6 +555,20 @@ brew install tmux
 sudo yum install tmux
 ```
 
+### Installing GNU coreutils (macOS)
+
+Ralph uses the `timeout` command for execution timeouts. On macOS, you need to install GNU coreutils:
+
+```bash
+# Install coreutils (provides gtimeout)
+brew install coreutils
+
+# Verify installation
+gtimeout --version
+```
+
+Ralph automatically detects and uses `gtimeout` on macOS. No additional configuration is required after installation.
+
 ## Monitoring and Debugging
 
 ### Live Dashboard
@@ -555,7 +600,7 @@ Shows real-time:
 ralph --status
 
 # Manual log inspection
-tail -f logs/ralph.log
+tail -f .ralph/logs/ralph.log
 ```
 
 ### Common Issues
@@ -569,6 +614,7 @@ tail -f logs/ralph.log
 - **Missing Dependencies** - Ensure Claude Code CLI and tmux are installed
 - **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
 - **Session Expired** - Sessions expire after 24 hours by default; use `--reset-session` to start fresh
+- **timeout: command not found (macOS)** - Install GNU coreutils: `brew install coreutils`
 
 ## Contributing
 
@@ -628,6 +674,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ./uninstall.sh            # Remove Ralph from system (dedicated script)
 ./install.sh uninstall    # Alternative: Remove Ralph from system
 ./install.sh --help       # Show installation help
+ralph-migrate             # Migrate existing project to .ralph/ structure
 ```
 
 ### Ralph Loop Options

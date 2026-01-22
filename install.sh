@@ -33,38 +33,62 @@ log() {
 # Check dependencies
 check_dependencies() {
     log "INFO" "Checking dependencies..."
-    
+
     local missing_deps=()
-    
+    local os_type
+    os_type=$(uname)
+
     if ! command -v node &> /dev/null && ! command -v npx &> /dev/null; then
         missing_deps+=("Node.js/npm")
     fi
-    
+
     if ! command -v jq &> /dev/null; then
         missing_deps+=("jq")
     fi
-    
+
     if ! command -v git &> /dev/null; then
         missing_deps+=("git")
     fi
-    
+
+    # Check for timeout command (platform-specific)
+    if [[ "$os_type" == "Darwin" ]]; then
+        # macOS: check for gtimeout from coreutils
+        if ! command -v gtimeout &> /dev/null && ! command -v timeout &> /dev/null; then
+            missing_deps+=("coreutils (for timeout command)")
+        fi
+    else
+        # Linux: check for standard timeout command
+        if ! command -v timeout &> /dev/null; then
+            missing_deps+=("coreutils")
+        fi
+    fi
+
     if [ ${#missing_deps[@]} -ne 0 ]; then
         log "ERROR" "Missing required dependencies: ${missing_deps[*]}"
         echo "Please install the missing dependencies:"
-        echo "  Ubuntu/Debian: sudo apt-get install nodejs npm jq git"
-        echo "  macOS: brew install node jq git"
-        echo "  CentOS/RHEL: sudo yum install nodejs npm jq git"
+        echo "  Ubuntu/Debian: sudo apt-get install nodejs npm jq git coreutils"
+        echo "  macOS: brew install node jq git coreutils"
+        echo "  CentOS/RHEL: sudo yum install nodejs npm jq git coreutils"
         exit 1
     fi
-    
+
+    # Additional macOS-specific warning for coreutils
+    if [[ "$os_type" == "Darwin" ]]; then
+        if command -v gtimeout &> /dev/null; then
+            log "INFO" "GNU coreutils detected (gtimeout available)"
+        elif command -v timeout &> /dev/null; then
+            log "INFO" "timeout command available"
+        fi
+    fi
+
     # Claude Code CLI will be downloaded automatically when first used
     log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
-    
+
     # Check tmux (optional)
     if ! command -v tmux &> /dev/null; then
         log "WARN" "tmux not found. Install for integrated monitoring: apt-get install tmux / brew install tmux"
     fi
-    
+
     log "SUCCESS" "Dependencies check completed"
 }
 
@@ -132,19 +156,35 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/ralph_import.sh" "$@"
 EOF
 
+    # Create ralph-migrate command
+    cat > "$INSTALL_DIR/ralph-migrate" << 'EOF'
+#!/bin/bash
+# Ralph Migration - Global Command
+# Migrates existing projects from flat structure to .ralph/ subfolder
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/migrate_to_ralph_folder.sh" "$@"
+EOF
+
     # Copy actual script files to Ralph home with modifications for global operation
     cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
-    
+
     # Copy PRD import script to Ralph home
     cp "$SCRIPT_DIR/ralph_import.sh" "$RALPH_HOME/"
-    
+
+    # Copy migration script to Ralph home
+    cp "$SCRIPT_DIR/migrate_to_ralph_folder.sh" "$RALPH_HOME/"
+
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph"
-    chmod +x "$INSTALL_DIR/ralph-monitor" 
+    chmod +x "$INSTALL_DIR/ralph-monitor"
     chmod +x "$INSTALL_DIR/ralph-setup"
     chmod +x "$INSTALL_DIR/ralph-import"
+    chmod +x "$INSTALL_DIR/ralph-migrate"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
+    chmod +x "$RALPH_HOME/migrate_to_ralph_folder.sh"
     chmod +x "$RALPH_HOME/lib/"*.sh
 
     log "SUCCESS" "Ralph scripts installed to $INSTALL_DIR"
@@ -169,7 +209,7 @@ install_ralph_loop() {
 # Install global setup.sh
 install_setup() {
     log "INFO" "Installing global setup script..."
-    
+
     # Create modified setup.sh for global operation
     cat > "$RALPH_HOME/setup.sh" << 'EOF'
 #!/bin/bash
@@ -186,14 +226,15 @@ echo "🚀 Setting up Ralph project: $PROJECT_NAME"
 mkdir -p "$PROJECT_NAME"
 cd "$PROJECT_NAME"
 
-# Create structure
-mkdir -p {specs/stdlib,src,examples,logs,docs/generated}
+# Create structure with .ralph/ subfolder
+mkdir -p src
+mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
 
-# Copy templates from Ralph home
-cp "$RALPH_HOME/templates/PROMPT.md" .
-cp "$RALPH_HOME/templates/fix_plan.md" @fix_plan.md
-cp "$RALPH_HOME/templates/AGENT.md" @AGENT.md
-cp -r "$RALPH_HOME/templates/specs/"* specs/ 2>/dev/null || true
+# Copy templates from Ralph home to .ralph/ subfolder
+cp "$RALPH_HOME/templates/PROMPT.md" .ralph/
+cp "$RALPH_HOME/templates/fix_plan.md" .ralph/@fix_plan.md
+cp "$RALPH_HOME/templates/AGENT.md" .ralph/@AGENT.md
+cp -r "$RALPH_HOME/templates/specs/"* .ralph/specs/ 2>/dev/null || true
 
 # Initialize git
 git init
@@ -203,14 +244,14 @@ git commit -m "Initial Ralph project setup"
 
 echo "✅ Project $PROJECT_NAME created!"
 echo "Next steps:"
-echo "  1. Edit PROMPT.md with your project requirements"
-echo "  2. Update specs/ with your project specifications"  
+echo "  1. Edit .ralph/PROMPT.md with your project requirements"
+echo "  2. Update .ralph/specs/ with your project specifications"
 echo "  3. Run: ralph --monitor"
 echo "  4. Monitor: ralph-monitor (if running manually)"
 EOF
 
     chmod +x "$RALPH_HOME/setup.sh"
-    
+
     log "SUCCESS" "Global setup script installed"
 }
 
@@ -251,12 +292,13 @@ main() {
     echo "  ralph --help            # Show Ralph options"
     echo "  ralph-setup my-project  # Create new Ralph project"
     echo "  ralph-import prd.md     # Convert PRD to Ralph project"
+    echo "  ralph-migrate           # Migrate existing project to .ralph/ structure"
     echo "  ralph-monitor           # Manual monitoring dashboard"
     echo ""
     echo "Quick start:"
     echo "  1. ralph-setup my-awesome-project"
     echo "  2. cd my-awesome-project"
-    echo "  3. # Edit PROMPT.md with your requirements"
+    echo "  3. # Edit .ralph/PROMPT.md with your requirements"
     echo "  4. ralph --monitor"
     echo ""
     
@@ -272,7 +314,7 @@ case "${1:-install}" in
         ;;
     uninstall)
         log "INFO" "Uninstalling Ralph for Claude Code..."
-        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import"
+        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate"
         rm -rf "$RALPH_HOME"
         log "SUCCESS" "Ralph for Claude Code uninstalled"
         ;;

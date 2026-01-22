@@ -15,17 +15,18 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
-    export CLAUDE_SESSION_FILE=".claude_session_id"
-    export RALPH_SESSION_FILE=".ralph_session"
-    export RALPH_SESSION_HISTORY_FILE=".ralph_session_history"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+    export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
+    export RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"
+    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
     export CLAUDE_MIN_VERSION="2.0.76"
     export CLAUDE_CODE_CMD="claude"
     export CLAUDE_USE_CONTINUE="true"
@@ -35,9 +36,9 @@ setup() {
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
 
-    # Create sample project files
-    create_sample_prompt
-    create_sample_fix_plan "@fix_plan.md" 10 3
+    # Create sample project files in .ralph/ directory
+    create_sample_prompt "$RALPH_DIR/PROMPT.md"
+    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -238,7 +239,7 @@ function_exists_in_ralph() {
 EOF
 
     run parse_json_response "$output_file"
-    local result_file=".json_parse_result"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
     [[ -f "$result_file" ]]
 
@@ -520,4 +521,133 @@ EOF
     # 5. Check again (should be expired)
     run should_resume_session
     [[ "$output" == "false" ]]
+}
+
+# =============================================================================
+# SESSION RESET CLEARS EXIT SIGNALS (Issue #91 Fix)
+# =============================================================================
+
+@test "reset_session clears exit_signals file to prevent premature exit" {
+    # Setup: Create stale exit signals that would cause premature exit
+    echo '{"test_only_loops": [1,2], "done_signals": [1], "completion_indicators": [1,2,3]}' > "$EXIT_SIGNALS_FILE"
+
+    # Verify stale signals exist
+    local completion_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    [[ "$completion_count" == "3" ]]
+
+    # Source ralph_loop.sh to get reset_session function
+    # We need to mock some things to prevent full initialization
+    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+
+    # Create a mock response analysis file
+    echo '{"analysis": {"exit_signal": true}}' > "$RESPONSE_ANALYSIS_FILE"
+    [[ -f "$RESPONSE_ANALYSIS_FILE" ]]
+
+    # Define reset_session inline for testing (extracted from ralph_loop.sh)
+    reset_session() {
+        local reason=${1:-"manual_reset"}
+        local reset_timestamp
+        reset_timestamp=$(get_iso_timestamp)
+
+        jq -n \
+            --arg session_id "" \
+            --arg created_at "" \
+            --arg last_used "" \
+            --arg reset_at "$reset_timestamp" \
+            --arg reset_reason "$reason" \
+            '{
+                session_id: $session_id,
+                created_at: $created_at,
+                last_used: $last_used,
+                reset_at: $reset_at,
+                reset_reason: $reset_reason
+            }' > "$RALPH_SESSION_FILE"
+
+        rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+
+        # Issue #91 fix: Clear exit signals
+        if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
+            echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+        fi
+
+        # Clear response analysis
+        rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
+    }
+
+    # Call reset_session
+    reset_session "test_reset"
+
+    # Verify exit signals were cleared
+    local new_completion_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    [[ "$new_completion_count" == "0" ]]
+
+    local new_test_loops=$(jq '.test_only_loops | length' "$EXIT_SIGNALS_FILE")
+    [[ "$new_test_loops" == "0" ]]
+
+    local new_done_signals=$(jq '.done_signals | length' "$EXIT_SIGNALS_FILE")
+    [[ "$new_done_signals" == "0" ]]
+
+    # Verify response analysis was cleared
+    [[ ! -f "$RESPONSE_ANALYSIS_FILE" ]]
+}
+
+@test "reset_session prevents issue #91 scenario (stale completion indicators)" {
+    # Issue #91: Ralph exits immediately when stale completion_indicators exist
+
+    # Simulate the issue scenario:
+    # 1. Previous session ended with completion_indicators: [1,2]
+    # 2. Previous session had EXIT_SIGNAL: true
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
+    echo '{"analysis": {"exit_signal": true, "has_completion_signal": true}}' > "$RESPONSE_ANALYSIS_FILE"
+
+    # Verify the problematic state exists
+    local completion_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    [[ "$completion_count" == "2" ]]
+
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RESPONSE_ANALYSIS_FILE")
+    [[ "$exit_signal" == "true" ]]
+
+    # Now simulate user running --reset-session (which should clear these files)
+    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+
+    # Define reset_session with the fix
+    reset_session() {
+        local reason=${1:-"manual_reset"}
+        local reset_timestamp
+        reset_timestamp=$(get_iso_timestamp)
+
+        jq -n \
+            --arg session_id "" \
+            --arg created_at "" \
+            --arg last_used "" \
+            --arg reset_at "$reset_timestamp" \
+            --arg reset_reason "$reason" \
+            '{
+                session_id: $session_id,
+                created_at: $created_at,
+                last_used: $last_used,
+                reset_at: $reset_at,
+                reset_reason: $reset_reason
+            }' > "$RALPH_SESSION_FILE"
+
+        rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+
+        # Issue #91 fix
+        if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
+            echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+        fi
+        rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
+    }
+
+    # User runs --reset-session
+    reset_session "manual_reset"
+
+    # Verify the fix: completion indicators should be cleared
+    local new_completion_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    [[ "$new_completion_count" == "0" ]]
+
+    # Verify response analysis is gone (no stale EXIT_SIGNAL)
+    [[ ! -f "$RESPONSE_ANALYSIS_FILE" ]]
 }

@@ -12,8 +12,10 @@ CB_STATE_HALF_OPEN="HALF_OPEN"  # Monitoring mode, checking for recovery
 CB_STATE_OPEN="OPEN"            # Failure detected, execution halted
 
 # Circuit Breaker Configuration
-CB_STATE_FILE=".circuit_breaker_state"
-CB_HISTORY_FILE=".circuit_breaker_history"
+# Use RALPH_DIR if set by main script, otherwise default to .ralph
+RALPH_DIR="${RALPH_DIR:-.ralph}"
+CB_STATE_FILE="$RALPH_DIR/.circuit_breaker_state"
+CB_HISTORY_FILE="$RALPH_DIR/.circuit_breaker_history"
 CB_NO_PROGRESS_THRESHOLD=3      # Open circuit after N loops with no progress
 CB_SAME_ERROR_THRESHOLD=5       # Open circuit after N loops with same error
 CB_OUTPUT_DECLINE_THRESHOLD=70  # Open circuit if output declines by >70%
@@ -301,15 +303,15 @@ should_halt_execution() {
         echo -e "${YELLOW}Ralph has detected that no progress is being made.${NC}"
         echo ""
         echo -e "${YELLOW}Possible reasons:${NC}"
-        echo "  • Project may be complete (check @fix_plan.md)"
+        echo "  • Project may be complete (check .ralph/@fix_plan.md)"
         echo "  • Claude may be stuck on an error"
-        echo "  • PROMPT.md may need clarification"
+        echo "  • .ralph/PROMPT.md may need clarification"
         echo "  • Manual intervention may be required"
         echo ""
         echo -e "${YELLOW}To continue:${NC}"
-        echo "  1. Review recent logs: tail -20 logs/ralph.log"
-        echo "  2. Check Claude output: ls -lt logs/claude_output_*.log | head -1"
-        echo "  3. Update @fix_plan.md if needed"
+        echo "  1. Review recent logs: tail -20 .ralph/logs/ralph.log"
+        echo "  2. Check Claude output: ls -lt .ralph/logs/claude_output_*.log | head -1"
+        echo "  3. Update .ralph/@fix_plan.md if needed"
         echo "  4. Reset circuit breaker: ralph --reset-circuit"
         echo ""
         return 0  # Signal to halt
