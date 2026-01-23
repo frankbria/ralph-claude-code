@@ -126,6 +126,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec "$RALPH_HOME/ralph_loop.sh" "$@"
 EOF
 
+    cat > "$INSTALL_DIR/ralph-quick" << 'EOF'
+#!/bin/bash
+# Ralph for Claude Code - Main Command
+
+RALPH_HOME="$HOME/.ralph"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source the actual ralph loop script with global paths
+exec "$RALPH_HOME/ralph_loop.sh" --output-format text --verbose "$@"
+EOF
+
     # Create ralph-monitor command
     cat > "$INSTALL_DIR/ralph-monitor" << 'EOF'
 #!/bin/bash
@@ -178,6 +189,7 @@ EOF
 
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph"
+    chmod +x "$INSTALL_DIR/ralph-quick"
     chmod +x "$INSTALL_DIR/ralph-monitor"
     chmod +x "$INSTALL_DIR/ralph-setup"
     chmod +x "$INSTALL_DIR/ralph-import"
