@@ -82,6 +82,43 @@ EOF
 echo "Migration running"
 EOF
 
+    cat > "$MOCK_SOURCE_DIR/ralph_enable.sh" << 'EOF'
+#!/bin/bash
+# Mock ralph_enable.sh
+echo "Ralph enable running"
+EOF
+
+    cat > "$MOCK_SOURCE_DIR/ralph_enable_ci.sh" << 'EOF'
+#!/bin/bash
+# Mock ralph_enable_ci.sh
+echo "Ralph enable CI running"
+EOF
+
+    # Create mock lib files for new enable functionality
+    cat > "$MOCK_SOURCE_DIR/lib/enable_core.sh" << 'EOF'
+#!/bin/bash
+# Mock enable_core.sh
+check_existing_ralph() { :; }
+EOF
+
+    cat > "$MOCK_SOURCE_DIR/lib/wizard_utils.sh" << 'EOF'
+#!/bin/bash
+# Mock wizard_utils.sh
+confirm() { :; }
+EOF
+
+    cat > "$MOCK_SOURCE_DIR/lib/task_sources.sh" << 'EOF'
+#!/bin/bash
+# Mock task_sources.sh
+fetch_beads_tasks() { :; }
+EOF
+
+    cat > "$MOCK_SOURCE_DIR/lib/timeout_utils.sh" << 'EOF'
+#!/bin/bash
+# Mock timeout_utils.sh
+portable_timeout() { timeout "$@"; }
+EOF
+
     chmod +x "$MOCK_SOURCE_DIR"/*.sh
     chmod +x "$MOCK_SOURCE_DIR/lib"/*.sh
 }

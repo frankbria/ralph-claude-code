@@ -27,6 +27,7 @@ setup() {
     export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
     export RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"
     export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
     export CLAUDE_MIN_VERSION="2.0.76"
     export CLAUDE_CODE_CMD="claude"
     export CLAUDE_USE_CONTINUE="true"
