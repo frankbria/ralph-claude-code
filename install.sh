@@ -133,8 +133,32 @@ EOF
 RALPH_HOME="$HOME/.ralph"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+ALLOWED_TOOLS_ARRAY=(
+    "Write"
+    "Read"
+    "Edit"
+    "MultiEdit"
+    "Glob"
+    "Grep"
+    "Task"
+    "TodoWrite"
+    "WebFetch"
+    "WebSearch"
+    "Bash"
+    "Bash(git *)"
+    "Bash(npm *)"
+    "Bash(bats *)"
+    "Bash(python *)"
+    "Bash(node *)"
+    "Bash(java *)"
+    "NotebookEdit"
+)
+# Convert the array to a comma-separated string.
+printf -v ALLOWED_TOOLS '%s,' "${ALLOWED_TOOLS_ARRAY[@]}"
+ALLOWED_TOOLS="${ALLOWED_TOOLS%,}"  # Remove the last comma.
+echo ALLOWED_TOOLS=$ALLOWED_TOOLS
 # Source the actual ralph loop script with global paths
-exec "$RALPH_HOME/ralph_loop.sh" --output-format text --verbose "$@"
+exec "$RALPH_HOME/ralph_loop.sh" --output-format text --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
 EOF
 
     # Create ralph-monitor command
