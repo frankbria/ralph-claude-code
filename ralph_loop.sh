@@ -73,6 +73,72 @@ MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
 
+# .ralphrc configuration file
+RALPHRC_FILE=".ralphrc"
+RALPHRC_LOADED=false
+
+# load_ralphrc - Load project-specific configuration from .ralphrc
+#
+# This function sources .ralphrc if it exists, applying project-specific
+# settings. Environment variables take precedence over .ralphrc values.
+#
+# Configuration values that can be overridden:
+#   - MAX_CALLS_PER_HOUR
+#   - CLAUDE_TIMEOUT_MINUTES
+#   - CLAUDE_OUTPUT_FORMAT
+#   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
+#   - SESSION_CONTINUITY (mapped to CLAUDE_USE_CONTINUE)
+#   - SESSION_EXPIRY_HOURS (mapped to CLAUDE_SESSION_EXPIRY_HOURS)
+#   - CB_NO_PROGRESS_THRESHOLD
+#   - CB_SAME_ERROR_THRESHOLD
+#   - CB_OUTPUT_DECLINE_THRESHOLD
+#   - RALPH_VERBOSE
+#
+load_ralphrc() {
+    if [[ ! -f "$RALPHRC_FILE" ]]; then
+        return 0
+    fi
+
+    # Save current values before sourcing (env vars take precedence)
+    local saved_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
+    local saved_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
+    local saved_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
+    local saved_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
+    local saved_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
+    local saved_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
+    local saved_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
+
+    # Source .ralphrc (this may override variables)
+    # shellcheck source=/dev/null
+    source "$RALPHRC_FILE"
+
+    # Map .ralphrc variable names to internal names
+    if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
+        CLAUDE_ALLOWED_TOOLS="$ALLOWED_TOOLS"
+    fi
+    if [[ -n "${SESSION_CONTINUITY:-}" ]]; then
+        CLAUDE_USE_CONTINUE="$SESSION_CONTINUITY"
+    fi
+    if [[ -n "${SESSION_EXPIRY_HOURS:-}" ]]; then
+        CLAUDE_SESSION_EXPIRY_HOURS="$SESSION_EXPIRY_HOURS"
+    fi
+    if [[ -n "${RALPH_VERBOSE:-}" ]]; then
+        VERBOSE_PROGRESS="$RALPH_VERBOSE"
+    fi
+
+    # Restore env var overrides (environment always wins)
+    [[ -n "$saved_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$saved_MAX_CALLS_PER_HOUR"
+    [[ -n "$saved_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$saved_CLAUDE_TIMEOUT_MINUTES"
+    [[ -n "$saved_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$saved_CLAUDE_OUTPUT_FORMAT"
+    [[ -n "$saved_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$saved_CLAUDE_ALLOWED_TOOLS"
+    [[ -n "$saved_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$saved_CLAUDE_USE_CONTINUE"
+    [[ -n "$saved_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$saved_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "$saved_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$saved_VERBOSE_PROGRESS"
+
+    RALPHRC_LOADED=true
+    return 0
+}
+
 # Colors for terminal output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -1053,6 +1119,12 @@ loop_count=0
 
 # Main loop
 main() {
+    # Load project-specific configuration from .ralphrc
+    if load_ralphrc; then
+        if [[ "$RALPHRC_LOADED" == "true" ]]; then
+            log_status "INFO" "Loaded configuration from .ralphrc"
+        fi
+    fi
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
@@ -1087,10 +1159,11 @@ main() {
 
         echo ""
         echo "To fix this:"
-        echo "  1. Create a new project: ralph-setup my-project"
-        echo "  2. Import existing requirements: ralph-import requirements.md"
-        echo "  3. Navigate to an existing Ralph project directory"
-        echo "  4. Or create .ralph/PROMPT.md manually in this directory"
+        echo "  1. Enable Ralph in existing project: ralph-enable"
+        echo "  2. Create a new project: ralph-setup my-project"
+        echo "  3. Import existing requirements: ralph-import requirements.md"
+        echo "  4. Navigate to an existing Ralph project directory"
+        echo "  5. Or create .ralph/PROMPT.md manually in this directory"
         echo ""
         echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/specs/, src/, etc."
         exit 1

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.10.1 | **Tests**: 321 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.0 | **Tests**: 396 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -22,6 +22,14 @@ The system consists of four main bash scripts and a modular library system:
    - Uses modern Claude Code CLI with `--output-format json` for structured responses
    - Implements `detect_response_format()` and `parse_conversion_response()` for JSON parsing
    - Backward compatible with older CLI versions (automatic text fallback)
+6. **ralph_enable.sh** - Interactive wizard for enabling Ralph in existing projects
+   - Multi-step wizard with environment detection, task source selection, configuration
+   - Imports tasks from beads, GitHub Issues, or PRD documents
+   - Generates `.ralphrc` project configuration file
+7. **ralph_enable_ci.sh** - Non-interactive version for CI/automation
+   - Same functionality as interactive version with CLI flags
+   - JSON output mode for machine parsing
+   - Exit codes: 0 (success), 1 (error), 2 (already enabled)
 
 ### Library Components (lib/)
 
@@ -59,6 +67,23 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - `portable_timeout()` function for seamless cross-platform execution
    - Automatic detection with caching for performance
 
+5. **lib/enable_core.sh** - Shared logic for ralph enable commands
+   - Idempotency checks: `check_existing_ralph()`, `is_ralph_enabled()`
+   - Safe file operations: `safe_create_file()`, `safe_create_dir()`
+   - Project detection: `detect_project_context()`, `detect_git_info()`, `detect_task_sources()`
+   - Template generation: `generate_prompt_md()`, `generate_agent_md()`, `generate_fix_plan_md()`, `generate_ralphrc()`
+
+6. **lib/wizard_utils.sh** - Interactive prompt utilities for enable wizard
+   - User prompts: `confirm()`, `prompt_text()`, `prompt_number()`
+   - Selection utilities: `select_option()`, `select_multiple()`, `select_with_default()`
+   - Output formatting: `print_header()`, `print_bullet()`, `print_success/warning/error/info()`
+
+7. **lib/task_sources.sh** - Task import from external sources
+   - Beads integration: `check_beads_available()`, `fetch_beads_tasks()`, `get_beads_count()`
+   - GitHub integration: `check_github_available()`, `fetch_github_tasks()`, `get_github_issue_count()`
+   - PRD extraction: `extract_prd_tasks()`, supports checkbox and numbered list formats
+   - Task normalization: `normalize_tasks()`, `prioritize_tasks()`, `import_tasks_from_sources()`
+
 ## Key Commands
 
 ### Installation
@@ -82,6 +107,27 @@ cd my-project-name
 # Migrate from flat structure to .ralph/ subfolder (v0.10.0+)
 cd existing-project
 ralph-migrate
+```
+
+### Enabling Ralph in Existing Projects
+```bash
+# Interactive wizard (recommended for humans)
+cd existing-project
+ralph-enable
+
+# With specific task source
+ralph-enable --from beads
+ralph-enable --from github --label "sprint-1"
+ralph-enable --from prd ./docs/requirements.md
+
+# Force overwrite existing .ralph/
+ralph-enable --force
+
+# Non-interactive for CI/scripts
+ralph-enable-ci                              # Sensible defaults
+ralph-enable-ci --from github               # With task source
+ralph-enable-ci --project-type typescript   # Override detection
+ralph-enable-ci --json                      # Machine-readable output
 ```
 
 ### Running the Ralph Loop
@@ -121,7 +167,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (165 tests)
+# Run all tests (396 tests)
 npm test
 
 # Run specific test suites
@@ -132,6 +178,9 @@ npm run test:integration
 bats tests/unit/test_cli_parsing.bats
 bats tests/unit/test_json_parsing.bats
 bats tests/unit/test_cli_modern.bats
+bats tests/unit/test_enable_core.bats
+bats tests/unit/test_task_sources.bats
+bats tests/unit/test_ralph_enable.bats
 ```
 
 ## Ralph Loop Configuration
@@ -264,10 +313,10 @@ Templates in `templates/` provide starting points for new projects:
 ## Global Installation
 
 Ralph installs to:
-- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate)
+- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci)
 - **Templates**: `~/.ralph/templates/`
-- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh)
+- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
@@ -275,6 +324,8 @@ After installation, the following global commands are available:
 - `ralph-setup` - Create a new Ralph-managed project
 - `ralph-import` - Import PRD/specification documents to Ralph format
 - `ralph-migrate` - Migrate existing projects from flat structure to `.ralph/` subfolder
+- `ralph-enable` - Interactive wizard to enable Ralph in existing projects
+- `ralph-enable-ci` - Non-interactive version for CI/automation
 
 ## Integration Points
 
@@ -351,7 +402,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (265 tests total)
+### Test Files (396 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -366,6 +417,9 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_installation.bats` | 14 | Global installation/uninstall workflows |
 | `test_project_setup.bats` | 36 | Project setup (setup.sh) validation |
 | `test_prd_import.bats` | 33 | PRD import (ralph_import.sh) workflows + modern CLI tests |
+| `test_enable_core.bats` | 30 | Enable core library (idempotency, project detection, template generation) |
+| `test_task_sources.bats` | 23 | Task sources (beads, GitHub, PRD extraction, normalization) |
+| `test_ralph_enable.bats` | 22 | Ralph enable integration tests (wizard, CI version, JSON output) |
 
 ### Running Tests
 ```bash
@@ -380,6 +434,25 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Ralph Enable Command (v0.11.0)
+- Added `ralph-enable` interactive wizard for enabling Ralph in existing projects
+  - 5-phase wizard: Environment Detection → Task Source Selection → Configuration → File Generation → Verification
+  - Auto-detects project type (TypeScript, Python, Rust, Go) and framework (Next.js, FastAPI, Django)
+  - Imports tasks from beads, GitHub Issues, or PRD documents
+  - Generates `.ralphrc` project configuration file
+- Added `ralph-enable-ci` non-interactive version for CI/automation
+  - JSON output mode (`--json`) for machine parsing
+  - Exit codes: 0 (success), 1 (error), 2 (already enabled)
+  - Override flags: `--project-name`, `--project-type`, `--from`, `--force`
+- New library components:
+  - `lib/enable_core.sh` - Shared enable logic with idempotency checks
+  - `lib/wizard_utils.sh` - Interactive prompt utilities
+  - `lib/task_sources.sh` - Task import from beads/GitHub/PRD
+- Updated `ralph_loop.sh` to load `.ralphrc` configuration at startup
+- Added 75 new tests (30 enable_core + 23 task_sources + 22 integration)
+- Test count: 396 (up from 321)
+- Related issues: #85, #121, #64, #87, #99
 
 ### Stale Completion Indicators Fix (v0.10.1) - Issue #91
 - Fixed premature exit caused by stale completion indicators persisting across sessions
