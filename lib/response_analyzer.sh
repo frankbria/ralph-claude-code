@@ -60,9 +60,13 @@ detect_output_format() {
 # 2. Claude CLI object format: { result, sessionId, metadata: { files_changed, has_errors, completion_status, ... } }
 # 3. Claude CLI array format: [ {type: "system", ...}, {type: "assistant", ...}, {type: "result", ...} ]
 parse_json_response() {
+    # Original output_file:"$LOG_DIR/claude_output_${timestamp}.log"
     local output_file=$1
     local result_file="${2:-$RALPH_DIR/.json_parse_result}"
+    local loop_number=${3:-0}
     local normalized_file=""
+
+    log_status "INFO" "[parse_json_response][Entry][Loop #$loop_number]" >&2
 
     if [[ ! -f "$output_file" ]]; then
         echo "ERROR: Output file not found: $output_file" >&2
@@ -78,21 +82,21 @@ parse_json_response() {
     # Check if JSON is an array (Claude CLI array format)
     # Claude CLI outputs: [{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]
     if jq -e 'type == "array"' "$output_file" >/dev/null 2>&1; then
-        log_status "INFO" "[parse_json_response] Detected Claude CLI array JSON format, normalizing..." >&2
-
         normalized_file=$(mktemp)
+
+        log_status "INFO" "[parse_json_response][Loop #$loop_number] Claude CLI array JSON format, to file '$normalized_file', normalizing..." >&2
 
         # Extract the "result" type message from the array (usually the last entry)
         # This contains: result, session_id, is_error, duration_ms, etc.
         local result_obj=$(jq '[.[] | select(.type == "result")] | .[-1] // {}' "$output_file" 2>/dev/null)
-        log_status "INFO" "[parse_json_response] Extracted result object from array format: $result_obj" >&2
+        log_status "INFO" "[parse_json_response][Loop #$loop_number] Extracted result object from array format: $result_obj" >&2
 
         # Guard against empty result_obj if jq fails (review fix: Macroscope)
         [[ -z "$result_obj" ]] && result_obj="{}"
 
         # Extract session_id from init message as fallback
         local init_session_id=$(jq -r '.[] | select(.type == "system" and .subtype == "init") | .session_id // empty' "$output_file" 2>/dev/null | head -1)
-        log_status "INFO" "[parse_json_response] Extracted init session_id: $init_session_id" >&2
+        log_status "INFO" "[parse_json_response][Loop #$loop_number] Extracted init session_id: $init_session_id" >&2
 
         # Prioritize result object's own session_id, then fall back to init message (review fix: CodeRabbit)
         # This prevents session ID loss when arrays lack an init message with session_id
@@ -100,9 +104,9 @@ parse_json_response() {
         effective_session_id=$(echo "$result_obj" | jq -r '.sessionId // .session_id // empty' 2>/dev/null)
         if [[ -z "$effective_session_id" || "$effective_session_id" == "null" ]]; then
             effective_session_id="$init_session_id"
-            log_status "INFO" "[parse_json_response] Using init session_id as fallback: $effective_session_id" >&2
+            log_status "INFO" "[parse_json_response][Loop #$loop_number] Using init session_id as fallback: $effective_session_id" >&2
         else
-            log_status "INFO" "[parse_json_response] Using result object's session_id: $effective_session_id" >&2
+            log_status "INFO" "[parse_json_response][Loop #$loop_number] Using result object's session_id: $effective_session_id" >&2
         fi
 
         # Build normalized object merging result with effective session_id
@@ -115,6 +119,8 @@ parse_json_response() {
         # Use normalized file for subsequent parsing
         output_file="$normalized_file"
     fi
+
+    log_status "INFO" "[parse_json_response][Loop #$loop_number] JSON response: $(cat "$output_file")" >&2
 
     # Detect JSON format by checking for Claude CLI fields
     local has_result_field=$(jq -r 'has("result")' "$output_file" 2>/dev/null)
@@ -132,24 +138,42 @@ parse_json_response() {
     # Exit signal: from flat format OR derived from completion_status
     local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
 
+    log_status "INFO" "[parse_json_response][Loop #$loop_number] has_result_field: $has_result_field, exit_signal: $exit_signal, status: $status, completion_status: $completion_status" >&2
+
     # Bug #1 Fix: If exit_signal is still false, check for RALPH_STATUS block in .result field
     # Claude CLI JSON format embeds the RALPH_STATUS block within the .result text field
     if [[ "$exit_signal" == "false" && "$has_result_field" == "true" ]]; then
         local result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
+        
+        # 检查提取的 result_text 是否非空且包含 RALPH_STATUS 块标记
         if [[ -n "$result_text" ]] && echo "$result_text" | grep -q -- "---RALPH_STATUS---"; then
+            log_status "INFO" "[parse_json_response][Loop #$loop_number] Found RALPH_STATUS block in .result field" >&2
+
             # Extract EXIT_SIGNAL value from RALPH_STATUS block within result text
+            # cut：文本切割工具。-d:：指定分隔符为冒号；-f2：取第二个字段（字段从1开始计数）
+            # 例如：对于 EXIT_SIGNAL: TERM，字段1: EXIT_SIGNAL，字段2: TERM（注意前面有个空格）。
+            # xargs：去除前后空白字符，确保得到干净的值。
             local embedded_exit_sig=$(echo "$result_text" | grep "EXIT_SIGNAL:" | cut -d: -f2 | xargs)
+            
+            # 如果嵌入的EXIT_SIGNAL值为true，则更新主exit_signal变量
             if [[ "$embedded_exit_sig" == "true" ]]; then
                 exit_signal="true"
+                # 在详细模式下输出调试信息到标准错误流
                 [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Extracted EXIT_SIGNAL=true from .result RALPH_STATUS block" >&2
             fi
             # Also check STATUS field as fallback
+            # 作为备用方案，也检查STATUS字段
+            # 从 result_text 中的 RALPH_STATUS 块提取STATUS值
             local embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
+            # 如果 STATUS 为 COMPLETE 且 exit_signal 尚未被设为true，则推断任务已完成，设置exit_signal为true
             if [[ "$embedded_status" == "COMPLETE" && "$exit_signal" != "true" ]]; then
                 # STATUS: COMPLETE without explicit EXIT_SIGNAL implies completion
+                # STATUS: COMPLETE没有明确的EXIT_SIGNAL时也意味着完成
                 exit_signal="true"
                 [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Inferred EXIT_SIGNAL=true from .result STATUS=COMPLETE" >&2
             fi
+        else
+            log_status "INFO" "[parse_json_response][Loop #$loop_number] No RALPH_STATUS block found in .result field" >&2
         fi
     fi
 
@@ -159,6 +183,8 @@ parse_json_response() {
     # Files modified: from flat format OR from metadata.files_changed
     local files_modified=$(jq -r '.metadata.files_changed // .files_modified // 0' "$output_file" 2>/dev/null)
 
+    # 仅当 has_errors=true 且 error_count 不存在时，将 error_count 设为1，这是防御性编程，
+    # 因为卡住检测的阈值是 >5 个错误，所以 1 个错误不会触发它。
     # Error count: from flat format OR derived from metadata.has_errors
     # Note: When only has_errors=true is present (without explicit error_count),
     # we set error_count=1 as a minimum. This is defensive programming since
@@ -183,6 +209,7 @@ parse_json_response() {
     local confidence=$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)
 
     # Progress indicators: from Claude CLI metadata (optional)
+    # 尝试获取 .metadata.progress_indicators 数组，如果存在则计算其长度
     local progress_count=$(jq -r '.metadata.progress_indicators | if . then length else 0 end' "$output_file" 2>/dev/null)
 
     # Normalize values
@@ -257,6 +284,8 @@ parse_json_response() {
                 session_id: $session_id
             }
         }' > "$result_file"
+    log_status "INFO" "[parse_json_response][Loop #$loop_number] Parsed JSON response written to '$result_file'" >&2
+    log_status "INFO" "[parse_json_response][Exit][Loop #$loop_number] status: $status, exit_signal: $exit_signal, is_test_only: $is_test_only, is_stuck: $is_stuck, has_completion_signal: $has_completion_signal, files_modified: $files_modified, error_count: $error_count, summary: $summary, session_id: $session_id, confidence: $confidence" >&2
 
     # Cleanup temporary normalized file if created (for array format handling)
     if [[ -n "$normalized_file" && -f "$normalized_file" ]]; then
@@ -266,8 +295,15 @@ parse_json_response() {
     return 0
 }
 
+# 三种文件解释：
+# 1. output_file, $LOG_DIR/claude_output_${timestamp}.log: 原始Claude输出文件，可能是JSON或文本格式。
+# 2. json解析结果文件，默认为 $RALPH_DIR/.json_parse_result:
+#   a. 当 output_file 文件是JSON格式并且解析输出的内容成功后，才会创建这个文件。
+#   b. 将 result_file 里面的内容转换为 analysis_result_file 之后，会删除这个文件。
+# 3. 分析结果文件，默认为 $RALPH_DIR/.response_analysis: 最终分析结果文件。
 # Analyze Claude Code response and extract signals
 analyze_response() {
+    # Original output_file:"$LOG_DIR/claude_output_${timestamp}.log"
     local output_file=$1
     local loop_number=$2
     local analysis_result_file=${3:-"$RALPH_DIR/.response_analysis"}
@@ -298,7 +334,8 @@ analyze_response() {
 
     if [[ "$output_format" == "json" ]]; then
         # Try JSON parsing
-        if parse_json_response "$output_file" "$RALPH_DIR/.json_parse_result" 2>/dev/null; then
+        # Parse JSON response to .json_parse_result file
+        if parse_json_response "$output_file" "$RALPH_DIR/.json_parse_result" 2>/dev/null "$loop_number"; then
             # Extract values from JSON parse result
             has_completion_signal=$(jq -r '.has_completion_signal' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             exit_signal=$(jq -r '.exit_signal' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
@@ -363,10 +400,15 @@ analyze_response() {
                         output_length: $output_length
                     }
                 }' > "$analysis_result_file"
+                log_status "INFO" "[analyze_response][Loop #$loop_number] Analysis result written to '$analysis_result_file'" >&2
+                log_status "INFO" "[analyze_response][Loop #$loop_number] has_completion_signal: $has_completion_signal, is_test_only: $is_test_only, is_stuck: $is_stuck, has_progress: $has_progress, files_modified: $files_modified, confidence_score: $confidence_score, exit_signal: $exit_signal, work_summary: $work_summary, output_length: $output_length" >&2
             rm -f "$RALPH_DIR/.json_parse_result"
             return 0
         fi
         # If JSON parsing failed, fall through to text parsing
+        log_status "WARN" "[analyze_response][Loop #$loop_number] JSON parsing failed, falling back to text parsing" >&2
+    else
+        log_status "INFO" "[analyze_response][Loop #$loop_number] Output format detected as text, proceeding with text parsing" >&2
     fi
 
     # Text parsing fallback (original logic)
