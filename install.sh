@@ -104,9 +104,13 @@ create_install_dirs() {
     log "SUCCESS" "Directories created: $INSTALL_DIR, $RALPH_HOME"
 }
 
-install_resources() {
-    log "INFO" "Installing Ralph resources..."
-    cp -a "$SCRIPT_DIR/resources/." "$RALPH_HOME/resources/"
+install_configs() {
+    log "INFO" "Installing Ralph configs..."
+    local target_config_dir;
+    target_config_dir="$RALPH_HOME/configs"
+
+    mkdir -p "$target_config_dir"
+    cp -a "$SCRIPT_DIR/configs/." "$target_config_dir"
 }
 
 # Install Ralph scripts
@@ -139,7 +143,7 @@ EOF
 RALPH_HOME="$HOME/.ralph"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "$RALPH_HOME/resources/allow_tools_quick.sh"
+source "$RALPH_HOME/configs/allow_tools_quick.sh"
 
 # Convert the array to a comma-separated string.
 printf -v ALLOWED_TOOLS '%s,' "${RESOURCE_ALLOW_TOOLS_QUICK[@]}"
@@ -303,7 +307,7 @@ main() {
     
     check_dependencies
     create_install_dirs
-    install_resources
+    install_configs
     install_scripts
     install_ralph_loop
     install_setup

@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
-source $RALPH_HOME/resources/allow_tools_quick.sh
+source "$RALPH_HOME/configs/allow_tools_quick.sh"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -67,8 +67,6 @@ VALID_TOOL_PATTERNS+=(
     "Bash(head *)"
     "Bash(cat *)"
 )
-
-log_status "INFO" "VALID_TOOL_PATTERNS:${VALID_TOOL_PATTERNS[*]}"
 
 # Exit detection configuration
 EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
@@ -199,6 +197,8 @@ log_status() {
     echo -e "${color}[$timestamp] [$level] $message${NC}"
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
+
+log_status "INFO" "VALID_TOOL_PATTERNS:${VALID_TOOL_PATTERNS[*]}"
 
 # Update status JSON for external monitoring
 update_status() {

@@ -335,7 +335,7 @@ analyze_response() {
     if [[ "$output_format" == "json" ]]; then
         # Try JSON parsing
         # Parse JSON response to .json_parse_result file
-        if parse_json_response "$output_file" "$RALPH_DIR/.json_parse_result" 2>/dev/null "$loop_number"; then
+        if parse_json_response "$output_file" "$RALPH_DIR/.json_parse_result" "$loop_number" 2>/dev/null; then
             # Extract values from JSON parse result
             has_completion_signal=$(jq -r '.has_completion_signal' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             exit_signal=$(jq -r '.exit_signal' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
