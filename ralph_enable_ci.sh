@@ -172,6 +172,10 @@ parse_arguments() {
                 shift
                 ;;
             --json)
+                if ! command -v jq &>/dev/null; then
+                    echo "Error: --json requires jq to be installed" >&2
+                    exit 1
+                fi
                 OUTPUT_JSON=true
                 shift
                 ;;

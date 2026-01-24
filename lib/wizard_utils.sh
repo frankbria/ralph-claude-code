@@ -3,13 +3,13 @@
 # wizard_utils.sh - Interactive prompt utilities for Ralph enable wizard
 # Provides consistent, user-friendly prompts for configuration
 
-# Colors
-WIZARD_CYAN='\033[0;36m'
-WIZARD_GREEN='\033[0;32m'
-WIZARD_YELLOW='\033[1;33m'
-WIZARD_RED='\033[0;31m'
-WIZARD_BOLD='\033[1m'
-WIZARD_NC='\033[0m'
+# Colors (exported for subshells)
+export WIZARD_CYAN='\033[0;36m'
+export WIZARD_GREEN='\033[0;32m'
+export WIZARD_YELLOW='\033[1;33m'
+export WIZARD_RED='\033[0;31m'
+export WIZARD_BOLD='\033[1m'
+export WIZARD_NC='\033[0m'
 
 # =============================================================================
 # BASIC PROMPTS
@@ -178,6 +178,12 @@ select_option() {
     local options=("$@")
     local num_options=${#options[@]}
 
+    # Guard against empty options array
+    if [[ $num_options -eq 0 ]]; then
+        echo ""
+        return 1
+    fi
+
     echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}"
     echo ""
 
@@ -214,11 +220,16 @@ select_option() {
 #   $@ (options) - Remaining arguments are the options
 #
 # Outputs:
-#   Echoes space-separated list of selected options
+#   Echoes comma-separated list of selected indices (0-based)
+#   Returns empty string if nothing selected
 #
 # Example:
 #   selected=$(select_multiple "Select task sources" "beads" "github" "prd")
-#   echo "Selected: $selected"
+#   # If user selects first and third: selected="0,2"
+#   IFS=',' read -ra indices <<< "$selected"
+#   for idx in "${indices[@]}"; do
+#       echo "Selected: ${options[$idx]}"
+#   done
 #
 select_multiple() {
     local prompt=$1
@@ -232,10 +243,10 @@ select_multiple() {
         selected[$i]=0
     done
 
-    # Display instructions
-    echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}"
-    echo -e "${WIZARD_CYAN}(Enter numbers to toggle, press Enter when done)${WIZARD_NC}"
-    echo ""
+    # Display instructions (redirect to stderr to avoid corrupting return value)
+    echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}" >&2
+    echo -e "${WIZARD_CYAN}(Enter numbers to toggle, press Enter when done)${WIZARD_NC}" >&2
+    echo "" >&2
 
     while true; do
         # Display options with checkboxes
@@ -245,12 +256,12 @@ select_multiple() {
             if [[ "${selected[$((i - 1))]}" == "1" ]]; then
                 checkbox="[${WIZARD_GREEN}x${WIZARD_NC}]"
             fi
-            echo -e "  ${WIZARD_CYAN}${i})${WIZARD_NC} ${checkbox} ${opt}"
-            ((i++))
+            echo -e "  ${WIZARD_CYAN}${i})${WIZARD_NC} ${checkbox} ${opt}" >&2
+            ((i++)) || true
         done
 
-        echo ""
-        echo -en "Toggle [1-${num_options}] or Enter to confirm: "
+        echo "" >&2
+        echo -en "Toggle [1-${num_options}] or Enter to confirm: " >&2
         read -r response
 
         # Empty input = done
@@ -270,24 +281,24 @@ select_multiple() {
                 selected[$idx]=0
             fi
         else
-            echo -e "${WIZARD_YELLOW}Please enter a number between 1 and ${num_options}${WIZARD_NC}"
+            echo -e "${WIZARD_YELLOW}Please enter a number between 1 and ${num_options}${WIZARD_NC}" >&2
         fi
 
         # Clear previous display (move cursor up)
         # Number of lines to clear: options + 2 (prompt line + input line)
         for ((j = 0; j < num_options + 2; j++)); do
-            echo -en "\033[A\033[K"
+            echo -en "\033[A\033[K" >&2
         done
     done
 
-    # Build result string
+    # Build result string (comma-separated indices)
     local result=""
     for ((i = 0; i < num_options; i++)); do
         if [[ "${selected[$i]}" == "1" ]]; then
             if [[ -n "$result" ]]; then
-                result="$result ${options[$i]}"
+                result="$result,$i"
             else
-                result="${options[$i]}"
+                result="$i"
             fi
         fi
     done

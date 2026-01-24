@@ -181,8 +181,8 @@ phase_environment_detection() {
     echo "Analyzing your project..."
     echo ""
 
-    # Check for existing Ralph setup
-    check_existing_ralph
+    # Check for existing Ralph setup (use || true to prevent set -e from exiting)
+    check_existing_ralph || true
     case "$RALPH_STATE" in
         "complete")
             print_detection_result "Ralph status" "Already enabled" "true"
@@ -314,21 +314,19 @@ phase_task_source_selection() {
         echo "Where would you like to import tasks from?"
         echo ""
 
-        local selected
-        selected=$(select_multiple "Select task sources" "${options[@]}")
+        local selected_indices
+        selected_indices=$(select_multiple "Select task sources" "${options[@]}")
 
-        # Parse selected options
+        # Parse selected indices (comma-separated)
         SELECTED_SOURCES=""
-        for opt in $selected; do
-            # Map option text back to key
-            for i in "${!options[@]}"; do
-                if [[ "${options[$i]}" == "$opt" ]]; then
-                    if [[ "${option_keys[$i]}" != "none" ]]; then
-                        SELECTED_SOURCES="${SELECTED_SOURCES:+$SELECTED_SOURCES }${option_keys[$i]}"
-                    fi
+        if [[ -n "$selected_indices" ]]; then
+            IFS=',' read -ra indices <<< "$selected_indices"
+            for idx in "${indices[@]}"; do
+                if [[ "${option_keys[$idx]}" != "none" ]]; then
+                    SELECTED_SOURCES="${SELECTED_SOURCES:+$SELECTED_SOURCES }${option_keys[$idx]}"
                 fi
             done
-        done
+        fi
     else
         SELECTED_SOURCES=""
     fi
@@ -450,14 +448,14 @@ phase_file_generation() {
         exit $ENABLE_ERROR
     fi
 
-    # Update .ralphrc with specific settings
+    # Update .ralphrc with specific settings (portable sed -i for macOS/Linux)
     if [[ -f ".ralphrc" ]]; then
         # Update max calls
-        sed -i "s/MAX_CALLS_PER_HOUR=.*/MAX_CALLS_PER_HOUR=$CONFIG_MAX_CALLS/" .ralphrc 2>/dev/null || true
+        sed "s/MAX_CALLS_PER_HOUR=.*/MAX_CALLS_PER_HOUR=$CONFIG_MAX_CALLS/" .ralphrc > .ralphrc.tmp && mv .ralphrc.tmp .ralphrc
 
         # Update GitHub label if set
         if [[ -n "$CONFIG_GITHUB_LABEL" ]]; then
-            sed -i "s/GITHUB_TASK_LABEL=.*/GITHUB_TASK_LABEL=\"$CONFIG_GITHUB_LABEL\"/" .ralphrc 2>/dev/null || true
+            sed "s/GITHUB_TASK_LABEL=.*/GITHUB_TASK_LABEL=\"$CONFIG_GITHUB_LABEL\"/" .ralphrc > .ralphrc.tmp && mv .ralphrc.tmp .ralphrc
         fi
     fi
 

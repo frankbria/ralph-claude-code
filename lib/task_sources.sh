@@ -49,9 +49,9 @@ fetch_beads_tasks() {
         return 1
     fi
 
-    # Try to get tasks as JSON
+    # Try to get tasks as JSON (pass filter if provided)
     local json_output
-    if json_output=$(bd list --json 2>/dev/null); then
+    if json_output=$(bd list --json --filter "$filter" 2>/dev/null); then
         # Parse JSON and format as markdown tasks
         if command -v jq &>/dev/null; then
             tasks=$(echo "$json_output" | jq -r '
@@ -260,7 +260,7 @@ extract_prd_tasks() {
 
     # Look for existing checkbox items
     local checkbox_tasks
-    checkbox_tasks=$(grep -E '^\s*[-*]\s*\[\s*[xX ]?\s*\]' "$prd_file" 2>/dev/null)
+    checkbox_tasks=$(grep -E '^[[:space:]]*[-*][[:space:]]*\[[[:space:]]*[xX ]?[[:space:]]*\]' "$prd_file" 2>/dev/null)
     if [[ -n "$checkbox_tasks" ]]; then
         # Normalize to unchecked format
         tasks=$(echo "$checkbox_tasks" | sed 's/\[x\]/[ ]/gi; s/\[X\]/[ ]/g')
@@ -268,12 +268,12 @@ extract_prd_tasks() {
 
     # Look for numbered list items that look like tasks
     local numbered_tasks
-    numbered_tasks=$(grep -E '^\s*[0-9]+\.\s+' "$prd_file" 2>/dev/null | head -20)
+    numbered_tasks=$(grep -E '^[[:space:]]*[0-9]+\.[[:space:]]+' "$prd_file" 2>/dev/null | head -20)
     if [[ -n "$numbered_tasks" ]]; then
         while IFS= read -r line; do
             # Convert numbered item to checkbox
             local task_text
-            task_text=$(echo "$line" | sed 's/^\s*[0-9]*\.\s*//')
+            task_text=$(echo "$line" | sed -E 's/^[[:space:]]*[0-9]*\.[[:space:]]*//')
             if [[ -n "$task_text" ]]; then
                 tasks="${tasks}
 - [ ] ${task_text}"
@@ -283,12 +283,12 @@ extract_prd_tasks() {
 
     # Look for headings that might be task sections
     local headings
-    headings=$(grep -E '^#{1,3}\s+(TODO|Tasks|Requirements|Features|Backlog|Sprint)' "$prd_file" 2>/dev/null)
+    headings=$(grep -E '^#{1,3}[[:space:]]+(TODO|Tasks|Requirements|Features|Backlog|Sprint)' "$prd_file" 2>/dev/null)
     if [[ -n "$headings" ]]; then
         # Extract content after these headings as potential tasks
         while IFS= read -r heading; do
             local section_name
-            section_name=$(echo "$heading" | sed 's/^#*\s*//')
+            section_name=$(echo "$heading" | sed -E 's/^#*[[:space:]]*//')
             # This is informational - actual task extraction would need more context
         done <<< "$headings"
     fi
@@ -366,24 +366,24 @@ normalize_tasks() {
         [[ -z "$line" ]] && continue
 
         # Already in checkbox format
-        if echo "$line" | grep -qE '^\s*-\s*\[\s*[xX ]?\s*\]'; then
+        if echo "$line" | grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*[xX ]?[[:space:]]*\]'; then
             # Normalize the checkbox
             echo "$line" | sed 's/\[x\]/[ ]/gi; s/\[X\]/[ ]/g'
             continue
         fi
 
         # Bullet point without checkbox
-        if echo "$line" | grep -qE '^\s*[-*]\s+'; then
+        if echo "$line" | grep -qE '^[[:space:]]*[-*][[:space:]]+'; then
             local text
-            text=$(echo "$line" | sed 's/^\s*[-*]\s*//')
+            text=$(echo "$line" | sed -E 's/^[[:space:]]*[-*][[:space:]]*//')
             echo "- [ ] $text"
             continue
         fi
 
         # Numbered item
-        if echo "$line" | grep -qE '^\s*[0-9]+\.?\s+'; then
+        if echo "$line" | grep -qE '^[[:space:]]*[0-9]+\.?[[:space:]]+'; then
             local text
-            text=$(echo "$line" | sed 's/^\s*[0-9]*\.?\s*//')
+            text=$(echo "$line" | sed -E 's/^[[:space:]]*[0-9]*\.?[[:space:]]*//')
             echo "- [ ] $text"
             continue
         fi
