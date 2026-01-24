@@ -104,6 +104,11 @@ create_install_dirs() {
     log "SUCCESS" "Directories created: $INSTALL_DIR, $RALPH_HOME"
 }
 
+install_resources() {
+    log "INFO" "Installing Ralph resources..."
+    cp -a "$SCRIPT_DIR/resources/." "$RALPH_HOME/resources/"
+}
+
 # Install Ralph scripts
 install_scripts() {
     log "INFO" "Installing Ralph scripts..."
@@ -133,32 +138,14 @@ EOF
 RALPH_HOME="$HOME/.ralph"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ALLOWED_TOOLS_ARRAY=(
-    "Write"
-    "Read"
-    "Edit"
-    "MultiEdit"
-    "Glob"
-    "Grep"
-    "Task"
-    "TodoWrite"
-    "WebFetch"
-    "WebSearch"
-    "Bash"
-    "Bash(git *)"
-    "Bash(npm *)"
-    "Bash(bats *)"
-    "Bash(python *)"
-    "Bash(node *)"
-    "Bash(java *)"
-    "NotebookEdit"
-)
+source $RALPH_HOME/resources/allow_tools_quick.sh
+
 # Convert the array to a comma-separated string.
-printf -v ALLOWED_TOOLS '%s,' "${ALLOWED_TOOLS_ARRAY[@]}"
+printf -v ALLOWED_TOOLS '%s,' "${RESOURCE_ALLOW_TOOLS_QUICK[@]}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS%,}"  # Remove the last comma.
 echo ALLOWED_TOOLS=$ALLOWED_TOOLS
 # Source the actual ralph loop script with global paths
-exec "$RALPH_HOME/ralph_loop.sh" --output-format text --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
+# exec "$RALPH_HOME/ralph_loop.sh" --output-format text --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
 EOF
 
     # Create ralph-monitor command
@@ -315,6 +302,7 @@ main() {
     
     check_dependencies
     create_install_dirs
+    install_resources
     install_scripts
     install_ralph_loop
     install_setup

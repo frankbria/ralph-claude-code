@@ -7,10 +7,12 @@ set -e  # Exit on any error
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+RALPH_HOME="${RALPH_HOME:-$HOME/.ralph}"
 source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+source $RALPH_HOME/resources/allow_tools_quick.sh
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -46,25 +48,22 @@ CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
-VALID_TOOL_PATTERNS=(
-    "Write"
-    "Read"
-    "Edit"
-    "MultiEdit"
-    "Glob"
-    "Grep"
-    "Task"
-    "TodoWrite"
-    "WebFetch"
-    "WebSearch"
-    "Bash"
+VALID_TOOL_PATTERNS=("${RESOURCE_ALL_CLAUDE_TOOLS[@]}")
+VALID_TOOL_PATTERNS+=(
     "Bash(git *)"
     "Bash(npm *)"
     "Bash(bats *)"
     "Bash(python *)"
     "Bash(node *)"
-    "NotebookEdit"
+    "Bash(java *)"
+    "Bash(jq *)"
+    "Bash(sed *)"
+    "Bash(tr *)"
+    "Bash(head *)"
+    "Bash(cat *)"
 )
+
+log_status "INFO" "VALID_TOOL_PATTERNS:${VALID_TOOL_PATTERNS[*]}"
 
 # Exit detection configuration
 EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
@@ -99,7 +98,7 @@ check_tmux_available() {
 # Setup tmux session with monitor
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
-    local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
+    local ralph_home="${RALPH_HOME}"
     
     log_status "INFO" "Setting up tmux session: $session_name"
     
@@ -856,7 +855,7 @@ execute_claude_code() {
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
-    # Build loop context for session continuity
+    # Build loop context for session continuity, loop context as system prompt.
     local loop_context=""
     if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
         loop_context=$(build_loop_context "$loop_count")
