@@ -139,14 +139,14 @@ EOF
 RALPH_HOME="$HOME/.ralph"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source $RALPH_HOME/resources/allow_tools_quick.sh
+source "$RALPH_HOME/resources/allow_tools_quick.sh"
 
 # Convert the array to a comma-separated string.
 printf -v ALLOWED_TOOLS '%s,' "${RESOURCE_ALLOW_TOOLS_QUICK[@]}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS%,}"  # Remove the last comma.
-echo ALLOWED_TOOLS=$ALLOWED_TOOLS
+echo ALLOWED_TOOLS="$ALLOWED_TOOLS"
 # Source the actual ralph loop script with global paths
-# exec "$RALPH_HOME/ralph_loop.sh" --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
+exec "$RALPH_HOME/ralph_loop.sh" --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
 EOF
 
     # Create ralph-monitor command
