@@ -30,6 +30,7 @@ SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
+LOOP_CONTEXT_PROMPT_LENGTH_LIMIT=500  # Max chars for loop context prompt
 
 # Modern Claude CLI configuration (Phase 1.1)
 CLAUDE_OUTPUT_FORMAT="json"              # Options: json, text
@@ -477,8 +478,14 @@ build_loop_context() {
         fi
     fi
 
-    # Limit total length to ~500 chars
-    echo "${context:0:500}"
+    if (( len > $LOOP_CONTEXT_PROMPT_LENGTH_LIMIT )); then
+        log_status "WARN" "Context truncated: original length = $len, limited to $LOOP_CONTEXT_PROMPT_LENGTH_LIMIT chars"
+        # Limit total length to ~500 chars
+        echo "${context:0:$LOOP_CONTEXT_PROMPT_LENGTH_LIMIT}"
+    else
+        log_status "INFO" "Context length = $len chars"
+        echo "$context"
+    fi
 }
 
 # Get session file age in hours (cross-platform)
