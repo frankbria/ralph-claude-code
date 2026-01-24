@@ -131,6 +131,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec "$RALPH_HOME/ralph_loop.sh" "$@"
 EOF
 
+    # Create ralph-quick command
     cat > "$INSTALL_DIR/ralph-quick" << 'EOF'
 #!/bin/bash
 # Ralph for Claude Code - Main Command
@@ -145,7 +146,7 @@ printf -v ALLOWED_TOOLS '%s,' "${RESOURCE_ALLOW_TOOLS_QUICK[@]}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS%,}"  # Remove the last comma.
 echo ALLOWED_TOOLS=$ALLOWED_TOOLS
 # Source the actual ralph loop script with global paths
-# exec "$RALPH_HOME/ralph_loop.sh" --output-format text --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
+# exec "$RALPH_HOME/ralph_loop.sh" --verbose --allowedTools "$ALLOWED_TOOLS" "$@"
 EOF
 
     # Create ralph-monitor command

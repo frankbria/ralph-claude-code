@@ -39,6 +39,10 @@ CLAUDE_USE_CONTINUE=true                 # Enable session continuity
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
+# Claude Session Lifecycle Management
+# 它涉及 CLAUDE_USE_CONTINUE 和 CLAUDE_SESSION_FILE 两个配置项。
+# 详细解释请见docs/code-analysis/Claude Session Lifecycle Management.md
+
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
 RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"              # Ralph-specific session tracking (lifecycle)
@@ -478,12 +482,13 @@ build_loop_context() {
         fi
     fi
 
-    if (( len > $LOOP_CONTEXT_PROMPT_LENGTH_LIMIT )); then
-        log_status "WARN" "Context truncated: original length = $len, limited to $LOOP_CONTEXT_PROMPT_LENGTH_LIMIT chars"
+    local context_len=${#context}
+    if (( context_len > $LOOP_CONTEXT_PROMPT_LENGTH_LIMIT )); then
+        log_status "WARN" "Context truncated: original length = $context_len, limited to $LOOP_CONTEXT_PROMPT_LENGTH_LIMIT chars"
         # Limit total length to ~500 chars
         echo "${context:0:$LOOP_CONTEXT_PROMPT_LENGTH_LIMIT}"
     else
-        log_status "INFO" "Context length = $len chars"
+        log_status "INFO" "Context length = $context_len chars"
         echo "$context"
     fi
 }
@@ -502,6 +507,7 @@ get_session_file_age_hours() {
     local os_type
     os_type=$(uname)
 
+    # Get file modification time based on OS
     local file_mtime
     if [[ "$os_type" == "Darwin" ]]; then
         # macOS (BSD stat)
@@ -588,7 +594,11 @@ save_claude_session() {
         if [[ -n "$session_id" && "$session_id" != "null" ]]; then
             echo "$session_id" > "$CLAUDE_SESSION_FILE"
             log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
+        else
+            log_status "WARN" "Session ID not found in output file '$output_file', cannot save session"
         fi
+    else
+        log_status "WARN" "Output file '$output_file' not found, cannot save session"
     fi
 }
 
@@ -923,6 +933,7 @@ execute_claude_code() {
     # Get PID and monitor progress
     local claude_pid=$!
     local progress_counter=0
+    local working_checking_sleep_interval=10
 
     # Show progress while Claude Code is running
     while kill -0 $claude_pid 2>/dev/null; do
@@ -945,7 +956,7 @@ execute_claude_code() {
 {
     "status": "executing",
     "indicator": "$progress_indicator",
-    "elapsed_seconds": $((progress_counter * 10)),
+    "elapsed_seconds": $((progress_counter * working_checking_sleep_interval)),
     "last_output": "$last_line",
     "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
 }
@@ -960,7 +971,7 @@ EOF
             fi
         fi
 
-        sleep 10
+        sleep $working_checking_sleep_interval
     done
 
     # Wait for the process to finish and get exit code
@@ -1047,11 +1058,14 @@ EOF
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
     reset_session "manual_interrupt"
+    # update status to status file
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
 }
 
 # Set up signal handlers
+# SIGINT: 用户按下 Ctrl+C 时发送的中断信号
+# SIGTERM: 系统发送的终止信号（如 kill 命令）。
 trap cleanup SIGINT SIGTERM
 
 # Global variable for loop count (needed by cleanup function)
@@ -1370,6 +1384,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+log_status "INFO" "Using prompt file: $PROMPT_FILE"
+log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
+log_status "INFO" "Claude Code timeout: $CLAUDE_TIMEOUT_MINUTES minutes"
+log_status "INFO" "Claude output format: $CLAUDE_OUTPUT_FORMAT"
+log_status "INFO" "Claude session continuity: $CLAUDE_USE_CONTINUE"
+log_status "INFO" "Claude session expiry: $CLAUDE_SESSION_EXPIRY_HOURS hours"
+log_status "INFO" "Claude allowed tools: $CLAUDE_ALLOWED_TOOLS"
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

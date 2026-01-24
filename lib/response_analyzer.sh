@@ -78,17 +78,21 @@ parse_json_response() {
     # Check if JSON is an array (Claude CLI array format)
     # Claude CLI outputs: [{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]
     if jq -e 'type == "array"' "$output_file" >/dev/null 2>&1; then
+        log_status "INFO" "[parse_json_response] Detected Claude CLI array JSON format, normalizing..." >&2
+
         normalized_file=$(mktemp)
 
         # Extract the "result" type message from the array (usually the last entry)
         # This contains: result, session_id, is_error, duration_ms, etc.
         local result_obj=$(jq '[.[] | select(.type == "result")] | .[-1] // {}' "$output_file" 2>/dev/null)
+        log_status "INFO" "[parse_json_response] Extracted result object from array format: $result_obj" >&2
 
         # Guard against empty result_obj if jq fails (review fix: Macroscope)
         [[ -z "$result_obj" ]] && result_obj="{}"
 
         # Extract session_id from init message as fallback
         local init_session_id=$(jq -r '.[] | select(.type == "system" and .subtype == "init") | .session_id // empty' "$output_file" 2>/dev/null | head -1)
+        log_status "INFO" "[parse_json_response] Extracted init session_id: $init_session_id" >&2
 
         # Prioritize result object's own session_id, then fall back to init message (review fix: CodeRabbit)
         # This prevents session ID loss when arrays lack an init message with session_id
@@ -96,6 +100,9 @@ parse_json_response() {
         effective_session_id=$(echo "$result_obj" | jq -r '.sessionId // .session_id // empty' 2>/dev/null)
         if [[ -z "$effective_session_id" || "$effective_session_id" == "null" ]]; then
             effective_session_id="$init_session_id"
+            log_status "INFO" "[parse_json_response] Using init session_id as fallback: $effective_session_id" >&2
+        else
+            log_status "INFO" "[parse_json_response] Using result object's session_id: $effective_session_id" >&2
         fi
 
         # Build normalized object merging result with effective session_id
@@ -264,6 +271,8 @@ analyze_response() {
     local output_file=$1
     local loop_number=$2
     local analysis_result_file=${3:-"$RALPH_DIR/.response_analysis"}
+
+    log_status "INFO" "Analyzing response for loop #$loop_number from file: $output_file" >&2
 
     # Initialize analysis result
     local has_completion_signal=false
