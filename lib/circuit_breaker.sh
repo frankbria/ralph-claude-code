@@ -92,6 +92,8 @@ record_loop_result() {
     local has_errors=$3
     local output_length=$4
 
+    log_status "INFO" "[record_loop_result][Entry][Loop #$loop_number] files_changed=$files_changed, has_errors=$has_errors, output_length=$output_length"
+
     init_circuit_breaker
 
     local state_data=$(cat "$CB_STATE_FILE")

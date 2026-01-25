@@ -2,6 +2,7 @@
 
 set -e
 
+# From: https://code.claude.com/docs/en/settings#tools-available-to-claude
 RESOURCE_ALL_CLAUDE_TOOLS=(
     AskUserQuestion
     Bash

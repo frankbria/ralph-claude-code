@@ -992,15 +992,15 @@ EOF
             save_claude_session "$output_file"
         fi
 
-        # Analyze the response
+        # Analyze the response, will create analysis file
         log_status "INFO" "🔍 Analyzing Claude Code response..."
         analyze_response "$output_file" "$loop_count"
         local analysis_exit_code=$?
 
-        # Update exit signals based on analysis
+        # Update exit signals based on analysis, read from analysis file, creates/updates exit signals file
         update_exit_signals
 
-        # Log analysis summary
+        # Log analysis summary, reads from analysis file and outputs to terminal
         log_analysis_summary
 
         # Get file change count for circuit breaker
@@ -1048,7 +1048,7 @@ EOF
             log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
             return 2  # Special return code for API limit
         else
-            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+            log_status "ERROR" "❌ Claude Code execution failed, exit_code: $exit_code, check: $output_file"
             return 1
         fi
     fi
@@ -1386,6 +1386,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 log_status "INFO" "Using prompt file: $PROMPT_FILE"
+log_status "INFO" "Using tmux mode: $USE_TMUX"
+log_status "INFO" "Verbose progress: $VERBOSE_PROGRESS"
 log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
 log_status "INFO" "Claude Code timeout: $CLAUDE_TIMEOUT_MINUTES minutes"
 log_status "INFO" "Claude output format: $CLAUDE_OUTPUT_FORMAT"

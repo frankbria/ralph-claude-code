@@ -323,6 +323,7 @@ main() {
     echo "  ralph-import prd.md     # Convert PRD to Ralph project"
     echo "  ralph-migrate           # Migrate existing project to .ralph/ structure"
     echo "  ralph-monitor           # Manual monitoring dashboard"
+    echo "  ralph-quick             # Start Ralph with quick toolset"
     echo ""
     echo "Quick start:"
     echo "  1. ralph-setup my-awesome-project"
