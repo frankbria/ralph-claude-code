@@ -157,8 +157,9 @@ teardown() {
 
 @test "CLAUDE_OUTPUT_FORMAT defaults to json" {
     # Verify by checking the default in ralph_loop.sh via grep
+    # The default is set via ${CLAUDE_OUTPUT_FORMAT:-json} pattern
     run grep 'CLAUDE_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *'"json"'* ]]
+    [[ "$output" == *"json"* ]]
 }
 
 @test "CLAUDE_ALLOWED_TOOLS has sensible defaults" {
@@ -621,4 +622,30 @@ EOF
     done
 
     [[ "$found_prompt" == "true" ]]
+}
+
+# =============================================================================
+# .RALPHRC CONFIGURATION LOADING TESTS
+# Tests for the environment variable precedence fix
+# =============================================================================
+
+@test "load_ralphrc uses env var capture pattern for precedence" {
+    # Verify the implementation pattern: _env_* variables capture state before defaults
+    # This test validates the pattern is correctly implemented in ralph_loop.sh
+
+    run grep '_env_MAX_CALLS_PER_HOUR=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should capture env var state BEFORE setting defaults
+    [[ "$output" == *'${MAX_CALLS_PER_HOUR:-}'* ]]
+}
+
+@test "load_ralphrc restores only env var overrides, not defaults" {
+    # Verify that load_ralphrc uses _env_* pattern for restoration
+    # This ensures .ralphrc values are not overwritten by script defaults
+
+    run grep -A5 'Restore ONLY values' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should check _env_* variables (not saved_* which would always have values)
+    [[ "$output" == *'_env_MAX_CALLS_PER_HOUR'* ]]
+    [[ "$output" == *'_env_CLAUDE_TIMEOUT_MINUTES'* ]]
 }

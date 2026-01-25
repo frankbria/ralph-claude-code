@@ -9,9 +9,12 @@
 #   ralph enable-ci --json             # Output JSON result
 #
 # Exit codes:
-#   0 - Success
-#   1 - Error
+#   0 - Success: Ralph enabled
+#   1 - Error: General error
 #   2 - Already enabled (use --force to override)
+#   3 - Invalid arguments
+#   4 - File not found (e.g., PRD file)
+#   5 - Dependency missing (e.g., jq for --json)
 #
 # Version: 0.11.0
 
@@ -80,8 +83,11 @@ Options:
 
 Exit Codes:
     0 - Success: Ralph enabled
-    1 - Error: Something went wrong
+    1 - Error: General error
     2 - Already enabled: Use --force to override
+    3 - Invalid arguments
+    4 - File not found (e.g., PRD file)
+    5 - Dependency missing (e.g., jq for --json)
 
 Examples:
     # Auto-detect and enable with defaults
@@ -127,8 +133,8 @@ parse_arguments() {
                     TASK_SOURCE="$2"
                     shift 2
                 else
-                    output_error "Error: --from requires a source (beads, github, prd, none)"
-                    exit 1
+                    output_error "--from requires a source (beads, github, prd, none)"
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --prd)
@@ -136,8 +142,8 @@ parse_arguments() {
                     PRD_FILE="$2"
                     shift 2
                 else
-                    output_error "Error: --prd requires a file path"
-                    exit 1
+                    output_error "--prd requires a file path"
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --label)
@@ -145,8 +151,8 @@ parse_arguments() {
                     GITHUB_LABEL="$2"
                     shift 2
                 else
-                    output_error "Error: --label requires a label name"
-                    exit 1
+                    output_error "--label requires a label name"
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --project-name)
@@ -154,8 +160,8 @@ parse_arguments() {
                     PROJECT_NAME="$2"
                     shift 2
                 else
-                    output_error "Error: --project-name requires a name"
-                    exit 1
+                    output_error "--project-name requires a name"
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --project-type)
@@ -163,8 +169,8 @@ parse_arguments() {
                     PROJECT_TYPE="$2"
                     shift 2
                 else
-                    output_error "Error: --project-type requires a type"
-                    exit 1
+                    output_error "--project-type requires a type"
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --force)
@@ -174,7 +180,7 @@ parse_arguments() {
             --json)
                 if ! command -v jq &>/dev/null; then
                     echo "Error: --json requires jq to be installed" >&2
-                    exit 1
+                    exit $ENABLE_DEPENDENCY_MISSING
                 fi
                 OUTPUT_JSON=true
                 shift
@@ -197,7 +203,7 @@ parse_arguments() {
                 ;;
             *)
                 output_error "Unknown option: $1"
-                exit 1
+                exit $ENABLE_INVALID_ARGS
                 ;;
         esac
     done
@@ -340,7 +346,7 @@ main() {
                 fi
             else
                 output_error "PRD file not found: $PRD_FILE"
-                exit $ENABLE_ERROR
+                exit $ENABLE_FILE_NOT_FOUND
             fi
             ;;
         none|"")

@@ -120,8 +120,8 @@ parse_arguments() {
                     TASK_SOURCE="$2"
                     shift 2
                 else
-                    echo "Error: --from requires a source (beads, github, prd)"
-                    exit 1
+                    echo "Error: --from requires a source (beads, github, prd)" >&2
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --prd)
@@ -129,8 +129,8 @@ parse_arguments() {
                     PRD_FILE="$2"
                     shift 2
                 else
-                    echo "Error: --prd requires a file path"
-                    exit 1
+                    echo "Error: --prd requires a file path" >&2
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --label)
@@ -138,8 +138,8 @@ parse_arguments() {
                     GITHUB_LABEL="$2"
                     shift 2
                 else
-                    echo "Error: --label requires a label name"
-                    exit 1
+                    echo "Error: --label requires a label name" >&2
+                    exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
             --force)
@@ -163,9 +163,9 @@ parse_arguments() {
                 exit 0
                 ;;
             *)
-                echo "Unknown option: $1"
-                echo "Use --help for usage information"
-                exit 1
+                echo "Unknown option: $1" >&2
+                echo "Use --help for usage information" >&2
+                exit $ENABLE_INVALID_ARGS
                 ;;
         esac
     done
@@ -448,14 +448,15 @@ phase_file_generation() {
         exit $ENABLE_ERROR
     fi
 
-    # Update .ralphrc with specific settings (portable sed -i for macOS/Linux)
+    # Update .ralphrc with specific settings
+    # Using awk instead of sed to avoid command injection from user input
     if [[ -f ".ralphrc" ]]; then
-        # Update max calls
-        sed "s/MAX_CALLS_PER_HOUR=.*/MAX_CALLS_PER_HOUR=$CONFIG_MAX_CALLS/" .ralphrc > .ralphrc.tmp && mv .ralphrc.tmp .ralphrc
+        # Update max calls (awk safely handles the value without shell interpretation)
+        awk -v val="$CONFIG_MAX_CALLS" '/^MAX_CALLS_PER_HOUR=/{$0="MAX_CALLS_PER_HOUR="val}1' .ralphrc > .ralphrc.tmp && mv .ralphrc.tmp .ralphrc
 
         # Update GitHub label if set
         if [[ -n "$CONFIG_GITHUB_LABEL" ]]; then
-            sed "s/GITHUB_TASK_LABEL=.*/GITHUB_TASK_LABEL=\"$CONFIG_GITHUB_LABEL\"/" .ralphrc > .ralphrc.tmp && mv .ralphrc.tmp .ralphrc
+            awk -v val="$CONFIG_GITHUB_LABEL" '/^GITHUB_TASK_LABEL=/{$0="GITHUB_TASK_LABEL=\""val"\""}1' .ralphrc > .ralphrc.tmp && mv .ralphrc.tmp .ralphrc
         fi
     fi
 

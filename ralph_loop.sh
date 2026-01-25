@@ -21,18 +21,30 @@ DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="claude"
-MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
-VERBOSE_PROGRESS=false  # Default: no verbose progress updates
-CLAUDE_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for Claude Code execution
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 
+# Save environment variable state BEFORE setting defaults
+# These are used by load_ralphrc() to determine which values came from environment
+_env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
+_env_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
+_env_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
+_env_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
+_env_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
+_env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
+_env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
+
+# Now set defaults (only if not already set by environment)
+MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
+VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
+CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
+
 # Modern Claude CLI configuration (Phase 1.1)
-CLAUDE_OUTPUT_FORMAT="json"              # Options: json, text
-CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Comma-separated list of allowed tools
-CLAUDE_USE_CONTINUE=true                 # Enable session continuity
+CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
+CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Bash(git *),Read}"
+CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
@@ -99,16 +111,7 @@ load_ralphrc() {
         return 0
     fi
 
-    # Save current values before sourcing (env vars take precedence)
-    local saved_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
-    local saved_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
-    local saved_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
-    local saved_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
-    local saved_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
-    local saved_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
-    local saved_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
-
-    # Source .ralphrc (this may override variables)
+    # Source .ralphrc (this may override default values)
     # shellcheck source=/dev/null
     source "$RALPHRC_FILE"
 
@@ -126,14 +129,16 @@ load_ralphrc() {
         VERBOSE_PROGRESS="$RALPH_VERBOSE"
     fi
 
-    # Restore env var overrides (environment always wins)
-    [[ -n "$saved_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$saved_MAX_CALLS_PER_HOUR"
-    [[ -n "$saved_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$saved_CLAUDE_TIMEOUT_MINUTES"
-    [[ -n "$saved_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$saved_CLAUDE_OUTPUT_FORMAT"
-    [[ -n "$saved_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$saved_CLAUDE_ALLOWED_TOOLS"
-    [[ -n "$saved_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$saved_CLAUDE_USE_CONTINUE"
-    [[ -n "$saved_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$saved_CLAUDE_SESSION_EXPIRY_HOURS"
-    [[ -n "$saved_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$saved_VERBOSE_PROGRESS"
+    # Restore ONLY values that were explicitly set via environment variables
+    # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
+    # If _env_* is non-empty, the user explicitly set it in their environment.
+    [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
+    [[ -n "$_env_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$_env_CLAUDE_TIMEOUT_MINUTES"
+    [[ -n "$_env_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$_env_CLAUDE_OUTPUT_FORMAT"
+    [[ -n "$_env_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$_env_CLAUDE_ALLOWED_TOOLS"
+    [[ -n "$_env_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$_env_CLAUDE_USE_CONTINUE"
+    [[ -n "$_env_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_env_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
 
     RALPHRC_LOADED=true
     return 0

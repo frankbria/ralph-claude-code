@@ -7,10 +7,14 @@
 #   - ralph_enable.sh (interactive wizard)
 #   - ralph_enable_ci.sh (non-interactive CI version)
 
-# Exit codes
-export ENABLE_SUCCESS=0
-export ENABLE_ERROR=1
-export ENABLE_ALREADY_ENABLED=2
+# Exit codes - specific codes for different failure types
+export ENABLE_SUCCESS=0           # Successful completion
+export ENABLE_ERROR=1             # General error
+export ENABLE_ALREADY_ENABLED=2   # Ralph already enabled (use --force)
+export ENABLE_INVALID_ARGS=3      # Invalid command line arguments
+export ENABLE_FILE_NOT_FOUND=4    # Required file not found (e.g., PRD file)
+export ENABLE_DEPENDENCY_MISSING=5 # Required dependency missing (e.g., jq for --json)
+export ENABLE_PERMISSION_DENIED=6 # Cannot create files/directories
 
 # Colors (can be disabled for non-interactive mode)
 export ENABLE_USE_COLORS="${ENABLE_USE_COLORS:-true}"
@@ -156,8 +160,9 @@ safe_create_file() {
         fi
     fi
 
-    # Write content to file
-    if echo "$content" > "$target" 2>/dev/null; then
+    # Write content to file using printf to avoid shell injection
+    # printf '%s\n' is safer than echo for arbitrary content (handles backslashes, -n, etc.)
+    if printf '%s\n' "$content" > "$target" 2>/dev/null; then
         enable_log "SUCCESS" "Created $target"
         return 0
     else
