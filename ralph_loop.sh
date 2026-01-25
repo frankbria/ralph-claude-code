@@ -21,18 +21,30 @@ DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="claude"
-MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
-VERBOSE_PROGRESS=false  # Default: no verbose progress updates
-CLAUDE_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for Claude Code execution
 SLEEP_DURATION=3600     # 1 hour in seconds
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 
+# Save environment variable state BEFORE setting defaults
+# These are used by load_ralphrc() to determine which values came from environment
+_env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
+_env_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
+_env_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
+_env_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
+_env_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
+_env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
+_env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
+
+# Now set defaults (only if not already set by environment)
+MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
+VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
+CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
+
 # Modern Claude CLI configuration (Phase 1.1)
-CLAUDE_OUTPUT_FORMAT="json"              # Options: json, text
-CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Comma-separated list of allowed tools
-CLAUDE_USE_CONTINUE=true                 # Enable session continuity
+CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
+CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Bash(git *),Read}"
+CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
@@ -72,6 +84,65 @@ RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
+
+# .ralphrc configuration file
+RALPHRC_FILE=".ralphrc"
+RALPHRC_LOADED=false
+
+# load_ralphrc - Load project-specific configuration from .ralphrc
+#
+# This function sources .ralphrc if it exists, applying project-specific
+# settings. Environment variables take precedence over .ralphrc values.
+#
+# Configuration values that can be overridden:
+#   - MAX_CALLS_PER_HOUR
+#   - CLAUDE_TIMEOUT_MINUTES
+#   - CLAUDE_OUTPUT_FORMAT
+#   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
+#   - SESSION_CONTINUITY (mapped to CLAUDE_USE_CONTINUE)
+#   - SESSION_EXPIRY_HOURS (mapped to CLAUDE_SESSION_EXPIRY_HOURS)
+#   - CB_NO_PROGRESS_THRESHOLD
+#   - CB_SAME_ERROR_THRESHOLD
+#   - CB_OUTPUT_DECLINE_THRESHOLD
+#   - RALPH_VERBOSE
+#
+load_ralphrc() {
+    if [[ ! -f "$RALPHRC_FILE" ]]; then
+        return 0
+    fi
+
+    # Source .ralphrc (this may override default values)
+    # shellcheck source=/dev/null
+    source "$RALPHRC_FILE"
+
+    # Map .ralphrc variable names to internal names
+    if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
+        CLAUDE_ALLOWED_TOOLS="$ALLOWED_TOOLS"
+    fi
+    if [[ -n "${SESSION_CONTINUITY:-}" ]]; then
+        CLAUDE_USE_CONTINUE="$SESSION_CONTINUITY"
+    fi
+    if [[ -n "${SESSION_EXPIRY_HOURS:-}" ]]; then
+        CLAUDE_SESSION_EXPIRY_HOURS="$SESSION_EXPIRY_HOURS"
+    fi
+    if [[ -n "${RALPH_VERBOSE:-}" ]]; then
+        VERBOSE_PROGRESS="$RALPH_VERBOSE"
+    fi
+
+    # Restore ONLY values that were explicitly set via environment variables
+    # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
+    # If _env_* is non-empty, the user explicitly set it in their environment.
+    [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
+    [[ -n "$_env_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$_env_CLAUDE_TIMEOUT_MINUTES"
+    [[ -n "$_env_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$_env_CLAUDE_OUTPUT_FORMAT"
+    [[ -n "$_env_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$_env_CLAUDE_ALLOWED_TOOLS"
+    [[ -n "$_env_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$_env_CLAUDE_USE_CONTINUE"
+    [[ -n "$_env_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_env_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
+
+    RALPHRC_LOADED=true
+    return 0
+}
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -1053,6 +1124,12 @@ loop_count=0
 
 # Main loop
 main() {
+    # Load project-specific configuration from .ralphrc
+    if load_ralphrc; then
+        if [[ "$RALPHRC_LOADED" == "true" ]]; then
+            log_status "INFO" "Loaded configuration from .ralphrc"
+        fi
+    fi
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
@@ -1087,10 +1164,11 @@ main() {
 
         echo ""
         echo "To fix this:"
-        echo "  1. Create a new project: ralph-setup my-project"
-        echo "  2. Import existing requirements: ralph-import requirements.md"
-        echo "  3. Navigate to an existing Ralph project directory"
-        echo "  4. Or create .ralph/PROMPT.md manually in this directory"
+        echo "  1. Enable Ralph in existing project: ralph-enable"
+        echo "  2. Create a new project: ralph-setup my-project"
+        echo "  3. Import existing requirements: ralph-import requirements.md"
+        echo "  4. Navigate to an existing Ralph project directory"
+        echo "  5. Or create .ralph/PROMPT.md manually in this directory"
         echo ""
         echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/specs/, src/, etc."
         exit 1
