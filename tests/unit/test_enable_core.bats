@@ -344,4 +344,45 @@ EOF
     run enable_ralph_in_directory
 
     assert_success
+
+    # Verify files were actually overwritten, not just skipped
+    local prompt_content
+    prompt_content=$(cat .ralph/PROMPT.md)
+
+    # Should contain new project name, not "old content"
+    [[ "$prompt_content" != "old content" ]]
+    [[ "$prompt_content" == *"new-project"* ]]
+}
+
+@test "safe_create_file overwrites existing file when ENABLE_FORCE is true" {
+    # Create existing file with old content
+    echo "original content" > test_file.txt
+
+    export ENABLE_FORCE="true"
+
+    run safe_create_file "test_file.txt" "new content"
+
+    assert_success
+
+    # Verify file was overwritten
+    local content
+    content=$(cat test_file.txt)
+    [[ "$content" == "new content" ]]
+}
+
+@test "safe_create_file skips existing file when ENABLE_FORCE is false" {
+    # Create existing file with old content
+    echo "original content" > test_file.txt
+
+    export ENABLE_FORCE="false"
+
+    run safe_create_file "test_file.txt" "new content"
+
+    # Should return 1 (skipped)
+    assert_failure
+
+    # Verify file was NOT overwritten
+    local content
+    content=$(cat test_file.txt)
+    [[ "$content" == "original content" ]]
 }

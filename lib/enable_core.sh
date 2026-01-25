@@ -127,27 +127,37 @@ is_ralph_enabled() {
 # SAFE FILE OPERATIONS
 # =============================================================================
 
-# safe_create_file - Create a file only if it doesn't exist
+# safe_create_file - Create a file only if it doesn't exist (or force overwrite)
 #
 # Parameters:
 #   $1 (target) - Target file path
 #   $2 (content) - Content to write (can be empty string)
 #
+# Environment:
+#   ENABLE_FORCE - If "true", overwrites existing files instead of skipping
+#
 # Returns:
-#   0 - File created successfully
-#   1 - File already exists (skipped)
+#   0 - File created/overwritten successfully
+#   1 - File already exists (skipped, only when ENABLE_FORCE is not true)
 #   2 - Error creating file
 #
 # Side effects:
-#   Logs [CREATE] or [SKIP] message
+#   Logs [CREATE], [OVERWRITE], or [SKIP] message
 #
 safe_create_file() {
     local target=$1
     local content=$2
+    local force="${ENABLE_FORCE:-false}"
 
     if [[ -f "$target" ]]; then
-        enable_log "SKIP" "$target already exists"
-        return 1
+        if [[ "$force" == "true" ]]; then
+            # Force mode: overwrite existing file
+            enable_log "INFO" "Overwriting $target (--force)"
+        else
+            # Normal mode: skip existing file
+            enable_log "SKIP" "$target already exists"
+            return 1
+        fi
     fi
 
     # Create parent directory if needed
@@ -163,7 +173,11 @@ safe_create_file() {
     # Write content to file using printf to avoid shell injection
     # printf '%s\n' is safer than echo for arbitrary content (handles backslashes, -n, etc.)
     if printf '%s\n' "$content" > "$target" 2>/dev/null; then
-        enable_log "SUCCESS" "Created $target"
+        if [[ -f "$target" ]] && [[ "$force" == "true" ]]; then
+            enable_log "SUCCESS" "Overwrote $target"
+        else
+            enable_log "SUCCESS" "Created $target"
+        fi
         return 0
     else
         enable_log "ERROR" "Failed to create: $target"
