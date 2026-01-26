@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.11.0 | **Tests**: 420 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.1 | **Tests**: 424 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -410,7 +410,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
 | `test_json_parsing.bats` | 45 | JSON output format parsing + Claude CLI format + session management + array format |
 | `test_session_continuity.bats` | 28 | Session lifecycle management + circuit breaker integration + issue #91 fix |
-| `test_exit_detection.bats` | 20 | Exit signal detection |
+| `test_exit_detection.bats` | 35 | Exit signal detection + EXIT_SIGNAL-based completion indicators |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 20 | Edge case handling |
@@ -435,6 +435,20 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Completion Indicators Fix (v0.11.1)
+- Fixed premature exit after exactly 5 loops in JSON output mode
+- Root cause: `update_exit_signals()` used confidence threshold (≥60) to populate `completion_indicators`
+  - JSON mode always has confidence ≥70 due to deterministic scoring (+50 for JSON format, +20 for result field)
+  - This caused every successful JSON response to increment `completion_indicators`
+  - After 5 loops, safety circuit breaker triggered even when Claude set `EXIT_SIGNAL: false`
+- Fix: Replaced confidence-based heuristic with explicit EXIT_SIGNAL checking
+  - `completion_indicators` now only accumulates when `exit_signal == "true"`
+  - Aligns with documented behavior in CLAUDE.md and README.md
+  - Confidence scoring retained for analysis/logging purposes
+- Updated safety circuit breaker documentation in `ralph_loop.sh` to reflect new behavior
+- Added 4 new TDD tests (Tests 32-35) for `update_exit_signals()` behavior
+- Test count: 424 (up from 420)
 
 ### Ralph Enable Command (v0.11.0)
 - Added `ralph-enable` interactive wizard for enabling Ralph in existing projects
