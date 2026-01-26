@@ -106,7 +106,7 @@ RECOMMENDATION: <one line summary>
 
 **Clear Exit Criteria**:
 Claude sets `EXIT_SIGNAL: true` only when ALL conditions met:
-1. All @fix_plan.md items marked [x]
+1. All fix_plan.md items marked [x]
 2. All tests passing (or no tests needed)
 3. No errors/warnings in last execution
 4. All specs/ requirements implemented

@@ -231,7 +231,7 @@ fi
 | Local variables | snake_case | `local loop_count=0` |
 | Constants | UPPER_SNAKE_CASE | `MAX_CALLS_PER_HOUR` |
 | File names | snake_case.sh | `circuit_breaker.sh` |
-| Control files | @prefix | `@fix_plan.md` |
+| Control files | snake_case.md | `fix_plan.md`, `AGENT.md` |
 
 **Function Documentation:**
 
@@ -401,7 +401,7 @@ assert_file_exists  # Verify file exists
 assert_dir_exists   # Verify directory exists
 strip_colors        # Remove ANSI color codes
 create_mock_prompt  # Create test PROMPT.md
-create_mock_fix_plan # Create test @fix_plan.md
+create_mock_fix_plan # Create test fix_plan.md
 create_mock_status  # Create test status.json
 ```
 

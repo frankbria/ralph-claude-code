@@ -262,8 +262,8 @@ mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
 
 # Copy templates from Ralph home to .ralph/ subfolder
 cp "$RALPH_HOME/templates/PROMPT.md" .ralph/
-cp "$RALPH_HOME/templates/fix_plan.md" .ralph/@fix_plan.md
-cp "$RALPH_HOME/templates/AGENT.md" .ralph/@AGENT.md
+cp "$RALPH_HOME/templates/fix_plan.md" .ralph/fix_plan.md
+cp "$RALPH_HOME/templates/AGENT.md" .ralph/AGENT.md
 cp -r "$RALPH_HOME/templates/specs/"* .ralph/specs/ 2>/dev/null || true
 
 # Initialize git

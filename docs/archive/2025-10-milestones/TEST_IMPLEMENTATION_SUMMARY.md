@@ -32,7 +32,7 @@
 
    - `tests/helpers/fixtures.bash` - Test data fixtures
      - Sample PRD documents (MD, JSON)
-     - Sample PROMPT.md, @fix_plan.md, @AGENT.md
+     - Sample PROMPT.md, fix_plan.md, AGENT.md
      - Sample status.json and progress.json
      - Sample Claude Code outputs
      - Complete test project creation
@@ -83,7 +83,7 @@ Test Categories:
   - Threshold boundaries (1, 2 indicators)
   - Project completion detection
 
-- @fix_plan.md completion (5 tests)
+- fix_plan.md completion (5 tests)
   - All items complete
   - Partial completion
   - Missing file

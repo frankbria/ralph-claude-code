@@ -94,7 +94,7 @@ What this command does:
     2. Identifies available task sources (beads, GitHub, PRDs)
     3. Imports tasks from selected sources
     4. Creates .ralph/ configuration directory
-    5. Generates PROMPT.md, @fix_plan.md, @AGENT.md
+    5. Generates PROMPT.md, fix_plan.md, AGENT.md
     6. Creates .ralphrc for project-specific settings
 
 This command is:
@@ -483,17 +483,17 @@ phase_verification() {
         all_good=false
     fi
 
-    if [[ -f ".ralph/@fix_plan.md" ]]; then
-        print_success ".ralph/@fix_plan.md"
+    if [[ -f ".ralph/fix_plan.md" ]]; then
+        print_success ".ralph/fix_plan.md"
     else
-        print_error ".ralph/@fix_plan.md - MISSING"
+        print_error ".ralph/fix_plan.md - MISSING"
         all_good=false
     fi
 
-    if [[ -f ".ralph/@AGENT.md" ]]; then
-        print_success ".ralph/@AGENT.md"
+    if [[ -f ".ralph/AGENT.md" ]]; then
+        print_success ".ralph/AGENT.md"
     else
-        print_error ".ralph/@AGENT.md - MISSING"
+        print_error ".ralph/AGENT.md - MISSING"
         all_good=false
     fi
 
@@ -519,8 +519,8 @@ phase_verification() {
         echo "Next steps:"
         echo ""
         print_bullet "Review and customize .ralph/PROMPT.md" "1."
-        print_bullet "Edit tasks in .ralph/@fix_plan.md" "2."
-        print_bullet "Update build commands in .ralph/@AGENT.md" "3."
+        print_bullet "Edit tasks in .ralph/fix_plan.md" "2."
+        print_bullet "Update build commands in .ralph/AGENT.md" "3."
         print_bullet "Start Ralph: ralph --monitor" "4."
         echo ""
 

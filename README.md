@@ -53,7 +53,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
   - Higher threshold than normal (2) to avoid false positives while preventing API waste
 - Fixed checkbox parsing for indented markdown (Bug #3):
   - Changed patterns from `^- \[` to `^[[:space:]]*- \[` (POSIX-compliant)
-  - Supports indented checkboxes in `@fix_plan.md`
+  - Supports indented checkboxes in `fix_plan.md`
 - Updated README.md documentation example for new log path
 
 **v0.10.0 - .ralph/ Subfolder Structure (BREAKING CHANGE)**
@@ -193,7 +193,7 @@ cd my-project
 
 # Review and adjust the generated files:
 # - .ralph/PROMPT.md (Ralph instructions)
-# - .ralph/@fix_plan.md (task priorities)
+# - .ralph/fix_plan.md (task priorities)
 # - .ralph/specs/requirements.md (technical specs)
 
 # Start autonomous development
@@ -209,7 +209,7 @@ cd my-awesome-project
 # Configure your project requirements manually
 # Edit .ralph/PROMPT.md with your project goals
 # Edit .ralph/specs/ with detailed specifications
-# Edit .ralph/@fix_plan.md with initial priorities
+# Edit .ralph/fix_plan.md with initial priorities
 
 # Start autonomous development
 ralph --monitor
@@ -272,7 +272,7 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 ```
 
 **Other exit conditions:**
-- All tasks in `.ralph/@fix_plan.md` marked complete
+- All tasks in `.ralph/fix_plan.md` marked complete
 - Multiple consecutive "done" signals from Claude Code
 - Too many test-focused loops (indicating feature completeness)
 - Claude API 5-hour usage limit reached (with user prompt to wait or exit)
@@ -310,7 +310,7 @@ ralph-import design-doc.pdf
 Ralph-import creates a complete project with:
 
 - **.ralph/PROMPT.md** - Converted into Ralph development instructions
-- **.ralph/@fix_plan.md** - Requirements broken down into prioritized tasks
+- **.ralph/fix_plan.md** - Requirements broken down into prioritized tasks
 - **.ralph/specs/requirements.md** - Technical specifications extracted from your document
 - **Standard Ralph structure** - All necessary directories and template files in `.ralph/`
 
@@ -457,8 +457,8 @@ Ralph creates a standardized structure for each project with a `.ralph/` subfold
 my-project/
 ├── .ralph/                 # Ralph configuration and state (hidden folder)
 │   ├── PROMPT.md           # Main development instructions for Ralph
-│   ├── @fix_plan.md        # Prioritized task list (@ prefix = Ralph control file)
-│   ├── @AGENT.md           # Build and run instructions
+│   ├── fix_plan.md        # Prioritized task list (@ prefix = Ralph control file)
+│   ├── AGENT.md           # Build and run instructions
 │   ├── specs/              # Project specifications and requirements
 │   │   └── stdlib/         # Standard library specifications
 │   ├── examples/           # Usage examples and test cases
@@ -474,15 +474,15 @@ my-project/
 ### Writing Effective Prompts
 
 1. **Be Specific** - Clear requirements lead to better results
-2. **Prioritize** - Use `.ralph/@fix_plan.md` to guide Ralph's focus
+2. **Prioritize** - Use `.ralph/fix_plan.md` to guide Ralph's focus
 3. **Set Boundaries** - Define what's in/out of scope
 4. **Include Examples** - Show expected inputs/outputs
 
 ### Project Specifications
 
 - Place detailed requirements in `.ralph/specs/`
-- Use `.ralph/@fix_plan.md` for prioritized task tracking
-- Keep `.ralph/@AGENT.md` updated with build instructions
+- Use `.ralph/fix_plan.md` for prioritized task tracking
+- Keep `.ralph/AGENT.md` updated with build instructions
 - Document key decisions and architecture
 
 ### Monitoring Progress
@@ -607,7 +607,7 @@ tail -f .ralph/logs/ralph.log
 
 - **Rate Limits** - Ralph automatically waits and displays countdown
 - **5-Hour API Limit** - Ralph detects and prompts for user action (wait or exit)
-- **Stuck Loops** - Check `@fix_plan.md` for unclear or conflicting tasks
+- **Stuck Loops** - Check `fix_plan.md` for unclear or conflicting tasks
 - **Early Exit** - Review exit thresholds if Ralph stops too soon
 - **Premature Exit** - Check if Claude is setting `EXIT_SIGNAL: false` (Ralph now respects this)
 - **Execution Timeouts** - Increase `--timeout` value for complex operations

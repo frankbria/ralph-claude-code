@@ -384,12 +384,12 @@ main() {
 
     # Track created files
     [[ -f ".ralph/PROMPT.md" ]] && CREATED_FILES+=(".ralph/PROMPT.md")
-    [[ -f ".ralph/@fix_plan.md" ]] && CREATED_FILES+=(".ralph/@fix_plan.md")
-    [[ -f ".ralph/@AGENT.md" ]] && CREATED_FILES+=(".ralph/@AGENT.md")
+    [[ -f ".ralph/fix_plan.md" ]] && CREATED_FILES+=(".ralph/fix_plan.md")
+    [[ -f ".ralph/AGENT.md" ]] && CREATED_FILES+=(".ralph/AGENT.md")
     [[ -f ".ralphrc" ]] && CREATED_FILES+=(".ralphrc")
 
     # Verify required files exist
-    if [[ ! -f ".ralph/PROMPT.md" ]] || [[ ! -f ".ralph/@fix_plan.md" ]]; then
+    if [[ ! -f ".ralph/PROMPT.md" ]] || [[ ! -f ".ralph/fix_plan.md" ]]; then
         output_error "Required files were not created"
         exit $ENABLE_ERROR
     fi

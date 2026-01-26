@@ -1,12 +1,14 @@
 #!/bin/bash
 
 # Migration script for Ralph projects from flat structure to .ralph/ subfolder
-# Version: 1.0.0
+# Version: 2.0.0
 #
 # This script migrates existing Ralph projects from the old flat structure:
-#   PROMPT.md, @fix_plan.md, @AGENT.md, specs/, logs/, docs/generated/
-# To the new .ralph/ subfolder structure:
-#   .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/@AGENT.md, .ralph/specs/, etc.
+#   PROMPT.md, @fix_plan.md (or fix_plan.md), @AGENT.md (or AGENT.md), specs/, logs/, docs/generated/
+# To the new .ralph/ subfolder structure with POSIX-compliant naming:
+#   .ralph/PROMPT.md, .ralph/fix_plan.md, .ralph/AGENT.md, .ralph/specs/, etc.
+#
+# Also renames legacy @-prefixed files to remove the @ prefix.
 #
 # Usage: ./migrate_to_ralph_folder.sh [project-directory]
 #
@@ -41,9 +43,10 @@ is_already_migrated() {
     local project_dir=$1
 
     # Check if .ralph/ directory exists with key files
+    # Accept both new naming (fix_plan.md) and legacy naming (@fix_plan.md)
     if [[ -d "$project_dir/.ralph" ]] && \
        [[ -f "$project_dir/.ralph/PROMPT.md" ]] && \
-       [[ -f "$project_dir/.ralph/@fix_plan.md" ]]; then
+       { [[ -f "$project_dir/.ralph/fix_plan.md" ]] || [[ -f "$project_dir/.ralph/@fix_plan.md" ]]; }; then
         return 0  # Already migrated
     fi
     return 1  # Not migrated
@@ -54,11 +57,16 @@ needs_migration() {
     local project_dir=$1
 
     # Check for old-style structure (files in root)
+    # Also check for legacy @-prefixed files (both root and .ralph/)
     if [[ -f "$project_dir/PROMPT.md" ]] || \
        [[ -f "$project_dir/@fix_plan.md" ]] || \
+       [[ -f "$project_dir/fix_plan.md" ]] || \
        [[ -f "$project_dir/@AGENT.md" ]] || \
+       [[ -f "$project_dir/AGENT.md" ]] || \
        [[ -d "$project_dir/specs" && ! -d "$project_dir/.ralph/specs" ]] || \
-       [[ -d "$project_dir/logs" && ! -d "$project_dir/.ralph/logs" ]]; then
+       [[ -d "$project_dir/logs" && ! -d "$project_dir/.ralph/logs" ]] || \
+       [[ -f "$project_dir/.ralph/@fix_plan.md" ]] || \
+       [[ -f "$project_dir/.ralph/@AGENT.md" ]]; then
         return 0  # Needs migration
     fi
     return 1  # Doesn't need migration
@@ -80,10 +88,15 @@ create_backup() {
     log "INFO" "Creating backup at $backup_dir" >&2
     mkdir -p "$backup_dir"
 
-    # Backup files that will be moved
+    # Backup files that will be moved (both old @ naming and new naming)
     [[ -f "$project_dir/PROMPT.md" ]] && cp "$project_dir/PROMPT.md" "$backup_dir/"
     [[ -f "$project_dir/@fix_plan.md" ]] && cp "$project_dir/@fix_plan.md" "$backup_dir/"
+    [[ -f "$project_dir/fix_plan.md" ]] && cp "$project_dir/fix_plan.md" "$backup_dir/"
     [[ -f "$project_dir/@AGENT.md" ]] && cp "$project_dir/@AGENT.md" "$backup_dir/"
+    [[ -f "$project_dir/AGENT.md" ]] && cp "$project_dir/AGENT.md" "$backup_dir/"
+    # Also backup legacy @-prefixed files in .ralph/ if they exist
+    [[ -f "$project_dir/.ralph/@fix_plan.md" ]] && cp "$project_dir/.ralph/@fix_plan.md" "$backup_dir/"
+    [[ -f "$project_dir/.ralph/@AGENT.md" ]] && cp "$project_dir/.ralph/@AGENT.md" "$backup_dir/"
     [[ -d "$project_dir/specs" ]] && cp -r "$project_dir/specs" "$backup_dir/"
     [[ -d "$project_dir/logs" ]] && cp -r "$project_dir/logs" "$backup_dir/"
     [[ -d "$project_dir/docs/generated" ]] && cp -r "$project_dir/docs/generated" "$backup_dir/docs_generated"
@@ -121,14 +134,33 @@ migrate_project() {
         mv "$project_dir/PROMPT.md" "$project_dir/.ralph/PROMPT.md"
     fi
 
+    # Handle fix_plan.md - check for both old (@-prefixed) and new naming
     if [[ -f "$project_dir/@fix_plan.md" ]]; then
-        log "INFO" "Moving @fix_plan.md to .ralph/"
-        mv "$project_dir/@fix_plan.md" "$project_dir/.ralph/@fix_plan.md"
+        log "INFO" "Moving @fix_plan.md to .ralph/fix_plan.md (renaming to remove @ prefix)"
+        mv "$project_dir/@fix_plan.md" "$project_dir/.ralph/fix_plan.md"
+    elif [[ -f "$project_dir/fix_plan.md" ]]; then
+        log "INFO" "Moving fix_plan.md to .ralph/"
+        mv "$project_dir/fix_plan.md" "$project_dir/.ralph/fix_plan.md"
     fi
 
+    # Handle AGENT.md - check for both old (@-prefixed) and new naming
     if [[ -f "$project_dir/@AGENT.md" ]]; then
-        log "INFO" "Moving @AGENT.md to .ralph/"
-        mv "$project_dir/@AGENT.md" "$project_dir/.ralph/@AGENT.md"
+        log "INFO" "Moving @AGENT.md to .ralph/AGENT.md (renaming to remove @ prefix)"
+        mv "$project_dir/@AGENT.md" "$project_dir/.ralph/AGENT.md"
+    elif [[ -f "$project_dir/AGENT.md" ]]; then
+        log "INFO" "Moving AGENT.md to .ralph/"
+        mv "$project_dir/AGENT.md" "$project_dir/.ralph/AGENT.md"
+    fi
+
+    # Rename legacy @-prefixed files already in .ralph/ (from partial migration)
+    if [[ -f "$project_dir/.ralph/@fix_plan.md" ]] && [[ ! -f "$project_dir/.ralph/fix_plan.md" ]]; then
+        log "INFO" "Renaming .ralph/@fix_plan.md to .ralph/fix_plan.md"
+        mv "$project_dir/.ralph/@fix_plan.md" "$project_dir/.ralph/fix_plan.md"
+    fi
+
+    if [[ -f "$project_dir/.ralph/@AGENT.md" ]] && [[ ! -f "$project_dir/.ralph/AGENT.md" ]]; then
+        log "INFO" "Renaming .ralph/@AGENT.md to .ralph/AGENT.md"
+        mv "$project_dir/.ralph/@AGENT.md" "$project_dir/.ralph/AGENT.md"
     fi
 
     # Move specs directory contents (fail-safe: preserve dotfiles, verify copy before delete)
@@ -242,7 +274,7 @@ main() {
     # Check if needs migration
     if ! needs_migration "$project_dir"; then
         log "WARN" "No Ralph project files found. Nothing to migrate."
-        log "INFO" "Expected files: PROMPT.md, @fix_plan.md, @AGENT.md, specs/, logs/"
+        log "INFO" "Expected files: PROMPT.md, fix_plan.md (or @fix_plan.md), AGENT.md (or @AGENT.md), specs/, logs/"
         exit 0
     fi
 
@@ -281,11 +313,14 @@ Description:
     new .ralph/ subfolder structure. This change keeps source code clean by moving
     Ralph-specific files into a dedicated subfolder.
 
+    It also renames legacy @-prefixed files (@fix_plan.md, @AGENT.md) to the new
+    POSIX-compliant naming convention (fix_plan.md, AGENT.md).
+
     Old structure:
         project/
         ├── PROMPT.md
-        ├── @fix_plan.md
-        ├── @AGENT.md
+        ├── @fix_plan.md (or fix_plan.md)
+        ├── @AGENT.md (or AGENT.md)
         ├── specs/
         ├── logs/
         └── src/
@@ -294,8 +329,8 @@ Description:
         project/
         ├── .ralph/
         │   ├── PROMPT.md
-        │   ├── @fix_plan.md
-        │   ├── @AGENT.md
+        │   ├── fix_plan.md
+        │   ├── AGENT.md
         │   ├── specs/
         │   ├── logs/
         │   └── docs/generated/
@@ -305,6 +340,7 @@ Features:
     - Automatically detects if migration is needed
     - Creates backup before migration
     - Moves all Ralph-specific files and state
+    - Renames @-prefixed files to POSIX-compliant names
     - Preserves src/ at project root
 
 Examples:

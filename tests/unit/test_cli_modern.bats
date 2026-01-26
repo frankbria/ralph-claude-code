@@ -35,7 +35,7 @@ setup() {
 
     # Create sample project files
     create_sample_prompt
-    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
+    create_sample_fix_plan "$RALPH_DIR/fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -93,8 +93,8 @@ setup() {
 
         context="Loop #${loop_count}. "
 
-        if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-            local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+        if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+            local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
             context+="Remaining tasks: ${incomplete_tasks}. "
         fi
 
@@ -218,9 +218,9 @@ teardown() {
     [[ "$output" == *"Loop #5"* ]] || [[ "$output" == *"5"* ]]
 }
 
-@test "build_loop_context counts remaining tasks from @fix_plan.md" {
+@test "build_loop_context counts remaining tasks from fix_plan.md" {
     # Create fix plan with 7 incomplete tasks in .ralph/ directory
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 done
 - [x] Task 2 done
@@ -287,8 +287,8 @@ EOF
     [[ ${#output} -le 600 ]]
 }
 
-@test "build_loop_context handles missing @fix_plan.md gracefully" {
-    rm -f "$RALPH_DIR/@fix_plan.md"
+@test "build_loop_context handles missing fix_plan.md gracefully" {
+    rm -f "$RALPH_DIR/fix_plan.md"
 
     run build_loop_context 1
 

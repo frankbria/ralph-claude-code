@@ -83,8 +83,8 @@ check_existing_ralph() {
     # Check for required files
     local required_files=(
         ".ralph/PROMPT.md"
-        ".ralph/@fix_plan.md"
-        ".ralph/@AGENT.md"
+        ".ralph/fix_plan.md"
+        ".ralph/AGENT.md"
     )
 
     local missing=()
@@ -508,7 +508,7 @@ generate_prompt_md() {
         objectives_section="$objectives"
     else
         objectives_section="- Review the codebase and understand the current state
-- Follow tasks in @fix_plan.md
+- Follow tasks in fix_plan.md
 - Implement one task per loop
 - Write tests for new functionality
 - Update documentation as needed"
@@ -530,7 +530,7 @@ ${objectives_section}
 - ONE task per loop - focus on the most important thing
 - Search the codebase before assuming something isn't implemented
 - Write comprehensive tests with clear documentation
-- Update @fix_plan.md with your learnings
+- Update fix_plan.md with your learnings
 - Commit working changes with descriptive messages
 
 ## Testing Guidelines
@@ -539,7 +539,7 @@ ${objectives_section}
 - Only write tests for NEW functionality you implement
 
 ## Build & Run
-See @AGENT.md for build and run instructions.
+See AGENT.md for build and run instructions.
 
 ## Status Reporting (CRITICAL)
 
@@ -558,11 +558,11 @@ RECOMMENDATION: <one line summary of what to do next>
 \`\`\`
 
 ## Current Task
-Follow @fix_plan.md and choose the most important item to implement next.
+Follow fix_plan.md and choose the most important item to implement next.
 PROMPTEOF
 }
 
-# generate_agent_md - Generate @AGENT.md with detected build commands
+# generate_agent_md - Generate AGENT.md with detected build commands
 #
 # Parameters:
 #   $1 (build_cmd) - Build command
@@ -607,7 +607,7 @@ ${run_cmd}
 AGENTEOF
 }
 
-# generate_fix_plan_md - Generate @fix_plan.md with imported tasks
+# generate_fix_plan_md - Generate fix_plan.md with imported tasks
 #
 # Parameters:
 #   $1 (tasks) - Tasks to include (newline-separated, markdown checkbox format)
@@ -771,11 +771,11 @@ enable_ralph_in_directory() {
 
     local agent_content
     agent_content=$(generate_agent_md "$DETECTED_BUILD_CMD" "$DETECTED_TEST_CMD" "$DETECTED_RUN_CMD")
-    safe_create_file ".ralph/@AGENT.md" "$agent_content"
+    safe_create_file ".ralph/AGENT.md" "$agent_content"
 
     local fix_plan_content
     fix_plan_content=$(generate_fix_plan_md "$task_content")
-    safe_create_file ".ralph/@fix_plan.md" "$fix_plan_content"
+    safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
 
     # Detect task sources for .ralphrc
     detect_task_sources

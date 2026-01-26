@@ -39,7 +39,7 @@ setup() {
 
     # Create sample project files in .ralph/ directory
     create_sample_prompt "$RALPH_DIR/PROMPT.md"
-    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
+    create_sample_fix_plan "$RALPH_DIR/fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"

@@ -23,7 +23,7 @@
 ### ✅ 75 Tests (100% Pass)
 1. **Unit Tests** (35 tests)
    - **Rate Limiting** (15 tests): can_make_call(), increment_call_counter(), edge cases
-   - **Exit Detection** (20 tests): test saturation, done signals, completion indicators, @fix_plan.md validation, error handling
+   - **Exit Detection** (20 tests): test saturation, done signals, completion indicators, fix_plan.md validation, error handling
 
 2. **Integration Tests** (40 tests)
    - **Loop Execution** (20 tests): response analyzer detection, circuit breaker states, full loop integration, exit signal detection

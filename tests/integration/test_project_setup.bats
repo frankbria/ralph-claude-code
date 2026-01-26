@@ -33,7 +33,7 @@ setup() {
 You are Ralph, an autonomous AI development agent.
 
 ## Current Objectives
-1. Follow @fix_plan.md for current priorities
+1. Follow fix_plan.md for current priorities
 2. Implement using best practices
 3. Run tests after each implementation
 EOF
@@ -169,24 +169,24 @@ teardown() {
     diff templates/PROMPT.md test-project/.ralph/PROMPT.md
 }
 
-@test "setup.sh copies fix_plan.md as @fix_plan.md to .ralph/" {
+@test "setup.sh copies fix_plan.md to .ralph/" {
     run bash "$SETUP_SCRIPT" test-project
 
     assert_success
-    assert_file_exists "test-project/.ralph/@fix_plan.md"
+    assert_file_exists "test-project/.ralph/fix_plan.md"
 
     # Verify content matches source
-    diff templates/fix_plan.md "test-project/.ralph/@fix_plan.md"
+    diff templates/fix_plan.md "test-project/.ralph/fix_plan.md"
 }
 
-@test "setup.sh copies AGENT.md as @AGENT.md to .ralph/" {
+@test "setup.sh copies AGENT.md to .ralph/" {
     run bash "$SETUP_SCRIPT" test-project
 
     assert_success
-    assert_file_exists "test-project/.ralph/@AGENT.md"
+    assert_file_exists "test-project/.ralph/AGENT.md"
 
     # Verify content matches source
-    diff templates/AGENT.md "test-project/.ralph/@AGENT.md"
+    diff templates/AGENT.md "test-project/.ralph/AGENT.md"
 }
 
 @test "setup.sh copies specs templates to .ralph/specs/" {
@@ -332,8 +332,8 @@ teardown() {
     bash "$SETUP_SCRIPT" my-custom-app
 
     assert_file_exists "my-custom-app/.ralph/PROMPT.md"
-    assert_file_exists "my-custom-app/.ralph/@fix_plan.md"
-    assert_file_exists "my-custom-app/.ralph/@AGENT.md"
+    assert_file_exists "my-custom-app/.ralph/fix_plan.md"
+    assert_file_exists "my-custom-app/.ralph/AGENT.md"
 }
 
 # =============================================================================
@@ -370,8 +370,8 @@ teardown() {
 
     # Verify all files in .ralph/
     assert_file_exists "my-project/.ralph/PROMPT.md"
-    assert_file_exists "my-project/.ralph/@fix_plan.md"
-    assert_file_exists "my-project/.ralph/@AGENT.md"
+    assert_file_exists "my-project/.ralph/fix_plan.md"
+    assert_file_exists "my-project/.ralph/AGENT.md"
     # README stays at root
     assert_file_exists "my-project/README.md"
 }

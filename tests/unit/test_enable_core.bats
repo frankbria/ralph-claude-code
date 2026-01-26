@@ -39,8 +39,8 @@ teardown() {
 @test "check_existing_ralph returns 'complete' when all required files exist" {
     mkdir -p .ralph
     echo "# PROMPT" > .ralph/PROMPT.md
-    echo "# Fix Plan" > .ralph/@fix_plan.md
-    echo "# Agent" > .ralph/@AGENT.md
+    echo "# Fix Plan" > .ralph/fix_plan.md
+    echo "# Agent" > .ralph/AGENT.md
 
     check_existing_ralph || true
 
@@ -50,20 +50,20 @@ teardown() {
 @test "check_existing_ralph returns 'partial' when some files are missing" {
     mkdir -p .ralph
     echo "# PROMPT" > .ralph/PROMPT.md
-    # Missing @fix_plan.md and @AGENT.md
+    # Missing fix_plan.md and AGENT.md
 
     check_existing_ralph || true
 
     assert_equal "$RALPH_STATE" "partial"
-    [[ " ${RALPH_MISSING_FILES[*]} " =~ ".ralph/@fix_plan.md" ]]
-    [[ " ${RALPH_MISSING_FILES[*]} " =~ ".ralph/@AGENT.md" ]]
+    [[ " ${RALPH_MISSING_FILES[*]} " =~ ".ralph/fix_plan.md" ]]
+    [[ " ${RALPH_MISSING_FILES[*]} " =~ ".ralph/AGENT.md" ]]
 }
 
 @test "is_ralph_enabled returns 0 when fully enabled" {
     mkdir -p .ralph
     echo "# PROMPT" > .ralph/PROMPT.md
-    echo "# Fix Plan" > .ralph/@fix_plan.md
-    echo "# Agent" > .ralph/@AGENT.md
+    echo "# Fix Plan" > .ralph/fix_plan.md
+    echo "# Agent" > .ralph/AGENT.md
 
     run is_ralph_enabled
     assert_success
@@ -314,16 +314,16 @@ EOF
 
     assert_success
     [[ -f ".ralph/PROMPT.md" ]]
-    [[ -f ".ralph/@fix_plan.md" ]]
-    [[ -f ".ralph/@AGENT.md" ]]
+    [[ -f ".ralph/fix_plan.md" ]]
+    [[ -f ".ralph/AGENT.md" ]]
     [[ -f ".ralphrc" ]]
 }
 
 @test "enable_ralph_in_directory returns ALREADY_ENABLED when complete and no force" {
     mkdir -p .ralph
     echo "# PROMPT" > .ralph/PROMPT.md
-    echo "# Fix Plan" > .ralph/@fix_plan.md
-    echo "# Agent" > .ralph/@AGENT.md
+    echo "# Fix Plan" > .ralph/fix_plan.md
+    echo "# Agent" > .ralph/AGENT.md
 
     export ENABLE_FORCE="false"
 
@@ -335,8 +335,8 @@ EOF
 @test "enable_ralph_in_directory overwrites with force flag" {
     mkdir -p .ralph
     echo "old content" > .ralph/PROMPT.md
-    echo "old fix plan" > .ralph/@fix_plan.md
-    echo "old agent" > .ralph/@AGENT.md
+    echo "old fix plan" > .ralph/fix_plan.md
+    echo "old agent" > .ralph/AGENT.md
 
     export ENABLE_FORCE="true"
     export ENABLE_PROJECT_NAME="new-project"

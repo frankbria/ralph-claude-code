@@ -413,15 +413,15 @@ should_exit_gracefully() {
     
     # 5. Check fix_plan.md for completion
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
-    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
         [[ -z "$completed_items" ]] && completed_items=0
 
-        log_status "INFO" "DEBUG: .ralph/@fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
+        log_status "INFO" "DEBUG: .ralph/fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
@@ -429,7 +429,7 @@ should_exit_gracefully() {
             return 0
         fi
     else
-        log_status "INFO" "DEBUG: .ralph/@fix_plan.md file not found" >&2
+        log_status "INFO" "DEBUG: .ralph/fix_plan.md file not found" >&2
     fi
     
     log_status "INFO" "DEBUG: No exit conditions met, continuing loop" >&2
@@ -526,10 +526,10 @@ build_loop_context() {
     # Add loop number
     context="Loop #${loop_count}. "
 
-    # Extract incomplete tasks from @fix_plan.md
+    # Extract incomplete tasks from fix_plan.md
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
-    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
@@ -1155,7 +1155,7 @@ main() {
         echo ""
         
         # Check if this looks like a partial Ralph project
-        if [[ -f "$RALPH_DIR/@fix_plan.md" ]] || [[ -d "$RALPH_DIR/specs" ]] || [[ -f "$RALPH_DIR/@AGENT.md" ]]; then
+        if [[ -f "$RALPH_DIR/fix_plan.md" ]] || [[ -d "$RALPH_DIR/specs" ]] || [[ -f "$RALPH_DIR/AGENT.md" ]]; then
             echo "This appears to be a Ralph project but is missing .ralph/PROMPT.md."
             echo "You may need to create or restore the PROMPT.md file."
         else
@@ -1170,7 +1170,7 @@ main() {
         echo "  4. Navigate to an existing Ralph project directory"
         echo "  5. Or create .ralph/PROMPT.md manually in this directory"
         echo ""
-        echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/specs/, src/, etc."
+        echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/fix_plan.md, .ralph/specs/, src/, etc."
         exit 1
     fi
 
