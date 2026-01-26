@@ -304,7 +304,7 @@ Templates in `templates/` provide starting points for new projects:
 
 ## File Naming Conventions
 
-- Files prefixed with `@` (e.g., `.ralph/fix_plan.md`) are Ralph-specific control files
+- Ralph control files (`fix_plan.md`, `AGENT.md`, `PROMPT.md`) reside in the `.ralph/` directory
 - Hidden files within `.ralph/` (e.g., `.ralph/.call_count`, `.ralph/.exit_signals`) track loop state
 - `.ralph/logs/` contains timestamped execution logs
 - `.ralph/docs/generated/` for Ralph-created documentation
