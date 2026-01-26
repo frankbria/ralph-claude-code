@@ -41,7 +41,8 @@ confirm() {
     fi
 
     while true; do
-        echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC} ${yn_hint}: "
+        # Display prompt to stderr for consistency with other prompt functions
+        echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC} ${yn_hint}: " >&2
         read -r response
 
         # Handle empty response (use default)
@@ -57,7 +58,7 @@ confirm() {
                 return 1
                 ;;
             *)
-                echo -e "${WIZARD_YELLOW}Please answer yes (y) or no (n)${WIZARD_NC}"
+                echo -e "${WIZARD_YELLOW}Please answer yes (y) or no (n)${WIZARD_NC}" >&2
                 ;;
         esac
     done
@@ -80,10 +81,11 @@ prompt_text() {
     local default="${2:-}"
     local response
 
+    # Display prompt to stderr so command substitution only captures the response
     if [[ -n "$default" ]]; then
-        echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC} [${default}]: "
+        echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC} [${default}]: " >&2
     else
-        echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC}: "
+        echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC}: " >&2
     fi
 
     read -r response
@@ -114,10 +116,11 @@ prompt_number() {
     local response
 
     while true; do
+        # Display prompt to stderr so command substitution only captures the response
         if [[ -n "$default" ]]; then
-            echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC} [${default}]: "
+            echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC} [${default}]: " >&2
         else
-            echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC}: "
+            echo -en "${WIZARD_CYAN}${prompt}${WIZARD_NC}: " >&2
         fi
 
         read -r response
@@ -128,25 +131,25 @@ prompt_number() {
                 echo "$default"
                 return 0
             else
-                echo -e "${WIZARD_YELLOW}Please enter a number${WIZARD_NC}"
+                echo -e "${WIZARD_YELLOW}Please enter a number${WIZARD_NC}" >&2
                 continue
             fi
         fi
 
         # Validate it's a number
         if ! [[ "$response" =~ ^[0-9]+$ ]]; then
-            echo -e "${WIZARD_YELLOW}Please enter a valid number${WIZARD_NC}"
+            echo -e "${WIZARD_YELLOW}Please enter a valid number${WIZARD_NC}" >&2
             continue
         fi
 
         # Check range if specified
         if [[ -n "$min" && "$response" -lt "$min" ]]; then
-            echo -e "${WIZARD_YELLOW}Value must be at least ${min}${WIZARD_NC}"
+            echo -e "${WIZARD_YELLOW}Value must be at least ${min}${WIZARD_NC}" >&2
             continue
         fi
 
         if [[ -n "$max" && "$response" -gt "$max" ]]; then
-            echo -e "${WIZARD_YELLOW}Value must be at most ${max}${WIZARD_NC}"
+            echo -e "${WIZARD_YELLOW}Value must be at most ${max}${WIZARD_NC}" >&2
             continue
         fi
 
@@ -184,20 +187,21 @@ select_option() {
         return 1
     fi
 
-    echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}"
-    echo ""
+    # Display prompt and options to stderr so command substitution only captures the result
+    echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}" >&2
+    echo "" >&2
 
     # Display options
     local i=1
     for opt in "${options[@]}"; do
-        echo -e "  ${WIZARD_CYAN}${i})${WIZARD_NC} ${opt}"
+        echo -e "  ${WIZARD_CYAN}${i})${WIZARD_NC} ${opt}" >&2
         ((i++))
     done
 
-    echo ""
+    echo "" >&2
 
     while true; do
-        echo -en "Select option [1-${num_options}]: "
+        echo -en "Select option [1-${num_options}]: " >&2
         read -r response
 
         # Validate it's a number in range
@@ -208,7 +212,7 @@ select_option() {
             echo "${options[$((response - 1))]}"
             return 0
         else
-            echo -e "${WIZARD_YELLOW}Please enter a number between 1 and ${num_options}${WIZARD_NC}"
+            echo -e "${WIZARD_YELLOW}Please enter a number between 1 and ${num_options}${WIZARD_NC}" >&2
         fi
     done
 }
@@ -323,24 +327,25 @@ select_with_default() {
     local options=("$@")
     local num_options=${#options[@]}
 
-    echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}"
-    echo ""
+    # Display prompt and options to stderr so command substitution only captures the result
+    echo -e "\n${WIZARD_BOLD}${prompt}${WIZARD_NC}" >&2
+    echo "" >&2
 
     # Display options with default marked
     local i=1
     for opt in "${options[@]}"; do
         if [[ $i -eq $default_index ]]; then
-            echo -e "  ${WIZARD_GREEN}${i})${WIZARD_NC} ${opt} ${WIZARD_GREEN}(recommended)${WIZARD_NC}"
+            echo -e "  ${WIZARD_GREEN}${i})${WIZARD_NC} ${opt} ${WIZARD_GREEN}(recommended)${WIZARD_NC}" >&2
         else
-            echo -e "  ${WIZARD_CYAN}${i})${WIZARD_NC} ${opt}"
+            echo -e "  ${WIZARD_CYAN}${i})${WIZARD_NC} ${opt}" >&2
         fi
         ((i++))
     done
 
-    echo ""
+    echo "" >&2
 
     while true; do
-        echo -en "Select option [1-${num_options}] (default: ${default_index}): "
+        echo -en "Select option [1-${num_options}] (default: ${default_index}): " >&2
         read -r response
 
         # Use default if empty
@@ -356,7 +361,7 @@ select_with_default() {
             echo "${options[$((response - 1))]}"
             return 0
         else
-            echo -e "${WIZARD_YELLOW}Please enter a number between 1 and ${num_options}${WIZARD_NC}"
+            echo -e "${WIZARD_YELLOW}Please enter a number between 1 and ${num_options}${WIZARD_NC}" >&2
         fi
     done
 }

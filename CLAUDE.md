@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.11.0 | **Tests**: 396 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.0 | **Tests**: 420 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -167,7 +167,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (396 tests)
+# Run all tests (420 tests)
 npm test
 
 # Run specific test suites
@@ -402,7 +402,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (396 tests total)
+### Test Files (420 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -420,6 +420,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_enable_core.bats` | 30 | Enable core library (idempotency, project detection, template generation) |
 | `test_task_sources.bats` | 23 | Task sources (beads, GitHub, PRD extraction, normalization) |
 | `test_ralph_enable.bats` | 22 | Ralph enable integration tests (wizard, CI version, JSON output) |
+| `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
 
 ### Running Tests
 ```bash
