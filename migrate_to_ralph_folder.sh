@@ -135,30 +135,46 @@ migrate_project() {
     fi
 
     # Handle fix_plan.md - check for both old (@-prefixed) and new naming
+    # Priority: root file wins over .ralph/ file (root is more likely to be current)
     if [[ -f "$project_dir/@fix_plan.md" ]]; then
         log "INFO" "Moving @fix_plan.md to .ralph/fix_plan.md (renaming to remove @ prefix)"
+        # Remove any existing .ralph/@fix_plan.md to avoid orphaned files
+        if [[ -f "$project_dir/.ralph/@fix_plan.md" ]]; then
+            log "WARN" "Removing .ralph/@fix_plan.md (superseded by root @fix_plan.md, backup available)"
+            rm "$project_dir/.ralph/@fix_plan.md"
+        fi
         mv "$project_dir/@fix_plan.md" "$project_dir/.ralph/fix_plan.md"
     elif [[ -f "$project_dir/fix_plan.md" ]]; then
         log "INFO" "Moving fix_plan.md to .ralph/"
+        if [[ -f "$project_dir/.ralph/@fix_plan.md" ]]; then
+            log "WARN" "Removing .ralph/@fix_plan.md (superseded by root fix_plan.md, backup available)"
+            rm "$project_dir/.ralph/@fix_plan.md"
+        fi
         mv "$project_dir/fix_plan.md" "$project_dir/.ralph/fix_plan.md"
-    fi
-
-    # Handle AGENT.md - check for both old (@-prefixed) and new naming
-    if [[ -f "$project_dir/@AGENT.md" ]]; then
-        log "INFO" "Moving @AGENT.md to .ralph/AGENT.md (renaming to remove @ prefix)"
-        mv "$project_dir/@AGENT.md" "$project_dir/.ralph/AGENT.md"
-    elif [[ -f "$project_dir/AGENT.md" ]]; then
-        log "INFO" "Moving AGENT.md to .ralph/"
-        mv "$project_dir/AGENT.md" "$project_dir/.ralph/AGENT.md"
-    fi
-
-    # Rename legacy @-prefixed files already in .ralph/ (from partial migration)
-    if [[ -f "$project_dir/.ralph/@fix_plan.md" ]] && [[ ! -f "$project_dir/.ralph/fix_plan.md" ]]; then
+    elif [[ -f "$project_dir/.ralph/@fix_plan.md" ]]; then
+        # No root file, just rename the legacy .ralph/ file
         log "INFO" "Renaming .ralph/@fix_plan.md to .ralph/fix_plan.md"
         mv "$project_dir/.ralph/@fix_plan.md" "$project_dir/.ralph/fix_plan.md"
     fi
 
-    if [[ -f "$project_dir/.ralph/@AGENT.md" ]] && [[ ! -f "$project_dir/.ralph/AGENT.md" ]]; then
+    # Handle AGENT.md - check for both old (@-prefixed) and new naming
+    # Priority: root file wins over .ralph/ file (root is more likely to be current)
+    if [[ -f "$project_dir/@AGENT.md" ]]; then
+        log "INFO" "Moving @AGENT.md to .ralph/AGENT.md (renaming to remove @ prefix)"
+        if [[ -f "$project_dir/.ralph/@AGENT.md" ]]; then
+            log "WARN" "Removing .ralph/@AGENT.md (superseded by root @AGENT.md, backup available)"
+            rm "$project_dir/.ralph/@AGENT.md"
+        fi
+        mv "$project_dir/@AGENT.md" "$project_dir/.ralph/AGENT.md"
+    elif [[ -f "$project_dir/AGENT.md" ]]; then
+        log "INFO" "Moving AGENT.md to .ralph/"
+        if [[ -f "$project_dir/.ralph/@AGENT.md" ]]; then
+            log "WARN" "Removing .ralph/@AGENT.md (superseded by root AGENT.md, backup available)"
+            rm "$project_dir/.ralph/@AGENT.md"
+        fi
+        mv "$project_dir/AGENT.md" "$project_dir/.ralph/AGENT.md"
+    elif [[ -f "$project_dir/.ralph/@AGENT.md" ]]; then
+        # No root file, just rename the legacy .ralph/ file
         log "INFO" "Renaming .ralph/@AGENT.md to .ralph/AGENT.md"
         mv "$project_dir/.ralph/@AGENT.md" "$project_dir/.ralph/AGENT.md"
     fi
