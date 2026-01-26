@@ -45,7 +45,7 @@ You are Ralph, an autonomous AI development agent.
 
 ## Current Objectives
 - Study specs/* to learn about the project specifications
-- Review @fix_plan.md for current priorities
+- Review fix_plan.md for current priorities
 
 ## Key Principles
 - ONE task per loop
@@ -54,7 +54,7 @@ You are Ralph, an autonomous AI development agent.
 - LIMIT testing to ~20% of your total effort
 EOF
 
-cat > ".ralph/@fix_plan.md" << 'EOF'
+cat > ".ralph/fix_plan.md" << 'EOF'
 # Ralph Fix Plan
 
 ## High Priority
@@ -70,7 +70,7 @@ cat > ".ralph/@fix_plan.md" << 'EOF'
 - [x] Project initialization
 EOF
 
-cat > ".ralph/@AGENT.md" << 'EOF'
+cat > ".ralph/AGENT.md" << 'EOF'
 # Agent Build Instructions
 
 ## Project Setup
@@ -128,7 +128,7 @@ You are Ralph, an autonomous AI development agent working on a Task Management A
 
 ## Current Objectives
 1. Study specs/* to learn about the project specifications
-2. Review @fix_plan.md for current priorities
+2. Review fix_plan.md for current priorities
 3. Implement the highest priority item using best practices
 4. Use parallel subagents for complex tasks (max 100 concurrent)
 5. Run tests after each implementation
@@ -139,7 +139,7 @@ You are Ralph, an autonomous AI development agent working on a Task Management A
 - Search the codebase before assuming something isn't implemented
 - Use subagents for expensive operations (file searching, analysis)
 - Write comprehensive tests with clear documentation
-- Update @fix_plan.md with your learnings
+- Update fix_plan.md with your learnings
 - Commit working changes with descriptive messages
 
 ## Testing Guidelines (CRITICAL)
@@ -166,11 +166,11 @@ You are Ralph, an autonomous AI development agent working on a Task Management A
 - App loads quickly (<2s initial load)
 
 ## Current Task
-Follow @fix_plan.md and choose the most important item to implement next.
+Follow fix_plan.md and choose the most important item to implement next.
 EOF
 
-# Create @fix_plan.md in .ralph/
-cat > ".ralph/@fix_plan.md" << 'EOF'
+# Create fix_plan.md in .ralph/
+cat > ".ralph/fix_plan.md" << 'EOF'
 # Ralph Fix Plan
 
 ## High Priority
@@ -374,36 +374,36 @@ remove_ralph_setup_mock() {
     [[ "$output" -ge 1 ]]
 }
 
-# Test 5: ralph-import creates @fix_plan.md
-@test "ralph-import creates @fix_plan.md with prioritized tasks" {
+# Test 5: ralph-import creates fix_plan.md
+@test "ralph-import creates fix_plan.md with prioritized tasks" {
     create_sample_prd_md "test-app.md"
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "test-app.md"
 
     assert_success
 
-    # @fix_plan.md should exist in .ralph/ subfolder
-    assert_file_exists "test-app/.ralph/@fix_plan.md"
+    # fix_plan.md should exist in .ralph/ subfolder
+    assert_file_exists "test-app/.ralph/fix_plan.md"
 
     # Check structure includes priority sections
-    run grep -c "High Priority" "test-app/.ralph/@fix_plan.md"
+    run grep -c "High Priority" "test-app/.ralph/fix_plan.md"
     assert_success
     [[ "$output" -ge 1 ]]
 
-    run grep -c "Medium Priority" "test-app/.ralph/@fix_plan.md"
+    run grep -c "Medium Priority" "test-app/.ralph/fix_plan.md"
     assert_success
     [[ "$output" -ge 1 ]]
 
-    run grep -c "Low Priority" "test-app/.ralph/@fix_plan.md"
+    run grep -c "Low Priority" "test-app/.ralph/fix_plan.md"
     assert_success
     [[ "$output" -ge 1 ]]
 
-    run grep -c "Completed" "test-app/.ralph/@fix_plan.md"
+    run grep -c "Completed" "test-app/.ralph/fix_plan.md"
     assert_success
     [[ "$output" -ge 1 ]]
 
     # Check checkbox format
-    run grep -E "^\- \[[ x]\]" "test-app/.ralph/@fix_plan.md"
+    run grep -E "^\- \[[ x]\]" "test-app/.ralph/fix_plan.md"
     assert_success
 }
 
@@ -445,7 +445,7 @@ remove_ralph_setup_mock() {
 
     # Files should be in custom-named directory under .ralph/ subfolder
     assert_file_exists "my-custom-project/.ralph/PROMPT.md"
-    assert_file_exists "my-custom-project/.ralph/@fix_plan.md"
+    assert_file_exists "my-custom-project/.ralph/fix_plan.md"
     assert_file_exists "my-custom-project/.ralph/specs/requirements.md"
 
     # Default name directory should NOT exist
@@ -616,8 +616,8 @@ remove_ralph_setup_mock() {
 
     # Verify all required files in .ralph/ subfolder
     assert_file_exists "my-app/.ralph/PROMPT.md"
-    assert_file_exists "my-app/.ralph/@fix_plan.md"
-    assert_file_exists "my-app/.ralph/@AGENT.md"
+    assert_file_exists "my-app/.ralph/fix_plan.md"
+    assert_file_exists "my-app/.ralph/AGENT.md"
     assert_file_exists "my-app/.ralph/specs/requirements.md"
 
     # Verify source PRD was copied
@@ -738,7 +738,7 @@ You are Ralph, an autonomous AI development agent working on a Task Management A
 
 ## Current Objectives
 1. Study specs/* to learn about the project specifications
-2. Review @fix_plan.md for current priorities
+2. Review fix_plan.md for current priorities
 
 ## Key Principles
 - ONE task per loop
@@ -747,8 +747,8 @@ You are Ralph, an autonomous AI development agent working on a Task Management A
 - LIMIT testing to ~20% of your total effort
 EOF
 
-# Create @fix_plan.md in .ralph/
-cat > ".ralph/@fix_plan.md" << 'EOF'
+# Create fix_plan.md in .ralph/
+cat > ".ralph/fix_plan.md" << 'EOF'
 # Ralph Fix Plan
 
 ## High Priority
@@ -781,13 +781,13 @@ EOF
 # Output JSON response to stdout (mimicking --output-format json)
 cat << 'JSON_OUTPUT'
 {
-    "result": "Successfully converted PRD to Ralph format. Created .ralph/PROMPT.md, .ralph/@fix_plan.md, and .ralph/specs/requirements.md",
+    "result": "Successfully converted PRD to Ralph format. Created .ralph/PROMPT.md, .ralph/fix_plan.md, and .ralph/specs/requirements.md",
     "sessionId": "session-prd-convert-123",
     "metadata": {
         "files_changed": 3,
         "has_errors": false,
         "completion_status": "complete",
-        "files_created": [".ralph/PROMPT.md", ".ralph/@fix_plan.md", ".ralph/specs/requirements.md"]
+        "files_created": [".ralph/PROMPT.md", ".ralph/fix_plan.md", ".ralph/specs/requirements.md"]
     }
 }
 JSON_OUTPUT
@@ -814,7 +814,7 @@ cat > /dev/null
 # Ensure .ralph directory exists
 mkdir -p .ralph
 
-# Only create PROMPT.md (missing @fix_plan.md and specs/requirements.md)
+# Only create PROMPT.md (missing fix_plan.md and specs/requirements.md)
 cat > .ralph/PROMPT.md << 'EOF'
 # Ralph Development Instructions
 
@@ -832,7 +832,7 @@ cat << 'JSON_OUTPUT'
         "has_errors": true,
         "completion_status": "partial",
         "files_created": [".ralph/PROMPT.md"],
-        "missing_files": [".ralph/@fix_plan.md", ".ralph/specs/requirements.md"]
+        "missing_files": [".ralph/fix_plan.md", ".ralph/specs/requirements.md"]
     }
 }
 JSON_OUTPUT
@@ -901,7 +901,7 @@ cat > .ralph/PROMPT.md << 'EOF'
 You are Ralph, an autonomous AI development agent.
 EOF
 
-cat > ".ralph/@fix_plan.md" << 'EOF'
+cat > ".ralph/fix_plan.md" << 'EOF'
 # Ralph Fix Plan
 
 ## High Priority
@@ -920,7 +920,7 @@ EOF
 
 # Output plain text (no JSON)
 echo "Mock: Claude Code conversion completed successfully"
-echo "Created: .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/specs/requirements.md"
+echo "Created: .ralph/PROMPT.md, .ralph/fix_plan.md, .ralph/specs/requirements.md"
 exit 0
 MOCK_CLAUDE_TEXT_EOF
     chmod +x "$MOCK_BIN_DIR/claude"
@@ -937,7 +937,7 @@ MOCK_CLAUDE_TEXT_EOF
 
     # All files should be created in .ralph/ subfolder
     assert_file_exists "json-test/.ralph/PROMPT.md"
-    assert_file_exists "json-test/.ralph/@fix_plan.md"
+    assert_file_exists "json-test/.ralph/fix_plan.md"
     assert_file_exists "json-test/.ralph/specs/requirements.md"
 }
 
@@ -983,7 +983,7 @@ MOCK_CLAUDE_TEXT_EOF
 
     # All files should be created in .ralph/ subfolder
     assert_file_exists "text-test/.ralph/PROMPT.md"
-    assert_file_exists "text-test/.ralph/@fix_plan.md"
+    assert_file_exists "text-test/.ralph/fix_plan.md"
     assert_file_exists "text-test/.ralph/specs/requirements.md"
 }
 
@@ -1059,7 +1059,7 @@ cat > .ralph/PROMPT.md << 'EOF'
 # Ralph Development Instructions
 EOF
 
-cat > ".ralph/@fix_plan.md" << 'EOF'
+cat > ".ralph/fix_plan.md" << 'EOF'
 # Ralph Fix Plan
 ## High Priority
 - [ ] Task 1
@@ -1128,7 +1128,7 @@ cat > .ralph/PROMPT.md << 'EOF'
 # Ralph Development Instructions
 EOF
 
-cat > ".ralph/@fix_plan.md" << 'EOF'
+cat > ".ralph/fix_plan.md" << 'EOF'
 # Ralph Fix Plan
 ## High Priority
 - [ ] Task 1

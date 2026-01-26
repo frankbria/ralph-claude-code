@@ -75,9 +75,9 @@ should_exit_gracefully() {
     fi
 
     # 4. Check fix_plan.md for completion
-    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local total_items=$(grep -c "^- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
@@ -176,9 +176,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 10: Exit when @fix_plan.md all items complete
+# Test 10: Exit when fix_plan.md all items complete
 @test "should_exit_gracefully exits when all fix_plan items complete" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [x] Task 2
@@ -189,9 +189,9 @@ EOF
     assert_equal "$result" "plan_complete"
 }
 
-# Test 11: No exit when @fix_plan.md partially complete
+# Test 11: No exit when fix_plan.md partially complete
 @test "should_exit_gracefully continues when fix_plan partially complete" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [ ] Task 2
@@ -202,9 +202,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 12: No exit when @fix_plan.md missing
+# Test 12: No exit when fix_plan.md missing
 @test "should_exit_gracefully continues when fix_plan missing" {
-    # Don't create @fix_plan.md
+    # Don't create fix_plan.md
 
     result=$(should_exit_gracefully || true)
     assert_equal "$result" ""
@@ -236,9 +236,9 @@ EOF
     assert_equal "$result" "test_saturation"
 }
 
-# Test 16: @fix_plan.md with no checkboxes
+# Test 16: fix_plan.md with no checkboxes
 @test "should_exit_gracefully handles fix_plan with no checkboxes" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 This is just text, no tasks yet.
 EOF
@@ -247,9 +247,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 17: @fix_plan.md with mixed checkbox formats
+# Test 17: fix_plan.md with mixed checkbox formats
 @test "should_exit_gracefully handles mixed checkbox formats" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 completed
 - [ ] Task 2 pending

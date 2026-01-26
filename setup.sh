@@ -40,8 +40,8 @@ mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
 
 # Copy templates to .ralph/
 cp "$TEMPLATES_DIR/PROMPT.md" .ralph/
-cp "$TEMPLATES_DIR/fix_plan.md" .ralph/@fix_plan.md
-cp "$TEMPLATES_DIR/AGENT.md" .ralph/@AGENT.md
+cp "$TEMPLATES_DIR/fix_plan.md" .ralph/fix_plan.md
+cp "$TEMPLATES_DIR/AGENT.md" .ralph/AGENT.md
 cp -r "$TEMPLATES_DIR/specs"/* .ralph/specs/ 2>/dev/null || true
 
 # Initialize git
