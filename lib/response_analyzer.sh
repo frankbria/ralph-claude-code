@@ -560,9 +560,12 @@ update_exit_signals() {
         signals=$(echo "$signals" | jq ".done_signals += [$loop_number]")
     fi
 
-    # Update completion_indicators array (strong signals)
-    local confidence=$(jq -r '.analysis.confidence_score' "$analysis_file")
-    if [[ $confidence -ge 60 ]]; then
+    # Update completion_indicators array (only when Claude explicitly signals exit)
+    # Note: Previously used confidence >= 60, but JSON mode always has confidence >= 70
+    # due to deterministic scoring (+50 for JSON format, +20 for result field).
+    # This caused premature exits after 5 loops. Now we respect Claude's explicit intent.
+    local exit_signal=$(jq -r '.analysis.exit_signal // false' "$analysis_file")
+    if [[ "$exit_signal" == "true" ]]; then
         signals=$(echo "$signals" | jq ".completion_indicators += [$loop_number]")
     fi
 

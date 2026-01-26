@@ -384,12 +384,14 @@ should_exit_gracefully() {
         return 0
     fi
     
-    # 3. Safety circuit breaker - force exit after 5 consecutive completion indicators
-    # Bug #2 Fix: Prevents infinite loops when EXIT_SIGNAL is not explicitly set
-    # but completion patterns clearly indicate work is done. Threshold of 5 is higher
-    # than normal threshold (2) to avoid false positives while preventing API waste.
+    # 3. Safety circuit breaker - force exit after 5 consecutive EXIT_SIGNAL=true responses
+    # Note: completion_indicators only accumulates when Claude explicitly sets EXIT_SIGNAL=true
+    # (not based on confidence score). This safety breaker catches cases where Claude signals
+    # completion 5+ times but the normal exit path (completion_indicators >= 2 + EXIT_SIGNAL=true)
+    # didn't trigger for some reason. Threshold of 5 prevents API waste while being higher than
+    # the normal threshold (2) to avoid false positives.
     if [[ $recent_completion_indicators -ge 5 ]]; then
-        log_status "WARN" "🚨 SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive completion indicators ($recent_completion_indicators)" >&2
+        log_status "WARN" "🚨 SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive EXIT_SIGNAL=true responses ($recent_completion_indicators)" >&2
         echo "safety_circuit_breaker"
         return 0
     fi
