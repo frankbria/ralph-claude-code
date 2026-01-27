@@ -274,8 +274,8 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! npx @anthropic/claude-code --version &> /dev/null 2>&1; then
-        log "WARN" "Claude Code CLI not found. It will be downloaded when first used."
+    if ! $CLAUDE_CODE_CMD --version &> /dev/null 2>&1; then
+        log "WARN" "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
     fi
 }
 
@@ -423,22 +423,27 @@ PROMPTEOF
     # Note: stderr is written to separate file to avoid corrupting JSON output
     local stderr_file="${CONVERSION_OUTPUT_FILE}.err"
 
+    # Build command args array for proper quoting and shell safety
+    local -a CLAUDE_CMD_ARGS=()
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern CLI invocation with JSON output and controlled tool permissions
         # --allowedTools permits file operations without user prompts
-        # Array expansion preserves quoting for each tool argument
-        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
-            cli_exit_code=0
-        else
-            cli_exit_code=$?
-        fi
+        CLAUDE_CMD_ARGS=(
+            "$CLAUDE_CODE_CMD"
+            --print
+            --strict-mcp-config
+            --output-format "$CLAUDE_OUTPUT_FORMAT"
+            --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}"
+        )
     else
         # Standard CLI invocation (backward compatible)
-        if $CLAUDE_CODE_CMD < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
-            cli_exit_code=0
-        else
-            cli_exit_code=$?
-        fi
+        CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD" --print --strict-mcp-config)
+    fi
+
+    if "${CLAUDE_CMD_ARGS[@]}" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
+        cli_exit_code=0
+    else
+        cli_exit_code=$?
     fi
 
     # Log stderr if there was any (for debugging)
