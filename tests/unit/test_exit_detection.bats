@@ -7,15 +7,17 @@ setup() {
     # Source helper functions
     source "$(dirname "$BATS_TEST_FILENAME")/../helpers/test_helper.bash"
 
-    # Set up environment
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export RESPONSE_ANALYSIS_FILE=".response_analysis"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
     export MAX_CONSECUTIVE_TEST_LOOPS=3
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
 
     # Create temp test directory
     export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
     cd "$TEST_TEMP_DIR"
+    mkdir -p "$RALPH_DIR"
 
     # Initialize exit signals file
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -73,9 +75,9 @@ should_exit_gracefully() {
     fi
 
     # 4. Check fix_plan.md for completion
-    if [[ -f "@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "@fix_plan.md" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local total_items=$(grep -c "^- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
@@ -174,9 +176,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 10: Exit when @fix_plan.md all items complete
+# Test 10: Exit when fix_plan.md all items complete
 @test "should_exit_gracefully exits when all fix_plan items complete" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [x] Task 2
@@ -187,9 +189,9 @@ EOF
     assert_equal "$result" "plan_complete"
 }
 
-# Test 11: No exit when @fix_plan.md partially complete
+# Test 11: No exit when fix_plan.md partially complete
 @test "should_exit_gracefully continues when fix_plan partially complete" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [ ] Task 2
@@ -200,9 +202,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 12: No exit when @fix_plan.md missing
+# Test 12: No exit when fix_plan.md missing
 @test "should_exit_gracefully continues when fix_plan missing" {
-    # Don't create @fix_plan.md
+    # Don't create fix_plan.md
 
     result=$(should_exit_gracefully || true)
     assert_equal "$result" ""
@@ -234,9 +236,9 @@ EOF
     assert_equal "$result" "test_saturation"
 }
 
-# Test 16: @fix_plan.md with no checkboxes
+# Test 16: fix_plan.md with no checkboxes
 @test "should_exit_gracefully handles fix_plan with no checkboxes" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 This is just text, no tasks yet.
 EOF
@@ -245,9 +247,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 17: @fix_plan.md with mixed checkbox formats
+# Test 17: fix_plan.md with mixed checkbox formats
 @test "should_exit_gracefully handles mixed checkbox formats" {
-    cat > "@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 completed
 - [ ] Task 2 pending
@@ -516,4 +518,184 @@ EOF
     result=$(should_exit_gracefully || true)
     # EXIT_SIGNAL=false should take precedence, continue working
     assert_equal "$result" ""
+}
+
+# =============================================================================
+# UPDATE_EXIT_SIGNALS TESTS (Issue: Confidence-based completion indicators)
+# =============================================================================
+# These tests verify that update_exit_signals() only adds to completion_indicators
+# when EXIT_SIGNAL is true, not based on confidence score alone.
+# This is critical for JSON mode where confidence is always >= 70.
+
+# Source the response_analyzer library for direct testing
+# Note: These tests source the library to test update_exit_signals() directly
+
+# Test 32: update_exit_signals should NOT add to completion_indicators when exit_signal=false
+@test "update_exit_signals does NOT add to completion_indicators when exit_signal=false" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create analysis file with HIGH confidence (70) but exit_signal=false
+    # This simulates JSON mode where confidence is always >= 70
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": true,
+        "files_modified": 5,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Implementing feature, still in progress"
+    }
+}
+EOF
+
+    # Call update_exit_signals
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Verify completion_indicators was NOT incremented
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "0"
+}
+
+# Test 33: update_exit_signals SHOULD add to completion_indicators when exit_signal=true
+@test "update_exit_signals adds to completion_indicators when exit_signal=true" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create analysis file with exit_signal=true
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": false,
+        "files_modified": 0,
+        "confidence_score": 100,
+        "exit_signal": true,
+        "work_summary": "All tasks complete"
+    }
+}
+EOF
+
+    # Call update_exit_signals
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Verify completion_indicators WAS incremented
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "1"
+
+    # Verify the loop number was recorded
+    local loop_recorded=$(jq '.completion_indicators[0]' "$EXIT_SIGNALS_FILE")
+    assert_equal "$loop_recorded" "1"
+}
+
+# Test 34: update_exit_signals accumulates completion_indicators only on exit_signal=true
+@test "update_exit_signals accumulates completion_indicators only when exit_signal=true" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Loop 1: exit_signal=false (should NOT add)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "has_progress": true,
+        "confidence_score": 80,
+        "exit_signal": false
+    }
+}
+EOF
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Loop 2: exit_signal=false (should NOT add)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 2,
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "has_progress": true,
+        "confidence_score": 90,
+        "exit_signal": false
+    }
+}
+EOF
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Loop 3: exit_signal=true (SHOULD add)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "has_progress": false,
+        "confidence_score": 100,
+        "exit_signal": true
+    }
+}
+EOF
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Verify only 1 completion indicator (from loop 3)
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "1"
+
+    local loop_recorded=$(jq '.completion_indicators[0]' "$EXIT_SIGNALS_FILE")
+    assert_equal "$loop_recorded" "3"
+}
+
+# Test 35: JSON mode simulation - 5 loops with exit_signal=false should NOT trigger safety breaker
+@test "update_exit_signals JSON mode - 5 loops with exit_signal=false does not fill completion_indicators" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Simulate 5 JSON mode loops with high confidence but exit_signal=false
+    # This is the exact scenario that caused the bug
+    for i in 1 2 3 4 5; do
+        cat > "$RESPONSE_ANALYSIS_FILE" << EOF
+{
+    "loop_number": $i,
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "has_progress": true,
+        "files_modified": 3,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Working on feature $i"
+    }
+}
+EOF
+        update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+    done
+
+    # Verify completion_indicators is EMPTY (not filled with 5 indicators)
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "0"
 }

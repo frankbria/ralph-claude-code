@@ -260,9 +260,9 @@ Supported formats:
 The command will:
 1. Create a new Ralph project
 2. Use Claude Code to intelligently convert your PRD into:
-   - PROMPT.md (Ralph instructions)
-   - @fix_plan.md (prioritized tasks)
-   - specs/ (technical specifications)
+   - .ralph/PROMPT.md (Ralph instructions)
+   - .ralph/fix_plan.md (prioritized tasks)
+   - .ralph/specs/ (technical specifications)
 
 HELPEOF
 }
@@ -312,9 +312,9 @@ Analyze the provided specification file and extract:
 
 ## Required Outputs
 
-Create these files in the current directory:
+Create these files in the .ralph/ subdirectory:
 
-### 1. PROMPT.md
+### 1. .ralph/PROMPT.md
 Transform the PRD into Ralph development instructions:
 ```markdown
 # Ralph Development Instructions
@@ -330,7 +330,7 @@ You are Ralph, an autonomous AI development agent working on a [PROJECT NAME] pr
 - Search the codebase before assuming something isn't implemented
 - Use subagents for expensive operations (file searching, analysis)
 - Write comprehensive tests with clear documentation
-- Update @fix_plan.md with your learnings
+- Update fix_plan.md with your learnings
 - Commit working changes with descriptive messages
 
 ## 🧪 Testing Guidelines (CRITICAL)
@@ -350,10 +350,10 @@ You are Ralph, an autonomous AI development agent working on a [PROJECT NAME] pr
 [Define what "done" looks like based on the PRD]
 
 ## Current Task
-Follow @fix_plan.md and choose the most important item to implement next.
+Follow fix_plan.md and choose the most important item to implement next.
 ```
 
-### 2. @fix_plan.md
+### 2. .ralph/fix_plan.md
 Convert requirements into a prioritized task list:
 ```markdown
 # Ralph Fix Plan
@@ -374,7 +374,7 @@ Convert requirements into a prioritized task list:
 [Any important context from the original PRD]
 ```
 
-### 3. specs/requirements.md
+### 3. .ralph/specs/requirements.md
 Create detailed technical specifications:
 ```markdown
 # Technical Specifications
@@ -396,7 +396,7 @@ Create detailed technical specifications:
 2. Create the three files above with content derived from the PRD
 3. Ensure all requirements are captured and properly prioritized
 4. Make the PROMPT.md actionable for autonomous development
-5. Structure @fix_plan.md with clear, implementable tasks
+5. Structure fix_plan.md with clear, implementable tasks
 
 PROMPTEOF
 
@@ -505,7 +505,7 @@ PROMPTEOF
     # Use PARSED_FILES_CREATED from JSON if available, otherwise check filesystem
     local missing_files=()
     local created_files=()
-    local expected_files=("PROMPT.md" "@fix_plan.md" "specs/requirements.md")
+    local expected_files=(".ralph/PROMPT.md" ".ralph/fix_plan.md" ".ralph/specs/requirements.md")
 
     # If JSON provided files_created, use that to inform verification
     if [[ "$json_parsed" == "true" && -n "$PARSED_FILES_CREATED" && "$PARSED_FILES_CREATED" != "[]" ]]; then
@@ -605,9 +605,9 @@ main() {
     echo ""
     echo "Next steps:"
     echo "  1. Review and edit the generated files:"
-    echo "     - PROMPT.md (Ralph instructions)"  
-    echo "     - @fix_plan.md (task priorities)"
-    echo "     - specs/requirements.md (technical specs)"
+    echo "     - .ralph/PROMPT.md (Ralph instructions)"
+    echo "     - .ralph/fix_plan.md (task priorities)"
+    echo "     - .ralph/specs/requirements.md (technical specs)"
     echo "  2. Start autonomous development:"
     echo "     ralph --monitor"
     echo ""

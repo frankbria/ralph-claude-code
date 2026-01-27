@@ -30,7 +30,7 @@ Successfully implemented all Phase 2 recommendations from the expert panel revie
 Six concrete scenarios using Given/When/Then format:
 
 **Scenario 1: Successful Project Completion**
-- **Given**: All @fix_plan.md items marked [x], tests passing, no errors
+- **Given**: All fix_plan.md items marked [x], tests passing, no errors
 - **Then**: OUTPUT EXIT_SIGNAL=true with COMPLETE status
 - **Ralph's Action**: Gracefully exits loop with success message
 
@@ -87,7 +87,7 @@ Six concrete scenarios using Given/When/Then format:
 #### Six Primary Use Cases
 
 **UC-1: Execute Development Loop** (Main workflow)
-- **Preconditions**: PROMPT.md exists, @fix_plan.md has tasks
+- **Preconditions**: PROMPT.md exists, fix_plan.md has tasks
 - **Success**: Task completed, files modified/committed, status tracked
 - **14-step main scenario** with extensions for:
   - Circuit breaker OPEN → halt with guidance

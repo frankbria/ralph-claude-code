@@ -429,7 +429,7 @@ $EXIT_SIGNALS_FILE  # ".exit_signals"
 
 # Mock data creation
 create_mock_prompt          # Create sample PROMPT.md
-create_mock_fix_plan 5 2    # Create @fix_plan.md (5 total, 2 completed)
+create_mock_fix_plan 5 2    # Create fix_plan.md (5 total, 2 completed)
 create_mock_status 1 42 100 # Create status.json (loop 1, 42 calls, 100 max)
 create_mock_exit_signals 0 2 0  # Create exit signals (0 test, 2 done, 0 complete)
 ```
@@ -513,12 +513,12 @@ create_sample_prd_json "output.json" # JSON PRD
 ```bash
 # Create sample Ralph project files
 create_sample_prompt "PROMPT.md"
-create_sample_fix_plan "@fix_plan.md" 10 3  # 10 tasks, 3 completed
-create_sample_agent_md "@AGENT.md"
+create_sample_fix_plan "fix_plan.md" 10 3  # 10 tasks, 3 completed
+create_sample_agent_md "AGENT.md"
 
 # Create complete project structure
 create_test_project "project-name"
-# Creates: PROMPT.md, @fix_plan.md, @AGENT.md, specs/, src/, logs/, etc.
+# Creates: PROMPT.md, fix_plan.md, AGENT.md, specs/, src/, logs/, etc.
 ```
 
 #### Output Fixtures

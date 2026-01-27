@@ -8,14 +8,16 @@ setup() {
     # Source helper functions
     source "$(dirname "$BATS_TEST_FILENAME")/../helpers/test_helper.bash"
 
-    # Set up environment
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
     export MAX_CALLS_PER_HOUR=100
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 
     # Create temp test directory
     export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
     cd "$TEST_TEMP_DIR"
+    mkdir -p "$RALPH_DIR"
 
     # Initialize files
     echo "0" > "$CALL_COUNT_FILE"

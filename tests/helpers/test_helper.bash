@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Test Helper Utilities for Ralph Test Suite
 
+# Helper: Fail with message (for use in assertions)
+fail() {
+    echo "$1"
+    return 1
+}
+
 # Simple assertion functions (replacing bats-assert)
 assert_success() {
     if [ "$status" -ne 0 ]; then
@@ -43,18 +49,20 @@ setup() {
     export TEST_TEMP_DIR="$(mktemp -d "${BATS_TEST_TMPDIR}/test.XXXXXX")"
     cd "$TEST_TEMP_DIR"
 
-    # Set up test environment variables
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export PROGRESS_FILE="progress.json"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
-    export EXIT_SIGNALS_FILE=".exit_signals"
+    # Set up test environment variables with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export PROGRESS_FILE="$RALPH_DIR/progress.json"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 
     # Create necessary directories
-    mkdir -p "$LOG_DIR" "$DOCS_DIR"
+    mkdir -p "$LOG_DIR" "$DOCS_DIR" "$RALPH_DIR"
 
     # Initialize files
     echo "0" > "$CALL_COUNT_FILE"
@@ -77,6 +85,7 @@ strip_colors() {
 
 # Helper: Create a mock PROMPT.md file
 create_mock_prompt() {
+    mkdir -p "$RALPH_DIR"
     cat > "$PROMPT_FILE" << 'EOF'
 # Test Prompt
 This is a test prompt for Ralph.
@@ -86,23 +95,25 @@ Test the system.
 EOF
 }
 
-# Helper: Create a mock @fix_plan.md file
+# Helper: Create a mock fix_plan.md file
 create_mock_fix_plan() {
     local total=${1:-5}
     local completed=${2:-0}
+    local fix_plan_file="$RALPH_DIR/fix_plan.md"
 
-    cat > "@fix_plan.md" << EOF
+    mkdir -p "$RALPH_DIR"
+    cat > "$fix_plan_file" << EOF
 # Fix Plan
 
 ## High Priority
 EOF
 
     for ((i=1; i<=completed; i++)); do
-        echo "- [x] Completed task $i" >> "@fix_plan.md"
+        echo "- [x] Completed task $i" >> "$fix_plan_file"
     done
 
     for ((i=completed+1; i<=total; i++)); do
-        echo "- [ ] Pending task $i" >> "@fix_plan.md"
+        echo "- [ ] Pending task $i" >> "$fix_plan_file"
     done
 }
 

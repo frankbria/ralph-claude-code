@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.9.8 | **Tests**: 276 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.1 | **Tests**: 424 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -22,6 +22,14 @@ The system consists of four main bash scripts and a modular library system:
    - Uses modern Claude Code CLI with `--output-format json` for structured responses
    - Implements `detect_response_format()` and `parse_conversion_response()` for JSON parsing
    - Backward compatible with older CLI versions (automatic text fallback)
+6. **ralph_enable.sh** - Interactive wizard for enabling Ralph in existing projects
+   - Multi-step wizard with environment detection, task source selection, configuration
+   - Imports tasks from beads, GitHub Issues, or PRD documents
+   - Generates `.ralphrc` project configuration file
+7. **ralph_enable_ci.sh** - Non-interactive version for CI/automation
+   - Same functionality as interactive version with CLI flags
+   - JSON output mode for machine parsing
+   - Exit codes: 0 (success), 1 (error), 2 (already enabled)
 
 ### Library Components (lib/)
 
@@ -39,9 +47,9 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Supports both flat JSON format and Claude CLI format (`result`, `sessionId`, `metadata`)
    - Extracts structured fields: status, exit_signal, work_type, files_modified
    - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
-   - Automatic session persistence to `.claude_session_id` file with 24-hour expiration
+   - Automatic session persistence to `.ralph/.claude_session_id` file with 24-hour expiration
    - Session lifecycle: `get_session_id()`, `reset_session()`, `log_session_transition()`, `init_session_tracking()`
-   - Session history tracked in `.ralph_session_history` (last 50 transitions)
+   - Session history tracked in `.ralph/.ralph_session_history` (last 50 transitions)
    - Session auto-reset on: circuit breaker open, manual interrupt, project completion
    - Detects test-only loops and stuck error patterns
    - Two-stage error filtering to eliminate false positives
@@ -51,6 +59,30 @@ The system uses a modular architecture with reusable components in the `lib/` di
 3. **lib/date_utils.sh** - Cross-platform date utilities
    - ISO timestamp generation for logging
    - Epoch time calculations for rate limiting
+
+4. **lib/timeout_utils.sh** - Cross-platform timeout command utilities
+   - Detects and uses appropriate timeout command for the platform
+   - Linux: Uses standard `timeout` from GNU coreutils
+   - macOS: Uses `gtimeout` from Homebrew coreutils
+   - `portable_timeout()` function for seamless cross-platform execution
+   - Automatic detection with caching for performance
+
+5. **lib/enable_core.sh** - Shared logic for ralph enable commands
+   - Idempotency checks: `check_existing_ralph()`, `is_ralph_enabled()`
+   - Safe file operations: `safe_create_file()`, `safe_create_dir()`
+   - Project detection: `detect_project_context()`, `detect_git_info()`, `detect_task_sources()`
+   - Template generation: `generate_prompt_md()`, `generate_agent_md()`, `generate_fix_plan_md()`, `generate_ralphrc()`
+
+6. **lib/wizard_utils.sh** - Interactive prompt utilities for enable wizard
+   - User prompts: `confirm()`, `prompt_text()`, `prompt_number()`
+   - Selection utilities: `select_option()`, `select_multiple()`, `select_with_default()`
+   - Output formatting: `print_header()`, `print_bullet()`, `print_success/warning/error/info()`
+
+7. **lib/task_sources.sh** - Task import from external sources
+   - Beads integration: `check_beads_available()`, `fetch_beads_tasks()`, `get_beads_count()`
+   - GitHub integration: `check_github_available()`, `fetch_github_tasks()`, `get_github_issue_count()`
+   - PRD extraction: `extract_prd_tasks()`, supports checkbox and numbered list formats
+   - Task normalization: `normalize_tasks()`, `prioritize_tasks()`, `import_tasks_from_sources()`
 
 ## Key Commands
 
@@ -68,6 +100,34 @@ The system uses a modular architecture with reusable components in the `lib/` di
 # Create a new Ralph-managed project (run from anywhere)
 ralph-setup my-project-name
 cd my-project-name
+```
+
+### Migrating Existing Projects
+```bash
+# Migrate from flat structure to .ralph/ subfolder (v0.10.0+)
+cd existing-project
+ralph-migrate
+```
+
+### Enabling Ralph in Existing Projects
+```bash
+# Interactive wizard (recommended for humans)
+cd existing-project
+ralph-enable
+
+# With specific task source
+ralph-enable --from beads
+ralph-enable --from github --label "sprint-1"
+ralph-enable --from prd ./docs/requirements.md
+
+# Force overwrite existing .ralph/
+ralph-enable --force
+
+# Non-interactive for CI/scripts
+ralph-enable-ci                              # Sensible defaults
+ralph-enable-ci --from github               # With task source
+ralph-enable-ci --project-type typescript   # Override detection
+ralph-enable-ci --json                      # Machine-readable output
 ```
 
 ### Running the Ralph Loop
@@ -107,7 +167,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (165 tests)
+# Run all tests (420 tests)
 npm test
 
 # Run specific test suites
@@ -118,17 +178,20 @@ npm run test:integration
 bats tests/unit/test_cli_parsing.bats
 bats tests/unit/test_json_parsing.bats
 bats tests/unit/test_cli_modern.bats
+bats tests/unit/test_enable_core.bats
+bats tests/unit/test_task_sources.bats
+bats tests/unit/test_ralph_enable.bats
 ```
 
 ## Ralph Loop Configuration
 
-The loop is controlled by several key files and environment variables:
+The loop is controlled by several key files and environment variables within the `.ralph/` subfolder:
 
-- **PROMPT.md** - Main prompt file that drives each loop iteration
-- **@fix_plan.md** - Prioritized task list that Ralph follows
-- **@AGENT.md** - Build and run instructions maintained by Ralph
-- **status.json** - Real-time status tracking (JSON format)
-- **logs/** - Execution logs for each loop iteration
+- **.ralph/PROMPT.md** - Main prompt file that drives each loop iteration
+- **.ralph/fix_plan.md** - Prioritized task list that Ralph follows
+- **.ralph/AGENT.md** - Build and run instructions maintained by Ralph
+- **.ralph/status.json** - Real-time status tracking (JSON format)
+- **.ralph/logs/** - Execution logs for each loop iteration
 
 ### Rate Limiting
 - Default: 100 API calls per hour (configurable via `--calls` flag)
@@ -155,12 +218,12 @@ CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 **Loop Context:**
 Each loop iteration injects context via `build_loop_context()`:
 - Current loop number
-- Remaining tasks from @fix_plan.md
+- Remaining tasks from fix_plan.md
 - Circuit breaker state (if not CLOSED)
 - Previous loop work summary
 
 **Session Continuity:**
-- Sessions are preserved in `.claude_session_id`
+- Sessions are preserved in `.ralph/.claude_session_id`
 - Use `--continue` flag to maintain context across loops
 - Disable with `--no-continue` for isolated iterations
 
@@ -171,12 +234,12 @@ The loop uses a dual-condition check to prevent premature exits during productiv
 1. `recent_completion_indicators >= 2` (heuristic-based detection from natural language patterns)
 2. Claude's explicit `EXIT_SIGNAL: true` in the RALPH_STATUS block
 
-The `EXIT_SIGNAL` value is read from `.response_analysis` (at `.analysis.exit_signal`) which is populated by `response_analyzer.sh` from Claude's RALPH_STATUS output block.
+The `EXIT_SIGNAL` value is read from `.ralph/.response_analysis` (at `.analysis.exit_signal`) which is populated by `response_analyzer.sh` from Claude's RALPH_STATUS output block.
 
 **Other exit conditions (checked before completion indicators):**
 - Multiple consecutive "done" signals from Claude Code (`done_signals >= 2`)
 - Too many test-only loops indicating feature completeness (`test_loops >= 3`)
-- All items in @fix_plan.md marked as completed
+- All items in .ralph/fix_plan.md marked as completed
 
 **Example behavior when EXIT_SIGNAL is false:**
 ```
@@ -216,18 +279,21 @@ Bash code coverage measurement with kcov has fundamental limitations when tracin
 
 ## Project Structure for Ralph-Managed Projects
 
-Each project created with `./setup.sh` follows this structure:
+Each project created with `./setup.sh` follows this structure with a `.ralph/` subfolder:
 ```
 project-name/
-├── PROMPT.md          # Main development instructions
-├── @fix_plan.md       # Prioritized TODO list
-├── @AGENT.md          # Build/run instructions
-├── specs/             # Project specifications
-├── src/               # Source code
-├── examples/          # Usage examples
-├── logs/              # Loop execution logs
-└── docs/generated/    # Auto-generated documentation
+├── .ralph/                # Ralph configuration and state (hidden folder)
+│   ├── PROMPT.md          # Main development instructions
+│   ├── fix_plan.md       # Prioritized TODO list
+│   ├── AGENT.md          # Build/run instructions
+│   ├── specs/             # Project specifications
+│   ├── examples/          # Usage examples
+│   ├── logs/              # Loop execution logs
+│   └── docs/generated/    # Auto-generated documentation
+└── src/                   # Source code (at project root)
 ```
+
+> **Migration**: Existing projects can be migrated with `ralph-migrate`.
 
 ## Template System
 
@@ -238,25 +304,28 @@ Templates in `templates/` provide starting points for new projects:
 
 ## File Naming Conventions
 
-- Files prefixed with `@` (e.g., `@fix_plan.md`) are Ralph-specific control files
-- Hidden files (e.g., `.call_count`, `.exit_signals`) track loop state
-- `logs/` contains timestamped execution logs
-- `docs/generated/` for Ralph-created documentation
-- `docs/code-review/` for code review reports
+- Ralph control files (`fix_plan.md`, `AGENT.md`, `PROMPT.md`) reside in the `.ralph/` directory
+- Hidden files within `.ralph/` (e.g., `.ralph/.call_count`, `.ralph/.exit_signals`) track loop state
+- `.ralph/logs/` contains timestamped execution logs
+- `.ralph/docs/generated/` for Ralph-created documentation
+- `docs/code-review/` for code review reports (at project root)
 
 ## Global Installation
 
 Ralph installs to:
-- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import)
+- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci)
 - **Templates**: `~/.ralph/templates/`
-- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh)
+- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
 - `ralph-monitor` - Launch the monitoring dashboard
 - `ralph-setup` - Create a new Ralph-managed project
 - `ralph-import` - Import PRD/specification documents to Ralph format
+- `ralph-migrate` - Migrate existing projects from flat structure to `.ralph/` subfolder
+- `ralph-enable` - Interactive wizard to enable Ralph in existing projects
+- `ralph-enable-ci` - Non-interactive version for CI/automation
 
 ## Integration Points
 
@@ -276,7 +345,7 @@ Ralph uses multiple mechanisms to detect when to exit:
 - `MAX_CONSECUTIVE_TEST_LOOPS=3` - Exit if too many test-only iterations
 - `MAX_CONSECUTIVE_DONE_SIGNALS=2` - Exit on repeated completion signals
 - `TEST_PERCENTAGE_THRESHOLD=30%` - Flag if testing dominates recent loops
-- Completion detection via @fix_plan.md checklist items
+- Completion detection via .ralph/fix_plan.md checklist items
 
 ### Completion Indicators with EXIT_SIGNAL Gate
 
@@ -293,8 +362,8 @@ The `completion_indicators` exit condition requires dual verification:
 **Implementation** (`ralph_loop.sh:312-327`):
 ```bash
 local claude_exit_signal="false"
-if [[ -f ".response_analysis" ]]; then
-    claude_exit_signal=$(jq -r '.analysis.exit_signal // false' ".response_analysis" 2>/dev/null || echo "false")
+if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
+    claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RALPH_DIR/.response_analysis" 2>/dev/null || echo "false")
 fi
 
 if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
@@ -333,21 +402,25 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (265 tests total)
+### Test Files (420 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
-| `test_json_parsing.bats` | 36 | JSON output format parsing + Claude CLI format + session management |
-| `test_session_continuity.bats` | 26 | Session lifecycle management + circuit breaker integration |
-| `test_exit_detection.bats` | 20 | Exit signal detection |
+| `test_json_parsing.bats` | 45 | JSON output format parsing + Claude CLI format + session management + array format |
+| `test_session_continuity.bats` | 28 | Session lifecycle management + circuit breaker integration + issue #91 fix |
+| `test_exit_detection.bats` | 35 | Exit signal detection + EXIT_SIGNAL-based completion indicators |
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 20 | Edge case handling |
 | `test_installation.bats` | 14 | Global installation/uninstall workflows |
 | `test_project_setup.bats` | 36 | Project setup (setup.sh) validation |
 | `test_prd_import.bats` | 33 | PRD import (ralph_import.sh) workflows + modern CLI tests |
+| `test_enable_core.bats` | 30 | Enable core library (idempotency, project detection, template generation) |
+| `test_task_sources.bats` | 23 | Task sources (beads, GitHub, PRD extraction, normalization) |
+| `test_ralph_enable.bats` | 22 | Ralph enable integration tests (wizard, CI version, JSON output) |
+| `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
 
 ### Running Tests
 ```bash
@@ -362,6 +435,71 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Completion Indicators Fix (v0.11.1)
+- Fixed premature exit after exactly 5 loops in JSON output mode
+- Root cause: `update_exit_signals()` used confidence threshold (≥60) to populate `completion_indicators`
+  - JSON mode always has confidence ≥70 due to deterministic scoring (+50 for JSON format, +20 for result field)
+  - This caused every successful JSON response to increment `completion_indicators`
+  - After 5 loops, safety circuit breaker triggered even when Claude set `EXIT_SIGNAL: false`
+- Fix: Replaced confidence-based heuristic with explicit EXIT_SIGNAL checking
+  - `completion_indicators` now only accumulates when `exit_signal == "true"`
+  - Aligns with documented behavior in CLAUDE.md and README.md
+  - Confidence scoring retained for analysis/logging purposes
+- Updated safety circuit breaker documentation in `ralph_loop.sh` to reflect new behavior
+- Added 4 new TDD tests (Tests 32-35) for `update_exit_signals()` behavior
+- Test count: 424 (up from 420)
+
+### Ralph Enable Command (v0.11.0)
+- Added `ralph-enable` interactive wizard for enabling Ralph in existing projects
+  - 5-phase wizard: Environment Detection → Task Source Selection → Configuration → File Generation → Verification
+  - Auto-detects project type (TypeScript, Python, Rust, Go) and framework (Next.js, FastAPI, Django)
+  - Imports tasks from beads, GitHub Issues, or PRD documents
+  - Generates `.ralphrc` project configuration file
+- Added `ralph-enable-ci` non-interactive version for CI/automation
+  - JSON output mode (`--json`) for machine parsing
+  - Exit codes: 0 (success), 1 (error), 2 (already enabled)
+  - Override flags: `--project-name`, `--project-type`, `--from`, `--force`
+- New library components:
+  - `lib/enable_core.sh` - Shared enable logic with idempotency checks
+  - `lib/wizard_utils.sh` - Interactive prompt utilities
+  - `lib/task_sources.sh` - Task import from beads/GitHub/PRD
+- Updated `ralph_loop.sh` to load `.ralphrc` configuration at startup
+- Added 75 new tests (30 enable_core + 23 task_sources + 22 integration)
+- Test count: 396 (up from 321)
+- Related issues: #85, #121, #64, #87, #99
+
+### Stale Completion Indicators Fix (v0.10.1) - Issue #91
+- Fixed premature exit caused by stale completion indicators persisting across sessions
+- Root cause: `.exit_signals` and `.response_analysis` files retained old completion counts
+- Enhanced `reset_session()` to clear exit-related state files:
+  - Resets `.exit_signals` to empty structure (no completion indicators)
+  - Removes `.response_analysis` to prevent stale EXIT_SIGNAL detection
+- Session reset now comprehensively clears: session ID, exit signals, and response analysis
+- Added 2 new tests validating exit signal clearing behavior
+- Test count: 321 (up from 319)
+
+### JSON Array Format Support (v0.10.1)
+- Fixed `parse_json_response` to handle Claude CLI JSON array output format (issue #112)
+- Claude CLI outputs `[{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]`
+- Previously expected single JSON object, now supports three formats:
+  1. Flat format: `{ status, exit_signal, work_type, ... }`
+  2. Claude CLI object format: `{ result, sessionId, metadata: {...} }`
+  3. Claude CLI array format: `[ {type: "result", ...}, ... ]`
+- Extracts `result` type message from array and normalizes to object format
+- Preserves `session_id` from init message for session continuity
+- Added 9 new tests for JSON array format handling (including session_id-in-result regression test)
+- Review fixes: guard against empty result_obj, prioritize result object's session_id
+- Test count: 319 (up from 310)
+
+### .ralph/ Subfolder Structure (v0.10.0) - BREAKING CHANGE
+- **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder
+- Project root stays clean: only `src/`, `README.md`, and user files remain
+- Added `ralph-migrate` command for upgrading existing projects
+- Migration script with fail-safe copy pattern (`cp -a source/. dest/`)
+- Auto-detection of old structure with upgrade guidance
+- Updated all configuration variables to use `$RALPH_DIR` prefix
+- Test count: 310 (up from 308)
 
 ### Modern CLI for PRD Import (v0.9.8)
 - Modernized `ralph_import.sh` to use Claude Code CLI JSON output format
@@ -418,7 +556,7 @@ bats tests/unit/test_cli_parsing.bats
 - Added 22 comprehensive tests for `ralph_import.sh` PRD conversion script
 - Tests cover: file format support (.md, .txt, .json), output file creation, project naming
 - Mock infrastructure for `ralph-setup` and Claude Code CLI isolation
-- Output file validation: PROMPT.md, @fix_plan.md, specs/requirements.md creation
+- Output file validation: PROMPT.md, fix_plan.md, specs/requirements.md creation
 - Project naming tests: custom names, auto-detection from filename, path handling
 - Error handling tests: missing source file, missing ralph-setup, conversion failures
 - Help and usage tests: --help flag, no arguments behavior
@@ -430,7 +568,7 @@ bats tests/unit/test_cli_parsing.bats
 ### Project Setup Tests (v0.9.4)
 - Added 36 comprehensive tests for `setup.sh` project initialization script
 - Tests cover: directory creation, subdirectory structure, template copying, git initialization
-- Template copying verification for PROMPT.md, @fix_plan.md, @AGENT.md
+- Template copying verification for PROMPT.md, fix_plan.md, AGENT.md
 - Git repository validation: .git exists, valid repo, initial commit, correct message
 - README.md creation and content verification
 - Custom and default project name handling
@@ -559,9 +697,9 @@ Before moving to the next feature, ALL changes must be:
    - Create pull requests for all significant changes
 
 4. **Ralph Integration**:
-   - Update @fix_plan.md with new tasks before starting work
-   - Mark items complete in @fix_plan.md upon completion
-   - Update PROMPT.md if Ralph's behavior needs modification
+   - Update .ralph/fix_plan.md with new tasks before starting work
+   - Mark items complete in .ralph/fix_plan.md upon completion
+   - Update .ralph/PROMPT.md if Ralph's behavior needs modification
    - Test Ralph loop with new features before completion
 
 ### Documentation Requirements
@@ -588,7 +726,7 @@ Before moving to the next feature, ALL changes must be:
 4. **Template Maintenance**:
    - Update template files when new patterns are introduced
    - Keep PROMPT.md template current with best practices
-   - Update @AGENT.md template with new build patterns
+   - Update AGENT.md template with new build patterns
    - Document new Ralph configuration options
 
 5. **CLAUDE.md Maintenance**:
@@ -606,7 +744,7 @@ Before marking ANY feature as complete, verify:
 - [ ] All changes committed with conventional commit messages
 - [ ] All commits pushed to remote repository
 - [ ] CI/CD pipeline passes
-- [ ] @fix_plan.md task marked as complete
+- [ ] .ralph/fix_plan.md task marked as complete
 - [ ] Implementation documentation updated
 - [ ] Inline code comments updated or added
 - [ ] CLAUDE.md updated (if new patterns introduced)
@@ -619,7 +757,7 @@ Before marking ANY feature as complete, verify:
 
 These standards ensure:
 - **Quality**: Thorough testing prevents regressions in Ralph's autonomous behavior
-- **Traceability**: Git commits and @fix_plan.md provide clear history of changes
+- **Traceability**: Git commits and fix_plan.md provide clear history of changes
 - **Maintainability**: Current documentation reduces onboarding time and prevents knowledge loss
 - **Collaboration**: Pushed changes enable team visibility and code review
 - **Reliability**: Consistent quality gates maintain Ralph loop stability

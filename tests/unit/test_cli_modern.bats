@@ -15,15 +15,16 @@ setup() {
     git config user.email "test@example.com"
     git config user.name "Test User"
 
-    # Set up environment
-    export PROMPT_FILE="PROMPT.md"
-    export LOG_DIR="logs"
-    export DOCS_DIR="docs/generated"
-    export STATUS_FILE="status.json"
-    export EXIT_SIGNALS_FILE=".exit_signals"
-    export CALL_COUNT_FILE=".call_count"
-    export TIMESTAMP_FILE=".last_reset"
-    export CLAUDE_SESSION_FILE=".claude_session_id"
+    # Set up environment with .ralph/ subfolder structure
+    export RALPH_DIR=".ralph"
+    export PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export DOCS_DIR="$RALPH_DIR/docs/generated"
+    export STATUS_FILE="$RALPH_DIR/status.json"
+    export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+    export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+    export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
     export CLAUDE_MIN_VERSION="2.0.76"
     export CLAUDE_CODE_CMD="claude"
 
@@ -34,7 +35,7 @@ setup() {
 
     # Create sample project files
     create_sample_prompt
-    create_sample_fix_plan "@fix_plan.md" 10 3
+    create_sample_fix_plan "$RALPH_DIR/fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -92,20 +93,20 @@ setup() {
 
         context="Loop #${loop_count}. "
 
-        if [[ -f "@fix_plan.md" ]]; then
-            local incomplete_tasks=$(grep -c "^- \[ \]" "@fix_plan.md" 2>/dev/null || echo "0")
+        if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+            local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
             context+="Remaining tasks: ${incomplete_tasks}. "
         fi
 
-        if [[ -f ".circuit_breaker_state" ]]; then
-            local cb_state=$(jq -r '.state // "UNKNOWN"' .circuit_breaker_state 2>/dev/null)
+        if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
+            local cb_state=$(jq -r '.state // "UNKNOWN"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null)
             if [[ "$cb_state" != "CLOSED" && "$cb_state" != "null" && -n "$cb_state" ]]; then
                 context+="Circuit breaker: ${cb_state}. "
             fi
         fi
 
-        if [[ -f ".response_analysis" ]]; then
-            local prev_summary=$(jq -r '.analysis.work_summary // ""' .response_analysis 2>/dev/null | head -c 200)
+        if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
+            local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RALPH_DIR/.response_analysis" 2>/dev/null | head -c 200)
             if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
                 context+="Previous: ${prev_summary}"
             fi
@@ -156,8 +157,9 @@ teardown() {
 
 @test "CLAUDE_OUTPUT_FORMAT defaults to json" {
     # Verify by checking the default in ralph_loop.sh via grep
+    # The default is set via ${CLAUDE_OUTPUT_FORMAT:-json} pattern
     run grep 'CLAUDE_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *'"json"'* ]]
+    [[ "$output" == *"json"* ]]
 }
 
 @test "CLAUDE_ALLOWED_TOOLS has sensible defaults" {
@@ -216,9 +218,9 @@ teardown() {
     [[ "$output" == *"Loop #5"* ]] || [[ "$output" == *"5"* ]]
 }
 
-@test "build_loop_context counts remaining tasks from @fix_plan.md" {
-    # Create fix plan with 7 incomplete tasks
-    cat > "@fix_plan.md" << 'EOF'
+@test "build_loop_context counts remaining tasks from fix_plan.md" {
+    # Create fix plan with 7 incomplete tasks in .ralph/ directory
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 done
 - [x] Task 2 done
@@ -252,7 +254,7 @@ EOF
 
 @test "build_loop_context includes previous loop summary" {
     # Create previous response analysis
-    cat > ".response_analysis" << 'EOF'
+    cat > "$RALPH_DIR/.response_analysis" << 'EOF'
 {
     "loop_number": 1,
     "analysis": {
@@ -270,7 +272,7 @@ EOF
 @test "build_loop_context limits output length to 500 chars" {
     # Create very long work summary
     local long_summary=$(printf 'x%.0s' {1..1000})
-    cat > ".response_analysis" << EOF
+    cat > "$RALPH_DIR/.response_analysis" << EOF
 {
     "loop_number": 1,
     "analysis": {
@@ -285,8 +287,8 @@ EOF
     [[ ${#output} -le 600 ]]
 }
 
-@test "build_loop_context handles missing @fix_plan.md gracefully" {
-    rm -f "@fix_plan.md"
+@test "build_loop_context handles missing fix_plan.md gracefully" {
+    rm -f "$RALPH_DIR/fix_plan.md"
 
     run build_loop_context 1
 
@@ -295,7 +297,7 @@ EOF
 }
 
 @test "build_loop_context handles missing .response_analysis gracefully" {
-    rm -f ".response_analysis"
+    rm -f "$RALPH_DIR/.response_analysis"
 
     run build_loop_context 1
 
@@ -620,4 +622,30 @@ EOF
     done
 
     [[ "$found_prompt" == "true" ]]
+}
+
+# =============================================================================
+# .RALPHRC CONFIGURATION LOADING TESTS
+# Tests for the environment variable precedence fix
+# =============================================================================
+
+@test "load_ralphrc uses env var capture pattern for precedence" {
+    # Verify the implementation pattern: _env_* variables capture state before defaults
+    # This test validates the pattern is correctly implemented in ralph_loop.sh
+
+    run grep '_env_MAX_CALLS_PER_HOUR=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should capture env var state BEFORE setting defaults
+    [[ "$output" == *'${MAX_CALLS_PER_HOUR:-}'* ]]
+}
+
+@test "load_ralphrc restores only env var overrides, not defaults" {
+    # Verify that load_ralphrc uses _env_* pattern for restoration
+    # This ensures .ralphrc values are not overwritten by script defaults
+
+    run grep -A5 'Restore ONLY values' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should check _env_* variables (not saved_* which would always have values)
+    [[ "$output" == *'_env_MAX_CALLS_PER_HOUR'* ]]
+    [[ "$output" == *'_env_CLAUDE_TIMEOUT_MINUTES'* ]]
 }

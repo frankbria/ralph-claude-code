@@ -88,7 +88,7 @@ Loop 1-10: Normal (CLOSED state, progress detected)
 Loop 11-13: No file changes detected (transition to HALF-OPEN)
 Loop 14: Still no progress (transition to OPEN, halt execution)
 Output: "⚠️  Circuit breaker opened: No progress detected in 4 loops.
-         Last file change: loop #10. Please review @fix_plan.md."
+         Last file change: loop #10. Please review fix_plan.md."
 
 RECOMMENDATION:
 Implement Circuit Breaker with these triggers:
@@ -173,7 +173,7 @@ IMPACT: Makes Ralph's outputs parseable and actionable
 
 From PROMPT.md lines 38-45:
 "If you believe the project is complete or nearly complete:
- - Update @fix_plan.md to reflect completion status"
+ - Update fix_plan.md to reflect completion status"
 
 This requirement violates SMART criteria:
 - Specific: ❌ "believe" is subjective
@@ -183,10 +183,10 @@ This requirement violates SMART criteria:
 - Timely: ❌ No timeframe
 
 Better requirement:
-"When all tasks in @fix_plan.md are marked [x] AND no errors are present
+"When all tasks in fix_plan.md are marked [x] AND no errors are present
  in the last test run AND you have nothing left to implement from specs/:
  - Output: EXIT_SIGNAL=true
- - Update @fix_plan.md with completion summary
+ - Update fix_plan.md with completion summary
  - List any deferred items in ## Deferred section"
 
 This is:
@@ -232,7 +232,7 @@ Current state: Abstract instructions
 Required state: Concrete examples
 
 Example 1: Successful Completion
-Given: All @fix_plan.md items are checked [x]
+Given: All fix_plan.md items are checked [x]
   And: Last test run shows 100% passing
   And: No errors in logs/
 When: Claude evaluates project status
@@ -334,7 +334,7 @@ Extensions (Error Handling):
     2. Ralph exits with "no_progress" signal
 
 RECOMMENDATION:
-Document use cases in @AGENT.md or new USE_CASES.md file.
+Document use cases in AGENT.md or new USE_CASES.md file.
 Define all actors, goals, success criteria, and failure modes.
 This provides design clarity and testing scenarios.
 

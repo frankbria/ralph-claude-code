@@ -206,8 +206,30 @@ mock_stat() {
     return 0
 }
 
-# Mock timeout command
+# Mock timeout command (Linux)
 mock_timeout() {
+    local duration=$1
+    shift
+
+    # Execute the command without actual timeout
+    "$@"
+    return $?
+}
+
+# Mock gtimeout command (macOS coreutils)
+# Same behavior as timeout - both are GNU coreutils timeout commands
+mock_gtimeout() {
+    local duration=$1
+    shift
+
+    # Execute the command without actual timeout
+    "$@"
+    return $?
+}
+
+# Mock portable_timeout (cross-platform wrapper from timeout_utils.sh)
+# This mock bypasses the actual timeout detection and just executes the command
+mock_portable_timeout() {
     local duration=$1
     shift
 
@@ -225,6 +247,8 @@ setup_mocks() {
     function notify-send() { mock_notify_send "$@"; }
     function osascript() { mock_osascript "$@"; }
     function timeout() { mock_timeout "$@"; }
+    function gtimeout() { mock_gtimeout "$@"; }
+    function portable_timeout() { mock_portable_timeout "$@"; }
 
     export -f claude
     export -f tmux
@@ -232,6 +256,8 @@ setup_mocks() {
     export -f notify-send
     export -f osascript
     export -f timeout
+    export -f gtimeout
+    export -f portable_timeout
 }
 
 # Teardown all mocks
@@ -242,6 +268,8 @@ teardown_mocks() {
     unset -f notify-send
     unset -f osascript
     unset -f timeout
+    unset -f gtimeout
+    unset -f portable_timeout
 }
 
 # Set mock behavior
