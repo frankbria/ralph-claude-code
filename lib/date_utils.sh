@@ -6,32 +6,30 @@
 # Get current timestamp in ISO 8601 format with seconds precision
 # Returns: YYYY-MM-DDTHH:MM:SS+00:00 format
 get_iso_timestamp() {
-    local os_type
-    os_type=$(uname)
-
-    if [[ "$os_type" == "Darwin" ]]; then
-        # macOS (BSD date)
-        # Use manual formatting and add colon to timezone offset
-        date -u +"%Y-%m-%dT%H:%M:%S%z" | sed 's/\(..\)$/:\1/'
-    else
-        # Linux (GNU date) - use -u flag for UTC
-        date -u -Iseconds
+    # Try GNU date first (works on Linux and macOS with coreutils)
+    # Use if to guard against set -e terminating on unsupported flags
+    if result=$(date -u -Iseconds 2>/dev/null) && [[ -n "$result" ]]; then
+        echo "$result"
+        return
     fi
+    # Fallback to BSD date (native macOS) - add colon to timezone offset
+    date -u +"%Y-%m-%dT%H:%M:%S%z" | sed 's/\(..\)$/:\1/'
 }
 
 # Get time component (HH:MM:SS) for one hour from now
 # Returns: HH:MM:SS format
 get_next_hour_time() {
-    local os_type
-    os_type=$(uname)
-
-    if [[ "$os_type" == "Darwin" ]]; then
-        # macOS (BSD date) - use -v flag for date arithmetic
-        date -v+1H '+%H:%M:%S'
-    else
-        # Linux (GNU date) - use -d flag for date arithmetic
-        date -d '+1 hour' '+%H:%M:%S'
+    # Try GNU date first (works on Linux and macOS with coreutils)
+    if date -d '+1 hour' '+%H:%M:%S' 2>/dev/null; then
+        return
     fi
+    # Fallback to BSD date (native macOS)
+    if date -v+1H '+%H:%M:%S' 2>/dev/null; then
+        return
+    fi
+    # Ultimate fallback - compute using epoch arithmetic
+    local future_epoch=$(($(date +%s) + 3600))
+    date -r "$future_epoch" '+%H:%M:%S' 2>/dev/null || date '+%H:%M:%S'
 }
 
 # Get current timestamp in a basic format (fallback)
