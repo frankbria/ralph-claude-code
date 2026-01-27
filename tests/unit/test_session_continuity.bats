@@ -596,6 +596,10 @@ EOF
 @test "reset_session prevents issue #91 scenario (stale completion indicators)" {
     # Issue #91: Ralph exits immediately when stale completion_indicators exist
 
+    # Ensure variables are set before use (defensive against env differences)
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
+
     # Simulate the issue scenario:
     # 1. Previous session ended with completion_indicators: [1,2]
     # 2. Previous session had EXIT_SIGNAL: true
@@ -608,10 +612,6 @@ EOF
 
     local exit_signal=$(jq -r '.analysis.exit_signal' "$RESPONSE_ANALYSIS_FILE")
     [[ "$exit_signal" == "true" ]]
-
-    # Now simulate user running --reset-session (which should clear these files)
-    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
-    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 
     # Define reset_session with the fix
     reset_session() {
