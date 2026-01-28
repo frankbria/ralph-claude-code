@@ -188,20 +188,47 @@ setup_tmux_session() {
     fi
     
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
+    # Forward all CLI parameters that were set by the user
     local ralph_cmd
     if command -v ralph &> /dev/null; then
         ralph_cmd="ralph"
     else
         ralph_cmd="'$ralph_home/ralph_loop.sh'"
     fi
-    
+
+    # Forward --calls if non-default
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
+    # Forward --prompt if non-default
     if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
-    
+    # Forward --output-format if non-default (default is json)
+    if [[ "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
+        ralph_cmd="$ralph_cmd --output-format $CLAUDE_OUTPUT_FORMAT"
+    fi
+    # Forward --verbose if enabled
+    if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --verbose"
+    fi
+    # Forward --timeout if non-default (default is 15)
+    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
+        ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
+    fi
+    # Forward --allowed-tools if non-default
+    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Bash(git *),Read" ]]; then
+        ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
+    fi
+    # Forward --no-continue if session continuity disabled
+    if [[ "$CLAUDE_USE_CONTINUE" == "false" ]]; then
+        ralph_cmd="$ralph_cmd --no-continue"
+    fi
+    # Forward --session-expiry if non-default (default is 24)
+    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
+        ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
+    fi
+
     tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
     
     # Focus on left pane (main ralph loop)
