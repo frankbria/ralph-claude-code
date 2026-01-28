@@ -10,6 +10,11 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Cancel in-progress runs for the same issue/PR to avoid duplicate responses
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   claude:
     if: |
