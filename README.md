@@ -127,10 +127,13 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Expanding test coverage
 - Log rotation functionality
 - Dry-run mode
-- Configuration file support (.ralphrc)
 - Metrics and analytics tracking
 - Desktop notifications
 - Git backup and rollback system
+
+**v0.11.2** (latest)
+- `.ralphrc` configuration file now created by both `ralph-setup` and `ralph-enable`
+- Updated default ALLOWED_TOOLS to include `Edit`, `Bash(npm *)`, and `Bash(pytest)`
 
 **Timeline to v1.0**: ~4 weeks | [Full roadmap](IMPLEMENTATION_PLAN.md) | **Contributions welcome!**
 
@@ -464,6 +467,7 @@ my-project/
 │   ├── examples/           # Usage examples and test cases
 │   ├── logs/               # Ralph execution logs
 │   └── docs/generated/     # Auto-generated documentation
+├── .ralphrc                # Ralph configuration file (tool permissions, settings)
 └── src/                    # Source code implementation (at project root)
 ```
 
@@ -688,7 +692,7 @@ ralph [OPTIONS]
   -v, --verbose           Show detailed progress updates during execution
   -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
   --output-format FORMAT  Set output format: json (default) or text
-  --allowed-tools TOOLS   Set allowed Claude tools (default: Write,Bash(git *),Read)
+  --allowed-tools TOOLS   Set allowed Claude tools (default: Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest))
   --no-continue           Disable session continuity (start fresh each loop)
   --reset-circuit         Reset the circuit breaker
   --circuit-status        Show circuit breaker status
