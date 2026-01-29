@@ -228,6 +228,39 @@ To completely remove Ralph from your system:
 curl -sL https://raw.githubusercontent.com/frankbria/ralph-claude-code/main/uninstall.sh | bash
 ```
 
+## Understanding Ralph Files
+
+After running `ralph-enable` or `ralph-import`, you'll have a `.ralph/` directory with several files. Here's what each file does and whether you need to edit it:
+
+| File | Auto-Generated? | You Should... |
+|------|-----------------|---------------|
+| `.ralph/PROMPT.md` | Yes (smart defaults) | **Review & customize** project goals and principles |
+| `.ralph/fix_plan.md` | Yes (can import tasks) | **Add/modify** specific implementation tasks |
+| `.ralph/AGENT.md` | Yes (detects build commands) | Rarely edit (auto-maintained by Ralph) |
+| `.ralph/specs/` | Empty directory | Add files when PROMPT.md isn't detailed enough |
+| `.ralph/specs/stdlib/` | Empty directory | Add reusable patterns and conventions |
+| `.ralphrc` | Yes (project-aware) | Rarely edit (sensible defaults) |
+
+### Key File Relationships
+
+```
+PROMPT.md (high-level goals)
+    ↓
+specs/ (detailed requirements when needed)
+    ↓
+fix_plan.md (specific tasks Ralph executes)
+    ↓
+AGENT.md (build/test commands - auto-maintained)
+```
+
+### When to Use specs/
+
+- **Simple projects**: PROMPT.md + fix_plan.md is usually enough
+- **Complex features**: Add specs/feature-name.md for detailed requirements
+- **Team conventions**: Add specs/stdlib/convention-name.md for reusable patterns
+
+See the [User Guide](docs/user-guide/) for detailed explanations and the [examples/](examples/) directory for realistic project configurations.
+
 ## How It Works
 
 Ralph operates on a simple but powerful cycle:
