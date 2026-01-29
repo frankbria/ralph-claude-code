@@ -120,7 +120,8 @@ record_loop_result() {
         has_completion_signal=$(jq -r '.analysis.has_completion_signal // false' "$response_analysis_file" 2>/dev/null || echo "false")
 
         # Also check exit_signal (Claude explicitly signaling completion)
-        local exit_signal=$(jq -r '.analysis.exit_signal // false' "$response_analysis_file" 2>/dev/null || echo "false")
+        local exit_signal
+        exit_signal=$(jq -r '.analysis.exit_signal // false' "$response_analysis_file" 2>/dev/null || echo "false")
         if [[ "$exit_signal" == "true" ]]; then
             has_completion_signal="true"
         fi
