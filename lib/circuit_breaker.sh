@@ -105,9 +105,45 @@ record_loop_result() {
     consecutive_same_error=$((consecutive_same_error + 0))
     last_progress_loop=$((last_progress_loop + 0))
 
-    # Detect progress
+    # Detect progress from multiple sources:
+    # 1. Files changed (git diff)
+    # 2. Completion signal in response analysis (STATUS: COMPLETE or has_completion_signal)
+    # 3. Claude explicitly reported files modified in RALPH_STATUS block
     local has_progress=false
+    local has_completion_signal=false
+    local ralph_files_modified=0
+
+    # Check response analysis file for completion signals and reported file changes
+    local response_analysis_file="$RALPH_DIR/.response_analysis"
+    if [[ -f "$response_analysis_file" ]]; then
+        # Read completion signal - STATUS: COMPLETE counts as progress even without git changes
+        has_completion_signal=$(jq -r '.analysis.has_completion_signal // false' "$response_analysis_file" 2>/dev/null || echo "false")
+
+        # Also check exit_signal (Claude explicitly signaling completion)
+        local exit_signal=$(jq -r '.analysis.exit_signal // false' "$response_analysis_file" 2>/dev/null || echo "false")
+        if [[ "$exit_signal" == "true" ]]; then
+            has_completion_signal="true"
+        fi
+
+        # Check if Claude reported files modified (may differ from git diff if already committed)
+        ralph_files_modified=$(jq -r '.analysis.files_modified // 0' "$response_analysis_file" 2>/dev/null || echo "0")
+        ralph_files_modified=$((ralph_files_modified + 0))
+    fi
+
+    # Determine if progress was made
     if [[ $files_changed -gt 0 ]]; then
+        # Git shows uncommitted changes - clear progress
+        has_progress=true
+        consecutive_no_progress=0
+        last_progress_loop=$loop_number
+    elif [[ "$has_completion_signal" == "true" ]]; then
+        # Claude reported STATUS: COMPLETE - this is progress even without git changes
+        # (work may have been committed already, or Claude finished analyzing/planning)
+        has_progress=true
+        consecutive_no_progress=0
+        last_progress_loop=$loop_number
+    elif [[ $ralph_files_modified -gt 0 ]]; then
+        # Claude reported modifying files (may be committed already)
         has_progress=true
         consecutive_no_progress=0
         last_progress_loop=$loop_number
