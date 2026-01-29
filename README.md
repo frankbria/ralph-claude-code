@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.10.1-blue)
-![Tests](https://img.shields.io/badge/tests-310%20passing-green)
+![Version](https://img.shields.io/badge/version-0.11.2-blue)
+![Tests](https://img.shields.io/badge/tests-440%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,9 +16,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.10.1 - Active Development
+**Version**: v0.11.2 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 310 tests, 100% pass rate
+**Test Coverage**: 440 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -63,7 +63,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Migration script creates backup before moving files
 - Fail-safe migration: preserves dotfiles with `cp -a source/. dest/` pattern
 - Auto-detection of old structure with helpful upgrade guidance
-- Updated all tests for new structure (310 tests)
+- Updated all tests for new structure
 
 **v0.9.9 - EXIT_SIGNAL Gate & Uninstall Script**
 - Fixed premature exit bug: completion indicators now require Claude's explicit `EXIT_SIGNAL: true`
