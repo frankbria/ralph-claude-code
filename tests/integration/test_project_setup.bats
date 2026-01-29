@@ -489,3 +489,57 @@ teardown() {
     # The script properly quotes variables, so spaces should be handled correctly
     [[ $status -eq 0 ]]
 }
+
+# =============================================================================
+# Test: .ralphrc Generation (Issue #136)
+# =============================================================================
+
+@test "setup.sh creates .ralphrc file" {
+    run bash "$SETUP_SCRIPT" test-project
+
+    assert_success
+    assert_file_exists "test-project/.ralphrc"
+}
+
+@test "setup.sh .ralphrc contains ALLOWED_TOOLS with Edit" {
+    bash "$SETUP_SCRIPT" test-project
+
+    # .ralphrc should include Edit tool
+    grep -q "Edit" test-project/.ralphrc
+}
+
+@test "setup.sh .ralphrc contains ALLOWED_TOOLS with test execution capabilities" {
+    bash "$SETUP_SCRIPT" test-project
+
+    # .ralphrc should include Bash(npm *) or Bash(pytest) for test execution
+    grep -qE 'Bash\(npm \*\)|Bash\(pytest\)' test-project/.ralphrc
+}
+
+@test "setup.sh .ralphrc ALLOWED_TOOLS matches ralph-enable defaults" {
+    bash "$SETUP_SCRIPT" test-project
+
+    # The expected ALLOWED_TOOLS value that ralph-enable uses
+    local expected_tools='ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"'
+
+    # Check that .ralphrc contains the expected ALLOWED_TOOLS line
+    # Use grep -F for literal string matching (avoids regex interpretation of *)
+    grep -qF "$expected_tools" test-project/.ralphrc
+}
+
+@test "setup.sh .ralphrc is committed in initial git commit" {
+    bash "$SETUP_SCRIPT" test-project
+
+    cd test-project
+    # Verify .ralphrc is tracked by git (not in untracked files)
+    run command git ls-files .ralphrc
+
+    assert_success
+    assert_equal "$output" ".ralphrc"
+}
+
+@test "setup.sh .ralphrc contains project name" {
+    bash "$SETUP_SCRIPT" my-custom-project
+
+    # .ralphrc should reference the project name
+    grep -q "my-custom-project" my-custom-project/.ralphrc
+}

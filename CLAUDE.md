@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.11.1 | **Tests**: 424 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.2 | **Tests**: 440 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -205,7 +205,7 @@ Ralph uses modern Claude Code CLI flags for structured communication:
 **Configuration Variables:**
 ```bash
 CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
-CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Allowed tool permissions
+CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"  # Allowed tool permissions
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 ```
@@ -435,6 +435,13 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Setup Permissions Fix (v0.11.2)
+- Fixed issue #136: `ralph-setup` now creates `.ralphrc` with consistent tool permissions
+- Updated default `ALLOWED_TOOLS` from `Write,Bash(git *),Read` to `Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)`
+- Both `ralph-setup` and `ralph-enable` now create identical `.ralphrc` configurations
+- Added 8 new TDD tests for `.ralphrc` creation and ALLOWED_TOOLS defaults
+- Test count: 440 (up from 424)
 
 ### Completion Indicators Fix (v0.11.1)
 - Fixed premature exit after exactly 5 loops in JSON output mode

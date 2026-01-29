@@ -377,7 +377,7 @@ build_ralph_cmd_for_test() {
     local CLAUDE_OUTPUT_FORMAT="${3:-json}"
     local VERBOSE_PROGRESS="${4:-false}"
     local CLAUDE_TIMEOUT_MINUTES="${5:-15}"
-    local CLAUDE_ALLOWED_TOOLS="${6:-Write,Bash(git *),Read}"
+    local CLAUDE_ALLOWED_TOOLS="${6:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}"
     local CLAUDE_USE_CONTINUE="${7:-true}"
     local CLAUDE_SESSION_EXPIRY_HOURS="${8:-24}"
     local RALPH_DIR=".ralph"
@@ -403,7 +403,7 @@ build_ralph_cmd_for_test() {
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
     fi
     # Forward --allowed-tools if non-default
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Bash(git *),Read" ]]; then
+    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)" ]]; then
         ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
@@ -460,7 +460,7 @@ build_ralph_cmd_for_test() {
 }
 
 @test "monitor does not forward default parameters" {
-    local result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "json" "false" "15" "Write,Bash(git *),Read" "true" "24")
+    local result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "json" "false" "15" "Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)" "true" "24")
     # Should only be "ralph" with no extra flags
     [[ "$result" == "ralph" ]]
 }

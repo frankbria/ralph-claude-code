@@ -171,6 +171,24 @@ teardown() {
     [[ "$output" == *"Read"* ]]
 }
 
+@test "CLAUDE_ALLOWED_TOOLS default includes Edit tool (issue #136)" {
+    # Verify the default includes Edit for file editing
+    run grep 'CLAUDE_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The default should include Edit
+    [[ "$output" == *"Edit"* ]]
+}
+
+@test "CLAUDE_ALLOWED_TOOLS default includes test execution tools (issue #136)" {
+    # Verify the default includes test execution capabilities
+    run grep 'CLAUDE_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should include Bash(npm *) for npm test
+    [[ "$output" == *'Bash(npm *)'* ]]
+    # Should include Bash(pytest) for Python tests
+    [[ "$output" == *'Bash(pytest)'* ]]
+}
+
 @test "CLAUDE_USE_CONTINUE defaults to true" {
     # Verify by checking the default in ralph_loop.sh via grep
     run grep 'CLAUDE_USE_CONTINUE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
