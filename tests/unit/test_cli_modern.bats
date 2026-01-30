@@ -35,7 +35,7 @@ setup() {
 
     # Create sample project files
     create_sample_prompt
-    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
+    create_sample_fix_plan "$RALPH_DIR/fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -93,8 +93,8 @@ setup() {
 
         context="Loop #${loop_count}. "
 
-        if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-            local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+        if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+            local incomplete_tasks=$(grep -c "^- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
             context+="Remaining tasks: ${incomplete_tasks}. "
         fi
 
@@ -157,8 +157,9 @@ teardown() {
 
 @test "CLAUDE_OUTPUT_FORMAT defaults to json" {
     # Verify by checking the default in ralph_loop.sh via grep
+    # The default is set via ${CLAUDE_OUTPUT_FORMAT:-json} pattern
     run grep 'CLAUDE_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *'"json"'* ]]
+    [[ "$output" == *"json"* ]]
 }
 
 @test "CLAUDE_ALLOWED_TOOLS has sensible defaults" {
@@ -168,6 +169,24 @@ teardown() {
     # Should include Write, Bash, Read at minimum
     [[ "$output" == *"Write"* ]]
     [[ "$output" == *"Read"* ]]
+}
+
+@test "CLAUDE_ALLOWED_TOOLS default includes Edit tool (issue #136)" {
+    # Verify the default includes Edit for file editing
+    run grep 'CLAUDE_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The default should include Edit
+    [[ "$output" == *"Edit"* ]]
+}
+
+@test "CLAUDE_ALLOWED_TOOLS default includes test execution tools (issue #136)" {
+    # Verify the default includes test execution capabilities
+    run grep 'CLAUDE_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should include Bash(npm *) for npm test
+    [[ "$output" == *'Bash(npm *)'* ]]
+    # Should include Bash(pytest) for Python tests
+    [[ "$output" == *'Bash(pytest)'* ]]
 }
 
 @test "CLAUDE_USE_CONTINUE defaults to true" {
@@ -217,9 +236,9 @@ teardown() {
     [[ "$output" == *"Loop #5"* ]] || [[ "$output" == *"5"* ]]
 }
 
-@test "build_loop_context counts remaining tasks from @fix_plan.md" {
+@test "build_loop_context counts remaining tasks from fix_plan.md" {
     # Create fix plan with 7 incomplete tasks in .ralph/ directory
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 done
 - [x] Task 2 done
@@ -286,8 +305,8 @@ EOF
     [[ ${#output} -le 600 ]]
 }
 
-@test "build_loop_context handles missing @fix_plan.md gracefully" {
-    rm -f "$RALPH_DIR/@fix_plan.md"
+@test "build_loop_context handles missing fix_plan.md gracefully" {
+    rm -f "$RALPH_DIR/fix_plan.md"
 
     run build_loop_context 1
 
@@ -621,4 +640,30 @@ EOF
     done
 
     [[ "$found_prompt" == "true" ]]
+}
+
+# =============================================================================
+# .RALPHRC CONFIGURATION LOADING TESTS
+# Tests for the environment variable precedence fix
+# =============================================================================
+
+@test "load_ralphrc uses env var capture pattern for precedence" {
+    # Verify the implementation pattern: _env_* variables capture state before defaults
+    # This test validates the pattern is correctly implemented in ralph_loop.sh
+
+    run grep '_env_MAX_CALLS_PER_HOUR=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should capture env var state BEFORE setting defaults
+    [[ "$output" == *'${MAX_CALLS_PER_HOUR:-}'* ]]
+}
+
+@test "load_ralphrc restores only env var overrides, not defaults" {
+    # Verify that load_ralphrc uses _env_* pattern for restoration
+    # This ensures .ralphrc values are not overwritten by script defaults
+
+    run grep -A5 'Restore ONLY values' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should check _env_* variables (not saved_* which would always have values)
+    [[ "$output" == *'_env_MAX_CALLS_PER_HOUR'* ]]
+    [[ "$output" == *'_env_CLAUDE_TIMEOUT_MINUTES'* ]]
 }

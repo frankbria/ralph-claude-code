@@ -27,6 +27,7 @@ setup() {
     export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
     export RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"
     export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
     export CLAUDE_MIN_VERSION="2.0.76"
     export CLAUDE_CODE_CMD="claude"
     export CLAUDE_USE_CONTINUE="true"
@@ -38,7 +39,7 @@ setup() {
 
     # Create sample project files in .ralph/ directory
     create_sample_prompt "$RALPH_DIR/PROMPT.md"
-    create_sample_fix_plan "$RALPH_DIR/@fix_plan.md" 10 3
+    create_sample_fix_plan "$RALPH_DIR/fix_plan.md" 10 3
 
     # Source library components
     source "${BATS_TEST_DIRNAME}/../../lib/date_utils.sh"
@@ -595,6 +596,10 @@ EOF
 @test "reset_session prevents issue #91 scenario (stale completion indicators)" {
     # Issue #91: Ralph exits immediately when stale completion_indicators exist
 
+    # Ensure variables are set before use (defensive against env differences)
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
+
     # Simulate the issue scenario:
     # 1. Previous session ended with completion_indicators: [1,2]
     # 2. Previous session had EXIT_SIGNAL: true
@@ -607,10 +612,6 @@ EOF
 
     local exit_signal=$(jq -r '.analysis.exit_signal' "$RESPONSE_ANALYSIS_FILE")
     [[ "$exit_signal" == "true" ]]
-
-    # Now simulate user running --reset-session (which should clear these files)
-    export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
-    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 
     # Define reset_session with the fix
     reset_session() {

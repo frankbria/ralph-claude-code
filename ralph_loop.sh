@@ -25,9 +25,6 @@ DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="claude"
-MAX_CALLS_PER_HOUR=100  # Adjust based on your plan
-VERBOSE_PROGRESS=false  # Default: no verbose progress updates
-CLAUDE_TIMEOUT_MINUTES=15  # Default: 15 minutes timeout for Claude Code execution
 SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
@@ -35,10 +32,25 @@ CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 
+# Save environment variable state BEFORE setting defaults
+# These are used by load_ralphrc() to determine which values came from environment
+_env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
+_env_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
+_env_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
+_env_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
+_env_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
+_env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
+_env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
+
+# Now set defaults (only if not already set by environment)
+MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
+VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
+CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
+
 # Modern Claude CLI configuration (Phase 1.1)
-CLAUDE_OUTPUT_FORMAT="json"              # Options: json, text
-CLAUDE_ALLOWED_TOOLS="Write,Bash(git *),Read"  # Comma-separated list of allowed tools
-CLAUDE_USE_CONTINUE=true                 # Enable session continuity
+CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
+CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}"
+CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
@@ -78,6 +90,65 @@ RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
+
+# .ralphrc configuration file
+RALPHRC_FILE=".ralphrc"
+RALPHRC_LOADED=false
+
+# load_ralphrc - Load project-specific configuration from .ralphrc
+#
+# This function sources .ralphrc if it exists, applying project-specific
+# settings. Environment variables take precedence over .ralphrc values.
+#
+# Configuration values that can be overridden:
+#   - MAX_CALLS_PER_HOUR
+#   - CLAUDE_TIMEOUT_MINUTES
+#   - CLAUDE_OUTPUT_FORMAT
+#   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
+#   - SESSION_CONTINUITY (mapped to CLAUDE_USE_CONTINUE)
+#   - SESSION_EXPIRY_HOURS (mapped to CLAUDE_SESSION_EXPIRY_HOURS)
+#   - CB_NO_PROGRESS_THRESHOLD
+#   - CB_SAME_ERROR_THRESHOLD
+#   - CB_OUTPUT_DECLINE_THRESHOLD
+#   - RALPH_VERBOSE
+#
+load_ralphrc() {
+    if [[ ! -f "$RALPHRC_FILE" ]]; then
+        return 0
+    fi
+
+    # Source .ralphrc (this may override default values)
+    # shellcheck source=/dev/null
+    source "$RALPHRC_FILE"
+
+    # Map .ralphrc variable names to internal names
+    if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
+        CLAUDE_ALLOWED_TOOLS="$ALLOWED_TOOLS"
+    fi
+    if [[ -n "${SESSION_CONTINUITY:-}" ]]; then
+        CLAUDE_USE_CONTINUE="$SESSION_CONTINUITY"
+    fi
+    if [[ -n "${SESSION_EXPIRY_HOURS:-}" ]]; then
+        CLAUDE_SESSION_EXPIRY_HOURS="$SESSION_EXPIRY_HOURS"
+    fi
+    if [[ -n "${RALPH_VERBOSE:-}" ]]; then
+        VERBOSE_PROGRESS="$RALPH_VERBOSE"
+    fi
+
+    # Restore ONLY values that were explicitly set via environment variables
+    # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
+    # If _env_* is non-empty, the user explicitly set it in their environment.
+    [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
+    [[ -n "$_env_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$_env_CLAUDE_TIMEOUT_MINUTES"
+    [[ -n "$_env_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$_env_CLAUDE_OUTPUT_FORMAT"
+    [[ -n "$_env_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$_env_CLAUDE_ALLOWED_TOOLS"
+    [[ -n "$_env_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$_env_CLAUDE_USE_CONTINUE"
+    [[ -n "$_env_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_env_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
+
+    RALPHRC_LOADED=true
+    return 0
+}
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -132,7 +203,8 @@ setup_tmux_session() {
         tmux send-keys -t "$session_name:0.2" "'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
-    # Left pane (pane 0): Ralph loop
+    # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
+    # Forward all CLI parameters that were set by the user
     local ralph_cmd
     if command -v ralph &> /dev/null; then
         ralph_cmd="ralph"
@@ -143,11 +215,37 @@ setup_tmux_session() {
     # Always use --live mode in tmux for real-time streaming
     ralph_cmd="$ralph_cmd --live"
 
+    # Forward --calls if non-default
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
+    # Forward --prompt if non-default
     if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
+    fi
+    # Forward --output-format if non-default (default is json)
+    if [[ "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
+        ralph_cmd="$ralph_cmd --output-format $CLAUDE_OUTPUT_FORMAT"
+    fi
+    # Forward --verbose if enabled
+    if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --verbose"
+    fi
+    # Forward --timeout if non-default (default is 15)
+    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
+        ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
+    fi
+    # Forward --allowed-tools if non-default
+    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)" ]]; then
+        ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
+    fi
+    # Forward --no-continue if session continuity disabled
+    if [[ "$CLAUDE_USE_CONTINUE" == "false" ]]; then
+        ralph_cmd="$ralph_cmd --no-continue"
+    fi
+    # Forward --session-expiry if non-default (default is 24)
+    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
+        ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
     fi
 
     tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
@@ -319,9 +417,24 @@ should_exit_gracefully() {
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
     
-    
+
     # Check for exit conditions
-    
+
+    # 0. Permission denials (highest priority - Issue #101)
+    # When Claude Code is denied permission to run commands, halt immediately
+    # to allow user to update .ralphrc ALLOWED_TOOLS configuration
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$has_permission_denials" == "true" ]]; then
+            local denied_count=$(jq -r '.analysis.permission_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
+            local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
+            log_status "WARN" "🚫 Permission denied for $denied_count command(s): $denied_cmds"
+            log_status "WARN" "Update ALLOWED_TOOLS in .ralphrc to include the required tools"
+            echo "permission_denied"
+            return 0
+        fi
+    fi
+
     # 1. Too many consecutive test-only loops
     if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
         log_status "WARN" "Exit condition: Too many test-focused loops ($recent_test_loops >= $MAX_CONSECUTIVE_TEST_LOOPS)"
@@ -336,12 +449,14 @@ should_exit_gracefully() {
         return 0
     fi
     
-    # 3. Safety circuit breaker - force exit after 5 consecutive completion indicators
-    # Bug #2 Fix: Prevents infinite loops when EXIT_SIGNAL is not explicitly set
-    # but completion patterns clearly indicate work is done. Threshold of 5 is higher
-    # than normal threshold (2) to avoid false positives while preventing API waste.
+    # 3. Safety circuit breaker - force exit after 5 consecutive EXIT_SIGNAL=true responses
+    # Note: completion_indicators only accumulates when Claude explicitly sets EXIT_SIGNAL=true
+    # (not based on confidence score). This safety breaker catches cases where Claude signals
+    # completion 5+ times but the normal exit path (completion_indicators >= 2 + EXIT_SIGNAL=true)
+    # didn't trigger for some reason. Threshold of 5 prevents API waste while being higher than
+    # the normal threshold (2) to avoid false positives.
     if [[ $recent_completion_indicators -ge 5 ]]; then
-        log_status "WARN" "🚨 SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive completion indicators ($recent_completion_indicators)" >&2
+        log_status "WARN" "🚨 SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive EXIT_SIGNAL=true responses ($recent_completion_indicators)" >&2
         echo "safety_circuit_breaker"
         return 0
     fi
@@ -363,9 +478,9 @@ should_exit_gracefully() {
     
     # 5. Check fix_plan.md for completion
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
-    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
@@ -378,7 +493,7 @@ should_exit_gracefully() {
             return 0
         fi
     fi
-    
+
     echo ""  # Return empty string instead of using return code
 }
 
@@ -472,10 +587,10 @@ build_loop_context() {
     # Add loop number
     context="Loop #${loop_count}. "
 
-    # Extract incomplete tasks from @fix_plan.md
+    # Extract incomplete tasks from fix_plan.md
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
-    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null || echo "0")
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
@@ -1121,6 +1236,12 @@ loop_count=0
 
 # Main loop
 main() {
+    # Load project-specific configuration from .ralphrc
+    if load_ralphrc; then
+        if [[ "$RALPHRC_LOADED" == "true" ]]; then
+            log_status "INFO" "Loaded configuration from .ralphrc"
+        fi
+    fi
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
@@ -1146,7 +1267,7 @@ main() {
         echo ""
         
         # Check if this looks like a partial Ralph project
-        if [[ -f "$RALPH_DIR/@fix_plan.md" ]] || [[ -d "$RALPH_DIR/specs" ]] || [[ -f "$RALPH_DIR/@AGENT.md" ]]; then
+        if [[ -f "$RALPH_DIR/fix_plan.md" ]] || [[ -d "$RALPH_DIR/specs" ]] || [[ -f "$RALPH_DIR/AGENT.md" ]]; then
             echo "This appears to be a Ralph project but is missing .ralph/PROMPT.md."
             echo "You may need to create or restore the PROMPT.md file."
         else
@@ -1155,12 +1276,13 @@ main() {
 
         echo ""
         echo "To fix this:"
-        echo "  1. Create a new project: ralph-setup my-project"
-        echo "  2. Import existing requirements: ralph-import requirements.md"
-        echo "  3. Navigate to an existing Ralph project directory"
-        echo "  4. Or create .ralph/PROMPT.md manually in this directory"
+        echo "  1. Enable Ralph in existing project: ralph-enable"
+        echo "  2. Create a new project: ralph-setup my-project"
+        echo "  3. Import existing requirements: ralph-import requirements.md"
+        echo "  4. Navigate to an existing Ralph project directory"
+        echo "  5. Or create .ralph/PROMPT.md manually in this directory"
         echo ""
-        echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/@fix_plan.md, .ralph/specs/, src/, etc."
+        echo "Ralph projects should contain: .ralph/PROMPT.md, .ralph/fix_plan.md, .ralph/specs/, src/, etc."
         exit 1
     fi
 
@@ -1197,6 +1319,45 @@ main() {
         # Check for graceful exit conditions
         local exit_reason=$(should_exit_gracefully)
         if [[ "$exit_reason" != "" ]]; then
+            # Handle permission_denied specially (Issue #101)
+            if [[ "$exit_reason" == "permission_denied" ]]; then
+                log_status "ERROR" "🚫 Permission denied - halting loop"
+                reset_session "permission_denied"
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "permission_denied" "halted" "permission_denied"
+
+                # Display helpful guidance for resolving permission issues
+                echo ""
+                echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${RED}║  PERMISSION DENIED - Loop Halted                          ║${NC}"
+                echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+                echo ""
+                echo -e "${YELLOW}Claude Code was denied permission to execute commands.${NC}"
+                echo ""
+                echo -e "${YELLOW}To fix this:${NC}"
+                echo "  1. Edit .ralphrc and update ALLOWED_TOOLS to include the required tools"
+                echo "  2. Common patterns:"
+                echo "     - Bash(npm *)     - All npm commands"
+                echo "     - Bash(npm install) - Only npm install"
+                echo "     - Bash(pnpm *)    - All pnpm commands"
+                echo "     - Bash(yarn *)    - All yarn commands"
+                echo ""
+                echo -e "${YELLOW}After updating .ralphrc:${NC}"
+                echo "  ralph --reset-session  # Clear stale session state"
+                echo "  ralph --monitor        # Restart the loop"
+                echo ""
+
+                # Show current ALLOWED_TOOLS if .ralphrc exists
+                if [[ -f ".ralphrc" ]]; then
+                    local current_tools=$(grep "^ALLOWED_TOOLS=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"')
+                    if [[ -n "$current_tools" ]]; then
+                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $current_tools"
+                        echo ""
+                    fi
+                fi
+
+                break
+            fi
+
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
             reset_session "project_complete"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"

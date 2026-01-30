@@ -75,9 +75,9 @@ should_exit_gracefully() {
     fi
 
     # 4. Check fix_plan.md for completion
-    if [[ -f "$RALPH_DIR/@fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/@fix_plan.md" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local total_items=$(grep -c "^- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
+        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
 
         # Handle case where grep returns no matches (exit code 1)
         [[ -z "$total_items" ]] && total_items=0
@@ -176,9 +176,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 10: Exit when @fix_plan.md all items complete
+# Test 10: Exit when fix_plan.md all items complete
 @test "should_exit_gracefully exits when all fix_plan items complete" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [x] Task 2
@@ -189,9 +189,9 @@ EOF
     assert_equal "$result" "plan_complete"
 }
 
-# Test 11: No exit when @fix_plan.md partially complete
+# Test 11: No exit when fix_plan.md partially complete
 @test "should_exit_gracefully continues when fix_plan partially complete" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1
 - [ ] Task 2
@@ -202,9 +202,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 12: No exit when @fix_plan.md missing
+# Test 12: No exit when fix_plan.md missing
 @test "should_exit_gracefully continues when fix_plan missing" {
-    # Don't create @fix_plan.md
+    # Don't create fix_plan.md
 
     result=$(should_exit_gracefully || true)
     assert_equal "$result" ""
@@ -236,9 +236,9 @@ EOF
     assert_equal "$result" "test_saturation"
 }
 
-# Test 16: @fix_plan.md with no checkboxes
+# Test 16: fix_plan.md with no checkboxes
 @test "should_exit_gracefully handles fix_plan with no checkboxes" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 This is just text, no tasks yet.
 EOF
@@ -247,9 +247,9 @@ EOF
     assert_equal "$result" ""
 }
 
-# Test 17: @fix_plan.md with mixed checkbox formats
+# Test 17: fix_plan.md with mixed checkbox formats
 @test "should_exit_gracefully handles mixed checkbox formats" {
-    cat > "$RALPH_DIR/@fix_plan.md" << 'EOF'
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
 # Fix Plan
 - [x] Task 1 completed
 - [ ] Task 2 pending
@@ -517,5 +517,364 @@ EOF
 
     result=$(should_exit_gracefully || true)
     # EXIT_SIGNAL=false should take precedence, continue working
+    assert_equal "$result" ""
+}
+
+# =============================================================================
+# UPDATE_EXIT_SIGNALS TESTS (Issue: Confidence-based completion indicators)
+# =============================================================================
+# These tests verify that update_exit_signals() only adds to completion_indicators
+# when EXIT_SIGNAL is true, not based on confidence score alone.
+# This is critical for JSON mode where confidence is always >= 70.
+
+# Source the response_analyzer library for direct testing
+# Note: These tests source the library to test update_exit_signals() directly
+
+# Test 32: update_exit_signals should NOT add to completion_indicators when exit_signal=false
+@test "update_exit_signals does NOT add to completion_indicators when exit_signal=false" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create analysis file with HIGH confidence (70) but exit_signal=false
+    # This simulates JSON mode where confidence is always >= 70
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": true,
+        "files_modified": 5,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Implementing feature, still in progress"
+    }
+}
+EOF
+
+    # Call update_exit_signals
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Verify completion_indicators was NOT incremented
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "0"
+}
+
+# Test 33: update_exit_signals SHOULD add to completion_indicators when exit_signal=true
+@test "update_exit_signals adds to completion_indicators when exit_signal=true" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create analysis file with exit_signal=true
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "timestamp": "2026-01-12T10:00:00Z",
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": false,
+        "files_modified": 0,
+        "confidence_score": 100,
+        "exit_signal": true,
+        "work_summary": "All tasks complete"
+    }
+}
+EOF
+
+    # Call update_exit_signals
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Verify completion_indicators WAS incremented
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "1"
+
+    # Verify the loop number was recorded
+    local loop_recorded=$(jq '.completion_indicators[0]' "$EXIT_SIGNALS_FILE")
+    assert_equal "$loop_recorded" "1"
+}
+
+# Test 34: update_exit_signals accumulates completion_indicators only on exit_signal=true
+@test "update_exit_signals accumulates completion_indicators only when exit_signal=true" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Loop 1: exit_signal=false (should NOT add)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "has_progress": true,
+        "confidence_score": 80,
+        "exit_signal": false
+    }
+}
+EOF
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Loop 2: exit_signal=false (should NOT add)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 2,
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "has_progress": true,
+        "confidence_score": 90,
+        "exit_signal": false
+    }
+}
+EOF
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Loop 3: exit_signal=true (SHOULD add)
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "analysis": {
+        "has_completion_signal": true,
+        "is_test_only": false,
+        "has_progress": false,
+        "confidence_score": 100,
+        "exit_signal": true
+    }
+}
+EOF
+    update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+
+    # Verify only 1 completion indicator (from loop 3)
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "1"
+
+    local loop_recorded=$(jq '.completion_indicators[0]' "$EXIT_SIGNALS_FILE")
+    assert_equal "$loop_recorded" "3"
+}
+
+# Test 35: JSON mode simulation - 5 loops with exit_signal=false should NOT trigger safety breaker
+@test "update_exit_signals JSON mode - 5 loops with exit_signal=false does not fill completion_indicators" {
+    # Source the response analyzer library
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    # Initialize exit signals file
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Simulate 5 JSON mode loops with high confidence but exit_signal=false
+    # This is the exact scenario that caused the bug
+    for i in 1 2 3 4 5; do
+        cat > "$RESPONSE_ANALYSIS_FILE" << EOF
+{
+    "loop_number": $i,
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "has_progress": true,
+        "files_modified": 3,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Working on feature $i"
+    }
+}
+EOF
+        update_exit_signals "$RESPONSE_ANALYSIS_FILE" "$EXIT_SIGNALS_FILE"
+    done
+
+    # Verify completion_indicators is EMPTY (not filled with 5 indicators)
+    local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$indicator_count" "0"
+}
+
+# =============================================================================
+# PERMISSION DENIAL EXIT TESTS (Issue #101)
+# =============================================================================
+# When Claude Code is denied permission to run commands, Ralph should detect
+# this from the permission_denials field and halt the loop to allow user intervention.
+
+# Helper function with permission denial support
+should_exit_gracefully_with_denials() {
+    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo ""
+        return 1
+    fi
+
+    local signals=$(cat "$EXIT_SIGNALS_FILE")
+
+    local recent_test_loops
+    local recent_done_signals
+    local recent_completion_indicators
+
+    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
+    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
+    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
+
+    # Check for permission denials first (highest priority - Issue #101)
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$has_permission_denials" == "true" ]]; then
+            echo "permission_denied"
+            return 0
+        fi
+    fi
+
+    # 1. Too many consecutive test-only loops
+    if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
+        echo "test_saturation"
+        return 0
+    fi
+
+    # 2. Multiple "done" signals
+    if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
+        echo "completion_signals"
+        return 0
+    fi
+
+    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    local claude_exit_signal="false"
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+    fi
+
+    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
+        echo "project_complete"
+        return 0
+    fi
+
+    echo ""
+    return 1
+}
+
+# Test 36: Exit on permission denial detected
+@test "should_exit_gracefully exits on permission_denied" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create response analysis with permission denials
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": false,
+        "files_modified": 0,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Tried to run npm install but permission denied",
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["npm install"]
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 37: No exit when no permission denials
+@test "should_exit_gracefully continues when no permission denials" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create response analysis without permission denials
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": true,
+        "files_modified": 3,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Implementing feature",
+        "has_permission_denials": false,
+        "permission_denial_count": 0,
+        "denied_commands": []
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials || true)
+    assert_equal "$result" ""
+}
+
+# Test 38: Permission denial takes priority over other signals
+@test "permission_denied takes priority over test_saturation" {
+    # Set up test saturation condition
+    echo '{"test_only_loops": [1,2,3], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create response analysis with permission denials
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "analysis": {
+        "is_test_only": true,
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["npm install"]
+    }
+}
+EOF
+
+    # Permission denied should take priority
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 39: Multiple permission denials detected
+@test "should_exit_gracefully detects multiple permission denials" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_permission_denials": true,
+        "permission_denial_count": 3,
+        "denied_commands": ["npm install", "pnpm install", "yarn add lodash"]
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 40: Missing has_permission_denials field defaults to false (backward compat)
+@test "should_exit_gracefully handles missing permission denial fields" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Old format response analysis without permission denial fields
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials || true)
     assert_equal "$result" ""
 }

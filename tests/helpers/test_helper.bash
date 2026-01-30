@@ -95,11 +95,11 @@ Test the system.
 EOF
 }
 
-# Helper: Create a mock @fix_plan.md file
+# Helper: Create a mock fix_plan.md file
 create_mock_fix_plan() {
     local total=${1:-5}
     local completed=${2:-0}
-    local fix_plan_file="$RALPH_DIR/@fix_plan.md"
+    local fix_plan_file="$RALPH_DIR/fix_plan.md"
 
     mkdir -p "$RALPH_DIR"
     cat > "$fix_plan_file" << EOF

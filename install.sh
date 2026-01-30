@@ -167,6 +167,28 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/migrate_to_ralph_folder.sh" "$@"
 EOF
 
+    # Create ralph-enable command (interactive wizard)
+    cat > "$INSTALL_DIR/ralph-enable" << 'EOF'
+#!/bin/bash
+# Ralph Enable - Interactive Wizard for Existing Projects
+# Adds Ralph configuration to an existing codebase
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_enable.sh" "$@"
+EOF
+
+    # Create ralph-enable-ci command (non-interactive)
+    cat > "$INSTALL_DIR/ralph-enable-ci" << 'EOF'
+#!/bin/bash
+# Ralph Enable CI - Non-Interactive Version for Automation
+# Adds Ralph configuration with sensible defaults
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_enable_ci.sh" "$@"
+EOF
+
     # Copy actual script files to Ralph home with modifications for global operation
     cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
 
@@ -176,15 +198,23 @@ EOF
     # Copy migration script to Ralph home
     cp "$SCRIPT_DIR/migrate_to_ralph_folder.sh" "$RALPH_HOME/"
 
+    # Copy enable scripts to Ralph home
+    cp "$SCRIPT_DIR/ralph_enable.sh" "$RALPH_HOME/"
+    cp "$SCRIPT_DIR/ralph_enable_ci.sh" "$RALPH_HOME/"
+
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph"
     chmod +x "$INSTALL_DIR/ralph-monitor"
     chmod +x "$INSTALL_DIR/ralph-setup"
     chmod +x "$INSTALL_DIR/ralph-import"
     chmod +x "$INSTALL_DIR/ralph-migrate"
+    chmod +x "$INSTALL_DIR/ralph-enable"
+    chmod +x "$INSTALL_DIR/ralph-enable-ci"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
     chmod +x "$RALPH_HOME/migrate_to_ralph_folder.sh"
+    chmod +x "$RALPH_HOME/ralph_enable.sh"
+    chmod +x "$RALPH_HOME/ralph_enable_ci.sh"
     chmod +x "$RALPH_HOME/lib/"*.sh
 
     log "SUCCESS" "Ralph scripts installed to $INSTALL_DIR"
@@ -232,8 +262,8 @@ mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
 
 # Copy templates from Ralph home to .ralph/ subfolder
 cp "$RALPH_HOME/templates/PROMPT.md" .ralph/
-cp "$RALPH_HOME/templates/fix_plan.md" .ralph/@fix_plan.md
-cp "$RALPH_HOME/templates/AGENT.md" .ralph/@AGENT.md
+cp "$RALPH_HOME/templates/fix_plan.md" .ralph/fix_plan.md
+cp "$RALPH_HOME/templates/AGENT.md" .ralph/AGENT.md
 cp -r "$RALPH_HOME/templates/specs/"* .ralph/specs/ 2>/dev/null || true
 
 # Initialize git
@@ -291,6 +321,8 @@ main() {
     echo "  ralph --monitor          # Start Ralph with integrated monitoring"
     echo "  ralph --help            # Show Ralph options"
     echo "  ralph-setup my-project  # Create new Ralph project"
+    echo "  ralph-enable            # Enable Ralph in existing project (interactive)"
+    echo "  ralph-enable-ci         # Enable Ralph in existing project (non-interactive)"
     echo "  ralph-import prd.md     # Convert PRD to Ralph project"
     echo "  ralph-migrate           # Migrate existing project to .ralph/ structure"
     echo "  ralph-monitor           # Manual monitoring dashboard"
@@ -314,7 +346,7 @@ case "${1:-install}" in
         ;;
     uninstall)
         log "INFO" "Uninstalling Ralph for Claude Code..."
-        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate"
+        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci"
         rm -rf "$RALPH_HOME"
         log "SUCCESS" "Ralph for Claude Code uninstalled"
         ;;

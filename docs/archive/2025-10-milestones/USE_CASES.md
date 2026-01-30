@@ -32,7 +32,7 @@
 - Cannot modify project requirements
 - Must respect API rate limits
 - Cannot override circuit breaker when open
-- Requires valid PROMPT.md and @fix_plan.md
+- Requires valid PROMPT.md and fix_plan.md
 
 ---
 
@@ -58,7 +58,7 @@
 **Type**: Human
 **Goal**: Initiate Ralph, review results, intervene when needed
 **Capabilities**:
-- Create PROMPT.md and @fix_plan.md
+- Create PROMPT.md and fix_plan.md
 - Start/stop Ralph execution
 - Reset circuit breaker
 - Review code changes
@@ -89,7 +89,7 @@
 **Stakeholders**: Human Developer (wants progress), Claude Code (executor)
 **Preconditions**:
 - PROMPT.md exists and is valid
-- @fix_plan.md exists with at least one task
+- fix_plan.md exists with at least one task
 - Claude Code CLI is installed and accessible
 - git repository is initialized
 
@@ -105,7 +105,7 @@
 2. Ralph checks circuit breaker state (must be CLOSED or HALF_OPEN)
 3. Ralph verifies rate limit allows execution
 4. Ralph executes Claude Code with PROMPT.md
-5. Claude Code reads @fix_plan.md and selects task
+5. Claude Code reads fix_plan.md and selects task
 6. Claude Code implements task (files modified)
 7. Claude Code runs relevant tests
 8. Claude Code outputs RALPH_STATUS block
@@ -400,7 +400,7 @@
 **Main Success Scenario**:
 1. User identifies circuit breaker opened (from ralph-monitor or logs)
 2. User reviews logs/ralph.log to understand cause
-3. User fixes underlying issue (updates @fix_plan.md, fixes error, etc.)
+3. User fixes underlying issue (updates fix_plan.md, fixes error, etc.)
 4. User runs: `ralph --reset-circuit`
 5. Ralph loads circuit_breaker.sh functions
 6. Ralph calls reset_circuit_breaker("Manual reset by user")
