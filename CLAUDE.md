@@ -378,6 +378,28 @@ fi
 - `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
 - `CB_SAME_ERROR_THRESHOLD=5` - Open circuit after 5 loops with repeated errors
 - `CB_OUTPUT_DECLINE_THRESHOLD=70%` - Open circuit if output declines by >70%
+- `CB_PERMISSION_DENIAL_THRESHOLD=2` - Open circuit after 2 loops with permission denials (Issue #101)
+
+### Permission Denial Detection (Issue #101)
+
+When Claude Code is denied permission to execute commands (e.g., `npm install`), Ralph detects this from the `permission_denials` array in the JSON output and halts the loop immediately:
+
+1. **Detection**: The `parse_json_response()` function extracts `permission_denials` from Claude Code output
+2. **Fields tracked**:
+   - `has_permission_denials` (boolean)
+   - `permission_denial_count` (integer)
+   - `denied_commands` (array of command strings)
+3. **Exit behavior**: When `has_permission_denials=true`, Ralph exits with reason "permission_denied"
+4. **User guidance**: Ralph displays instructions to update `ALLOWED_TOOLS` in `.ralphrc`
+
+**Example `.ralphrc` tool patterns:**
+```bash
+# Broad patterns (recommended for development)
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+
+# Specific patterns (more restrictive)
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git commit),Bash(npm install)"
+```
 
 ### Error Detection
 

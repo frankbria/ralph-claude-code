@@ -19,6 +19,7 @@ CB_HISTORY_FILE="$RALPH_DIR/.circuit_breaker_history"
 CB_NO_PROGRESS_THRESHOLD=3      # Open circuit after N loops with no progress
 CB_SAME_ERROR_THRESHOLD=5       # Open circuit after N loops with same error
 CB_OUTPUT_DECLINE_THRESHOLD=70  # Open circuit if output declines by >70%
+CB_PERMISSION_DENIAL_THRESHOLD=2  # Open circuit after N loops with permission denials (Issue #101)
 
 # Colors
 RED='\033[0;31m'
@@ -44,6 +45,7 @@ init_circuit_breaker() {
     "last_change": "$(get_iso_timestamp)",
     "consecutive_no_progress": 0,
     "consecutive_same_error": 0,
+    "consecutive_permission_denials": 0,
     "last_progress_loop": 0,
     "total_opens": 0,
     "reason": ""
@@ -98,11 +100,13 @@ record_loop_result() {
     local current_state=$(echo "$state_data" | jq -r '.state')
     local consecutive_no_progress=$(echo "$state_data" | jq -r '.consecutive_no_progress' | tr -d '[:space:]')
     local consecutive_same_error=$(echo "$state_data" | jq -r '.consecutive_same_error' | tr -d '[:space:]')
+    local consecutive_permission_denials=$(echo "$state_data" | jq -r '.consecutive_permission_denials // 0' | tr -d '[:space:]')
     local last_progress_loop=$(echo "$state_data" | jq -r '.last_progress_loop' | tr -d '[:space:]')
 
     # Ensure integers
     consecutive_no_progress=$((consecutive_no_progress + 0))
     consecutive_same_error=$((consecutive_same_error + 0))
+    consecutive_permission_denials=$((consecutive_permission_denials + 0))
     last_progress_loop=$((last_progress_loop + 0))
 
     # Detect progress from multiple sources:
@@ -129,6 +133,18 @@ record_loop_result() {
         # Check if Claude reported files modified (may differ from git diff if already committed)
         ralph_files_modified=$(jq -r '.analysis.files_modified // 0' "$response_analysis_file" 2>/dev/null || echo "0")
         ralph_files_modified=$((ralph_files_modified + 0))
+    fi
+
+    # Track permission denials (Issue #101)
+    local has_permission_denials="false"
+    if [[ -f "$response_analysis_file" ]]; then
+        has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$response_analysis_file" 2>/dev/null || echo "false")
+    fi
+
+    if [[ "$has_permission_denials" == "true" ]]; then
+        consecutive_permission_denials=$((consecutive_permission_denials + 1))
+    else
+        consecutive_permission_denials=0
     fi
 
     # Determine if progress was made
@@ -167,7 +183,11 @@ record_loop_result() {
     case $current_state in
         "$CB_STATE_CLOSED")
             # Normal operation - check for failure conditions
-            if [[ $consecutive_no_progress -ge $CB_NO_PROGRESS_THRESHOLD ]]; then
+            # Permission denials take highest priority (Issue #101)
+            if [[ $consecutive_permission_denials -ge $CB_PERMISSION_DENIAL_THRESHOLD ]]; then
+                new_state="$CB_STATE_OPEN"
+                reason="Permission denied in $consecutive_permission_denials consecutive loops - update ALLOWED_TOOLS in .ralphrc"
+            elif [[ $consecutive_no_progress -ge $CB_NO_PROGRESS_THRESHOLD ]]; then
                 new_state="$CB_STATE_OPEN"
                 reason="No progress detected in $consecutive_no_progress consecutive loops"
             elif [[ $consecutive_same_error -ge $CB_SAME_ERROR_THRESHOLD ]]; then
@@ -181,7 +201,11 @@ record_loop_result() {
 
         "$CB_STATE_HALF_OPEN")
             # Monitoring mode - either recover or fail
-            if [[ "$has_progress" == "true" ]]; then
+            # Permission denials take highest priority (Issue #101)
+            if [[ $consecutive_permission_denials -ge $CB_PERMISSION_DENIAL_THRESHOLD ]]; then
+                new_state="$CB_STATE_OPEN"
+                reason="Permission denied in $consecutive_permission_denials consecutive loops - update ALLOWED_TOOLS in .ralphrc"
+            elif [[ "$has_progress" == "true" ]]; then
                 new_state="$CB_STATE_CLOSED"
                 reason="Progress detected, circuit recovered"
             elif [[ $consecutive_no_progress -ge $CB_NO_PROGRESS_THRESHOLD ]]; then
@@ -209,6 +233,7 @@ record_loop_result() {
     "last_change": "$(get_iso_timestamp)",
     "consecutive_no_progress": $consecutive_no_progress,
     "consecutive_same_error": $consecutive_same_error,
+    "consecutive_permission_denials": $consecutive_permission_denials,
     "last_progress_loop": $last_progress_loop,
     "total_opens": $total_opens,
     "reason": "$reason",
@@ -317,6 +342,7 @@ reset_circuit_breaker() {
     "last_change": "$(get_iso_timestamp)",
     "consecutive_no_progress": 0,
     "consecutive_same_error": 0,
+    "consecutive_permission_denials": 0,
     "last_progress_loop": 0,
     "total_opens": 0,
     "reason": "$reason"

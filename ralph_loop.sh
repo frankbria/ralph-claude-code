@@ -394,9 +394,24 @@ should_exit_gracefully() {
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
     
     log_status "INFO" "DEBUG: Exit counts - test_loops:$recent_test_loops, done_signals:$recent_done_signals, completion:$recent_completion_indicators" >&2
-    
+
     # Check for exit conditions
-    
+
+    # 0. Permission denials (highest priority - Issue #101)
+    # When Claude Code is denied permission to run commands, halt immediately
+    # to allow user to update .ralphrc ALLOWED_TOOLS configuration
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$has_permission_denials" == "true" ]]; then
+            local denied_count=$(jq -r '.analysis.permission_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
+            local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
+            log_status "WARN" "🚫 Permission denied for $denied_count command(s): $denied_cmds"
+            log_status "WARN" "Update ALLOWED_TOOLS in .ralphrc to include the required tools"
+            echo "permission_denied"
+            return 0
+        fi
+    fi
+
     # 1. Too many consecutive test-only loops
     if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
         log_status "WARN" "Exit condition: Too many test-focused loops ($recent_test_loops >= $MAX_CONSECUTIVE_TEST_LOOPS)"
@@ -1238,6 +1253,45 @@ main() {
         # Check for graceful exit conditions
         local exit_reason=$(should_exit_gracefully)
         if [[ "$exit_reason" != "" ]]; then
+            # Handle permission_denied specially (Issue #101)
+            if [[ "$exit_reason" == "permission_denied" ]]; then
+                log_status "ERROR" "🚫 Permission denied - halting loop"
+                reset_session "permission_denied"
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "permission_denied" "halted" "permission_denied"
+
+                # Display helpful guidance for resolving permission issues
+                echo ""
+                echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${RED}║  PERMISSION DENIED - Loop Halted                          ║${NC}"
+                echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+                echo ""
+                echo -e "${YELLOW}Claude Code was denied permission to execute commands.${NC}"
+                echo ""
+                echo -e "${YELLOW}To fix this:${NC}"
+                echo "  1. Edit .ralphrc and update ALLOWED_TOOLS to include the required tools"
+                echo "  2. Common patterns:"
+                echo "     - Bash(npm *)     - All npm commands"
+                echo "     - Bash(npm install) - Only npm install"
+                echo "     - Bash(pnpm *)    - All pnpm commands"
+                echo "     - Bash(yarn *)    - All yarn commands"
+                echo ""
+                echo -e "${YELLOW}After updating .ralphrc:${NC}"
+                echo "  ralph --reset-session  # Clear stale session state"
+                echo "  ralph --monitor        # Restart the loop"
+                echo ""
+
+                # Show current ALLOWED_TOOLS if .ralphrc exists
+                if [[ -f ".ralphrc" ]]; then
+                    local current_tools=$(grep "^ALLOWED_TOOLS=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"')
+                    if [[ -n "$current_tools" ]]; then
+                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $current_tools"
+                        echo ""
+                    fi
+                fi
+
+                break
+            fi
+
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
             reset_session "project_complete"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"

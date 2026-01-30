@@ -699,3 +699,182 @@ EOF
     local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
     assert_equal "$indicator_count" "0"
 }
+
+# =============================================================================
+# PERMISSION DENIAL EXIT TESTS (Issue #101)
+# =============================================================================
+# When Claude Code is denied permission to run commands, Ralph should detect
+# this from the permission_denials field and halt the loop to allow user intervention.
+
+# Helper function with permission denial support
+should_exit_gracefully_with_denials() {
+    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo ""
+        return 1
+    fi
+
+    local signals=$(cat "$EXIT_SIGNALS_FILE")
+
+    local recent_test_loops
+    local recent_done_signals
+    local recent_completion_indicators
+
+    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
+    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
+    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
+
+    # Check for permission denials first (highest priority - Issue #101)
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$has_permission_denials" == "true" ]]; then
+            echo "permission_denied"
+            return 0
+        fi
+    fi
+
+    # 1. Too many consecutive test-only loops
+    if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
+        echo "test_saturation"
+        return 0
+    fi
+
+    # 2. Multiple "done" signals
+    if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
+        echo "completion_signals"
+        return 0
+    fi
+
+    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    local claude_exit_signal="false"
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+    fi
+
+    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
+        echo "project_complete"
+        return 0
+    fi
+
+    echo ""
+    return 1
+}
+
+# Test 36: Exit on permission denial detected
+@test "should_exit_gracefully exits on permission_denied" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create response analysis with permission denials
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": false,
+        "files_modified": 0,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Tried to run npm install but permission denied",
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["npm install"]
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 37: No exit when no permission denials
+@test "should_exit_gracefully continues when no permission denials" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create response analysis without permission denials
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "output_format": "json",
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "is_stuck": false,
+        "has_progress": true,
+        "files_modified": 3,
+        "confidence_score": 70,
+        "exit_signal": false,
+        "work_summary": "Implementing feature",
+        "has_permission_denials": false,
+        "permission_denial_count": 0,
+        "denied_commands": []
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials || true)
+    assert_equal "$result" ""
+}
+
+# Test 38: Permission denial takes priority over other signals
+@test "permission_denied takes priority over test_saturation" {
+    # Set up test saturation condition
+    echo '{"test_only_loops": [1,2,3], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Create response analysis with permission denials
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 3,
+    "analysis": {
+        "is_test_only": true,
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["npm install"]
+    }
+}
+EOF
+
+    # Permission denied should take priority
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 39: Multiple permission denials detected
+@test "should_exit_gracefully detects multiple permission denials" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_permission_denials": true,
+        "permission_denial_count": 3,
+        "denied_commands": ["npm install", "pnpm install", "yarn add lodash"]
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 40: Missing has_permission_denials field defaults to false (backward compat)
+@test "should_exit_gracefully handles missing permission denial fields" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Old format response analysis without permission denial fields
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_completion_signal": false,
+        "is_test_only": false,
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials || true)
+    assert_equal "$result" ""
+}
