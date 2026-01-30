@@ -1,10 +1,10 @@
 name: OpenCode PR Review
 
 on:
-  # Using pull_request_target to run with base repo permissions (access to secrets)
-  # This allows the workflow to run for fork PRs after maintainer approval
-  # Security: This workflow only READS PR code for review, it does NOT execute it
-  pull_request_target:
+  # Using pull_request (not pull_request_target) because the OpenCode action
+  # doesn't support pull_request_target. This means it only works for PRs from
+  # branches in this repo (not forks). Fork PRs are reviewed by claude-code-review.yml instead.
+  pull_request:
     types: [opened, synchronize]
     # Skip review for documentation and config-only changes
     # Exclude this workflow file to prevent self-triggering loops
@@ -38,15 +38,13 @@ jobs:
           total=$((additions + deletions))
           echo "total=$total" >> $GITHUB_OUTPUT
 
-      - name: Checkout PR code for review
+      - name: Checkout repository
         # Only review substantial changes (5+ files OR 20+ lines changed)
         if: |
           github.event.pull_request.changed_files >= 5 ||
           steps.calc.outputs.total >= 20
         uses: actions/checkout@v6
         with:
-          # Checkout the PR head commit (pull_request_target defaults to base branch)
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
 
