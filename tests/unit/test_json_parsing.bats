@@ -919,3 +919,193 @@ EOF
     local session_id=$(jq -r '.session_id' "$result_file")
     assert_equal "$session_id" "session-in-result-only"
 }
+
+# =============================================================================
+# PERMISSION DENIAL DETECTION TESTS (Issue #101)
+# =============================================================================
+# Tests for detecting permission_denials from Claude Code JSON output.
+# When Claude Code is denied permission to execute commands (e.g., npm install),
+# the JSON output contains a permission_denials array that Ralph should detect.
+
+@test "parse_json_response detects permission_denials array" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Create JSON output with permission denials (as Claude Code outputs)
+    cat > "$output_file" << 'EOF'
+{
+    "result": "I tried to run npm install but was denied permission.",
+    "sessionId": "session-denied-123",
+    "is_error": false,
+    "permission_denials": [
+        {"tool": "Bash", "command": "npm install", "reason": "Tool not in allowed list"}
+    ]
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should extract has_permission_denials flag
+    local has_denials=$(jq -r '.has_permission_denials' "$result_file")
+    assert_equal "$has_denials" "true"
+}
+
+@test "parse_json_response extracts permission_denial_count" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Multiple commands were denied.",
+    "sessionId": "session-multi-deny",
+    "permission_denials": [
+        {"tool": "Bash", "command": "npm install", "reason": "Not allowed"},
+        {"tool": "Bash", "command": "pnpm install", "reason": "Not allowed"},
+        {"tool": "Bash", "command": "yarn add lodash", "reason": "Not allowed"}
+    ]
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should count denials correctly
+    local denial_count=$(jq -r '.permission_denial_count' "$result_file")
+    assert_equal "$denial_count" "3"
+}
+
+@test "parse_json_response extracts denied_commands list" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Permission denied for npm install",
+    "sessionId": "session-extract-cmds",
+    "permission_denials": [
+        {"tool": "Bash", "command": "npm install express", "reason": "Not allowed"}
+    ]
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should extract the denied commands
+    local denied_cmds=$(jq -r '.denied_commands[0]' "$result_file")
+    [[ "$denied_cmds" == *"npm install"* ]]
+}
+
+@test "parse_json_response handles empty permission_denials array" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "All commands executed successfully.",
+    "sessionId": "session-no-denials",
+    "permission_denials": []
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should set has_permission_denials to false
+    local has_denials=$(jq -r '.has_permission_denials' "$result_file")
+    assert_equal "$has_denials" "false"
+
+    local denial_count=$(jq -r '.permission_denial_count' "$result_file")
+    assert_equal "$denial_count" "0"
+}
+
+@test "parse_json_response handles missing permission_denials field (backward compat)" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Old format without permission_denials field
+    cat > "$output_file" << 'EOF'
+{
+    "status": "COMPLETE",
+    "exit_signal": true,
+    "work_type": "IMPLEMENTATION",
+    "files_modified": 5
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Should default to no denials
+    local has_denials=$(jq -r '.has_permission_denials' "$result_file")
+    assert_equal "$has_denials" "false"
+
+    local denial_count=$(jq -r '.permission_denial_count' "$result_file")
+    assert_equal "$denial_count" "0"
+}
+
+@test "analyze_response includes permission denial info in analysis result" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Tried npm install but permission was denied.",
+    "sessionId": "session-analyze-denial",
+    "permission_denials": [
+        {"tool": "Bash", "command": "npm install", "reason": "Tool not allowed"}
+    ]
+}
+EOF
+
+    analyze_response "$output_file" 1
+
+    assert_file_exists "$RALPH_DIR/.response_analysis"
+
+    # Should include permission denial in analysis
+    local has_denials=$(jq -r '.analysis.has_permission_denials' "$RALPH_DIR/.response_analysis")
+    assert_equal "$has_denials" "true"
+
+    local denial_count=$(jq -r '.analysis.permission_denial_count' "$RALPH_DIR/.response_analysis")
+    assert_equal "$denial_count" "1"
+}
+
+@test "parse_json_response handles Claude CLI array format with permission denials" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Claude CLI array format with permission denials in result
+    cat > "$output_file" << 'EOF'
+[
+    {"type": "system", "subtype": "init", "session_id": "session-array-deny"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "Trying to install..."}]}},
+    {
+        "type": "result",
+        "subtype": "success",
+        "result": "Could not run npm install - permission denied",
+        "session_id": "session-array-deny",
+        "permission_denials": [
+            {"tool": "Bash", "command": "npm install", "reason": "Not in allowed tools"}
+        ]
+    }
+]
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    local has_denials=$(jq -r '.has_permission_denials' "$result_file")
+    assert_equal "$has_denials" "true"
+}

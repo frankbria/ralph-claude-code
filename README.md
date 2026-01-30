@@ -681,6 +681,11 @@ tail -f .ralph/logs/ralph.log
 - **tmux Session Lost** - Use `tmux list-sessions` and `tmux attach` to reconnect
 - **Session Expired** - Sessions expire after 24 hours by default; use `--reset-session` to start fresh
 - **timeout: command not found (macOS)** - Install GNU coreutils: `brew install coreutils`
+- **Permission Denied** - Ralph halts when Claude Code is denied permission for commands:
+  1. Edit `.ralphrc` and update `ALLOWED_TOOLS` to include required tools
+  2. Common patterns: `Bash(npm *)`, `Bash(git *)`, `Bash(pytest)`
+  3. Run `ralph --reset-session` after updating `.ralphrc`
+  4. Restart with `ralph --monitor`
 
 ## Contributing
 
