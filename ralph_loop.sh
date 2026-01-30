@@ -5,9 +5,10 @@
 
 set -e  # Exit on any error
 
-# Allow --dangerously-skip-permissions even as root (sandbox environment)
-export CLAUDE_CODE_ENABLE_DANGEROUS_PERMISSIONS_IN_SANDBOX=1
-export IS_SANDBOX=1
+# Note: CLAUDE_CODE_ENABLE_DANGEROUS_PERMISSIONS_IN_SANDBOX and IS_SANDBOX
+# environment variables are NOT exported here. Tool restrictions are handled
+# via --allowedTools flag in CLAUDE_CMD_ARGS, which is the proper approach.
+# Exporting sandbox variables without a verified sandbox would be misleading.
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -1029,17 +1030,36 @@ execute_claude_code() {
     if [[ "$LIVE_OUTPUT" == "true" ]]; then
         # LIVE MODE: Show streaming output in real-time using stream-json + jq
         # Based on: https://www.ytyng.com/en/blog/claude-stream-json-jq/
+        #
+        # Uses CLAUDE_CMD_ARGS from build_claude_command() to preserve:
+        # - --allowedTools (tool permissions)
+        # - --append-system-prompt (loop context)
+        # - --continue (session continuity)
+        # - -p (prompt content)
         log_status "INFO" "📺 Live output mode enabled - showing Claude Code streaming..."
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Claude Code Output ━━━━━━━━━━━━━━━━${NC}"
 
-        # Read prompt content
-        local prompt_content
-        prompt_content=$(cat "$PROMPT_FILE")
+        # Modify CLAUDE_CMD_ARGS: replace --output-format value with stream-json
+        # and add streaming-specific flags
+        local -a LIVE_CMD_ARGS=()
+        local skip_next=false
+        for arg in "${CLAUDE_CMD_ARGS[@]}"; do
+            if [[ "$skip_next" == "true" ]]; then
+                # Replace "json" with "stream-json" for output format
+                LIVE_CMD_ARGS+=("stream-json")
+                skip_next=false
+            elif [[ "$arg" == "--output-format" ]]; then
+                LIVE_CMD_ARGS+=("$arg")
+                skip_next=true
+            else
+                LIVE_CMD_ARGS+=("$arg")
+            fi
+        done
 
-        # Use stream-json format and extract text in real-time with jq
-        # This shows Claude's output as it streams, like watching it type
-        # Note: --verbose is required when using --output-format=stream-json with --print
-        # Use stdbuf to disable buffering for real-time output
+        # Add streaming-specific flags (--verbose and --include-partial-messages)
+        # These are required for stream-json to work properly
+        LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
+
         # jq filter: show text + tool names + newlines for readability
         local jq_filter='
             if .type == "stream_event" then
@@ -1056,11 +1076,9 @@ execute_claude_code() {
                 empty
             end'
 
-        stdbuf -oL $CLAUDE_CODE_CMD -p "$prompt_content" \
-            --dangerously-skip-permissions \
-            --verbose \
-            --output-format stream-json \
-            --include-partial-messages \
+        # Execute with streaming, preserving all flags from build_claude_command()
+        # Use stdbuf to disable buffering for real-time output
+        stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
             2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" | tee "$LIVE_LOG_FILE"
 
         exit_code=${PIPESTATUS[0]}
@@ -1084,8 +1102,10 @@ execute_claude_code() {
         fi
 
         # Fall back to legacy stdin piping if modern mode failed or not enabled
+        # Note: Legacy mode doesn't use --allowedTools, so tool permissions
+        # will be handled by Claude Code's default permission system
         if [[ "$use_modern_cli" == "false" ]]; then
-            if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD --dangerously-skip-permissions < "$PROMPT_FILE" > "$output_file" 2>&1 &
+            if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
             then
                 :  # Continue to wait loop
             else
