@@ -1093,17 +1093,23 @@ execute_claude_code() {
 
         # Execute with streaming, preserving all flags from build_claude_command()
         # Use stdbuf to disable buffering for real-time output
+        # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
         # Capture all pipeline exit codes for proper error handling
         set -o pipefail
-        stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
+        portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
             2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
         set +o pipefail
 
-        # Primary exit code is from Claude (first command in pipeline)
+        # Primary exit code is from Claude/timeout (first command in pipeline)
         exit_code=${pipe_status[0]}
+
+        # Check for tee failures (second command) - could break logging/session
+        if [[ ${pipe_status[1]} -ne 0 ]]; then
+            log_status "WARN" "Failed to write stream output to log file (exit code ${pipe_status[1]})"
+        fi
 
         # Check for jq failures (third command) - warn but don't fail
         if [[ ${pipe_status[2]} -ne 0 ]]; then
@@ -1115,24 +1121,32 @@ execute_claude_code() {
 
         # Extract session ID from stream-json output for session continuity
         # Stream-json format has session_id in the final "result" type message
+        # Keep full stream output in _stream.log, extract session data separately
         if [[ "$CLAUDE_USE_CONTINUE" == "true" && -f "$output_file" ]]; then
-            # Extract the result message and convert to standard JSON format
-            local session_json_file="${output_file%.log}_session.json"
+            # Preserve full stream output for analysis (don't overwrite output_file)
+            local stream_output_file="${output_file%.log}_stream.log"
+            cp "$output_file" "$stream_output_file"
 
-            # Find the "result" type message which contains session_id
-            # Stream format: {"type":"result","session_id":"...","result":"..."}
-            local result_line=$(grep -E '"type"\s*:\s*"result"' "$output_file" 2>/dev/null | tail -1)
+            # Extract the result message and convert to standard JSON format
+            # Use flexible regex to match various JSON formatting styles
+            # Matches: "type":"result", "type": "result", "type" : "result"
+            local result_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"result"' "$output_file" 2>/dev/null | tail -1)
 
             if [[ -n "$result_line" ]]; then
-                # Write the result message as standard JSON for save_claude_session()
-                echo "$result_line" > "$session_json_file"
-                # Point output_file to the session JSON for downstream processing
-                # but keep original for analysis
-                cp "$output_file" "${output_file%.log}_stream.log"
-                echo "$result_line" > "$output_file"
-                log_status "INFO" "Extracted session data from stream output"
+                # Validate that extracted line is valid JSON before using it
+                if echo "$result_line" | jq -e . >/dev/null 2>&1; then
+                    # Write validated result as the output_file for downstream processing
+                    # (save_claude_session and analyze_response expect JSON format)
+                    echo "$result_line" > "$output_file"
+                    log_status "INFO" "Extracted and validated session data from stream output"
+                else
+                    log_status "WARN" "Extracted result line is not valid JSON, keeping stream output"
+                    # Restore original stream output
+                    cp "$stream_output_file" "$output_file"
+                fi
             else
-                log_status "WARN" "Could not extract session data from stream output"
+                log_status "WARN" "Could not find result message in stream output"
+                # Keep stream output as-is for debugging
             fi
         fi
     else
