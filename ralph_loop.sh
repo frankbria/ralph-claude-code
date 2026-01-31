@@ -1095,12 +1095,19 @@ execute_claude_code() {
         # Use stdbuf to disable buffering for real-time output
         # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
         # Capture all pipeline exit codes for proper error handling
+        #
+        # IMPORTANT: Temporarily disable errexit (set +e) so the pipeline doesn't
+        # cause immediate script exit on failure. This allows PIPESTATUS to be
+        # captured for proper error diagnosis. Restore errexit (set -e) immediately
+        # after capturing PIPESTATUS.
+        set +e  # Disable errexit to capture PIPESTATUS
         set -o pipefail
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
             2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
-        # Capture exit codes from pipeline
+        # Capture exit codes from pipeline IMMEDIATELY before any other command
         local -a pipe_status=("${PIPESTATUS[@]}")
+        set -e  # Restore errexit
         set +o pipefail
 
         # Primary exit code is from Claude/timeout (first command in pipeline)

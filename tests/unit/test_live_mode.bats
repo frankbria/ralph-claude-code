@@ -182,13 +182,28 @@ teardown() {
 }
 
 # =============================================================================
-# PIPELINE ERROR HANDLING (3 tests)
+# PIPELINE ERROR HANDLING (4 tests)
 # =============================================================================
+
+@test "live mode disables errexit before pipeline for PIPESTATUS capture" {
+    # Verify set +e is used before pipeline to allow PIPESTATUS capture
+    # Without this, set -e would cause immediate exit on pipeline failure
+    run grep -B5 'portable_timeout.*LIVE_CMD_ARGS' "$RALPH_SCRIPT"
+    assert_success
+    [[ "$output" == *"set +e"* ]]
+}
 
 @test "live mode captures all pipeline exit codes" {
     # Verify PIPESTATUS is captured
     run grep -q 'pipe_status.*PIPESTATUS' "$RALPH_SCRIPT"
     assert_success
+}
+
+@test "live mode restores errexit after PIPESTATUS capture" {
+    # Verify set -e is restored after capturing PIPESTATUS
+    run grep -A2 'pipe_status.*PIPESTATUS' "$RALPH_SCRIPT"
+    assert_success
+    [[ "$output" == *"set -e"* ]]
 }
 
 @test "live mode checks tee exit code" {
