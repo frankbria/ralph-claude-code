@@ -931,7 +931,10 @@ build_claude_command() {
     local session_id=$3
 
     # Reset global array
-    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD" "--dangerously-skip-permissions")
+    # Note: We do NOT use --dangerously-skip-permissions here. Tool permissions
+    # are controlled via --allowedTools from CLAUDE_ALLOWED_TOOLS in .ralphrc.
+    # This preserves the permission denial circuit breaker (Issue #101).
+    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
 
     # Check if prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
@@ -1036,6 +1039,18 @@ execute_claude_code() {
         # - --append-system-prompt (loop context)
         # - --continue (session continuity)
         # - -p (prompt content)
+
+        # Check dependencies for live mode
+        if ! command -v jq &> /dev/null; then
+            log_status "ERROR" "Live mode requires 'jq' but it's not installed. Falling back to background mode."
+            LIVE_OUTPUT=false
+        elif ! command -v stdbuf &> /dev/null; then
+            log_status "ERROR" "Live mode requires 'stdbuf' (from coreutils) but it's not installed. Falling back to background mode."
+            LIVE_OUTPUT=false
+        fi
+    fi
+
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
         log_status "INFO" "📺 Live output mode enabled - showing Claude Code streaming..."
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Claude Code Output ━━━━━━━━━━━━━━━━${NC}"
 
@@ -1078,13 +1093,48 @@ execute_claude_code() {
 
         # Execute with streaming, preserving all flags from build_claude_command()
         # Use stdbuf to disable buffering for real-time output
+        # Capture all pipeline exit codes for proper error handling
+        set -o pipefail
         stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" | tee "$LIVE_LOG_FILE"
+            2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
-        exit_code=${PIPESTATUS[0]}
+        # Capture exit codes from pipeline
+        local -a pipe_status=("${PIPESTATUS[@]}")
+        set +o pipefail
+
+        # Primary exit code is from Claude (first command in pipeline)
+        exit_code=${pipe_status[0]}
+
+        # Check for jq failures (third command) - warn but don't fail
+        if [[ ${pipe_status[2]} -ne 0 ]]; then
+            log_status "WARN" "jq filter had issues parsing some stream events (exit code ${pipe_status[2]})"
+        fi
 
         echo ""
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
+
+        # Extract session ID from stream-json output for session continuity
+        # Stream-json format has session_id in the final "result" type message
+        if [[ "$CLAUDE_USE_CONTINUE" == "true" && -f "$output_file" ]]; then
+            # Extract the result message and convert to standard JSON format
+            local session_json_file="${output_file%.log}_session.json"
+
+            # Find the "result" type message which contains session_id
+            # Stream format: {"type":"result","session_id":"...","result":"..."}
+            local result_line=$(grep -E '"type"\s*:\s*"result"' "$output_file" 2>/dev/null | tail -1)
+
+            if [[ -n "$result_line" ]]; then
+                # Write the result message as standard JSON for save_claude_session()
+                echo "$result_line" > "$session_json_file"
+                # Point output_file to the session JSON for downstream processing
+                # but keep original for analysis
+                cp "$output_file" "${output_file%.log}_stream.log"
+                echo "$result_line" > "$output_file"
+                log_status "INFO" "Extracted session data from stream output"
+            else
+                log_status "WARN" "Could not extract session data from stream output"
+            fi
+        fi
     else
         # BACKGROUND MODE: Original behavior with progress monitoring
         if [[ "$use_modern_cli" == "true" ]]; then
