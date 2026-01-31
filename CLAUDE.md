@@ -138,6 +138,12 @@ ralph --monitor
 # Start without monitoring
 ralph
 
+# Start with live streaming output (see Claude work in real-time)
+ralph --live
+
+# Live mode with tmux monitoring (3-pane layout)
+ralph --monitor --live
+
 # With custom parameters and monitoring
 ralph --monitor --calls 50 --prompt my_custom_prompt.md
 
@@ -226,6 +232,43 @@ Each loop iteration injects context via `build_loop_context()`:
 - Sessions are preserved in `.ralph/.claude_session_id`
 - Use `--continue` flag to maintain context across loops
 - Disable with `--no-continue` for isolated iterations
+
+### Live Streaming Output Mode (Phase 1.2)
+
+Live mode (`--live` or `-l`) enables real-time streaming output, allowing you to watch Claude Code work as it happens.
+
+**Usage:**
+```bash
+ralph --live                    # Live streaming in terminal
+ralph --monitor --live          # Live streaming in tmux 3-pane layout
+ralph --monitor                 # Automatically uses live mode in tmux
+```
+
+**tmux Layout with --monitor:**
+```
+┌─────────────────────┬─────────────────────┐
+│                     │   Claude Output     │
+│    Ralph Loop       │   (tail -f live.log)│
+│    (live stream)    ├─────────────────────┤
+│                     │   Status Monitor    │
+└─────────────────────┴─────────────────────┘
+```
+
+**How It Works:**
+- Uses Claude Code's `--output-format stream-json` with `--include-partial-messages`
+- Streams output through `jq` to extract and display text in real-time
+- Shows tool usage with visual indicators (e.g., `⚡ [Read]`, `⚡ [Bash]`)
+- Preserves full stream output in `_stream.log` for debugging
+- Extracts session ID from stream output for session continuity
+
+**Dependencies:**
+- `jq` - For parsing stream-json output (falls back to background mode if missing)
+- `stdbuf` - For unbuffered streaming (from GNU coreutils)
+
+**Session Continuity in Live Mode:**
+- Extracts the final `result` message from stream-json output
+- Validates JSON before using for session management
+- Falls back gracefully if session extraction fails
 
 ### Intelligent Exit Detection
 The loop uses a dual-condition check to prevent premature exits during productive iterations:

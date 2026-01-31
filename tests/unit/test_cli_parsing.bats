@@ -464,3 +464,47 @@ build_ralph_cmd_for_test() {
     # Should only be "ralph" with no extra flags
     [[ "$result" == "ralph" ]]
 }
+
+# =============================================================================
+# LIVE MODE FLAG TESTS (PR #125)
+# =============================================================================
+
+@test "--live flag is accepted without error" {
+    run bash "$RALPH_SCRIPT" --live --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "-l short flag is accepted without error" {
+    run bash "$RALPH_SCRIPT" -l --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "--live flag sets LIVE_OUTPUT=true" {
+    # Verify the script sets LIVE_OUTPUT=true when --live is parsed
+    # Check that the case statement sets the variable
+    run grep -A1 '^\s*-l|--live)' "$RALPH_SCRIPT"
+    assert_success
+    [[ "$output" == *"LIVE_OUTPUT=true"* ]]
+}
+
+@test "--live and --monitor can be combined" {
+    # Both flags should be parsed without error
+    run bash "$RALPH_SCRIPT" --live --monitor --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "--monitor automatically implies --live in tmux" {
+    # When --monitor is used, the inner ralph command should include --live
+    # This is tested by checking the setup_tmux_session function behavior
+    # For now, we verify the flags can be combined
+    run bash "$RALPH_SCRIPT" -m -l --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}

@@ -27,14 +27,15 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Circuit breaker with advanced error detection (prevents runaway loops)
 - Response analyzer with semantic understanding and two-stage error filtering
 - **JSON output format support with automatic fallback to text parsing**
+- **Live streaming output mode (`--live`) - watch Claude work in real-time**
 - **Session continuity with `--continue` flag for context preservation**
 - **Session expiration with configurable timeout (default: 24 hours)**
-- **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
+- **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`, `--live`**
 - **Interactive project enablement with `ralph-enable` wizard**
 - **`.ralphrc` configuration file for project settings**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
-- tmux integration for live monitoring
+- tmux integration with 3-pane layout for live monitoring
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
@@ -171,6 +172,9 @@ ralph-enable --from prd ./docs/requirements.md
 
 # Start autonomous development
 ralph --monitor
+
+# Or with live streaming output (watch Claude work in real-time)
+ralph --live
 ```
 
 #### Option B: Import Existing PRD/Specifications
@@ -756,6 +760,7 @@ ralph [OPTIONS]
   -p, --prompt FILE       Set prompt file (default: PROMPT.md)
   -s, --status            Show current status and exit
   -m, --monitor           Start with tmux session and live monitor
+  -l, --live              Enable live streaming output (watch Claude work in real-time)
   -v, --verbose           Show detailed progress updates during execution
   -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
   --output-format FORMAT  Set output format: json (default) or text
@@ -773,6 +778,8 @@ ralph-enable                 # Enable Ralph in existing project (interactive)
 ralph-enable-ci              # Enable Ralph in existing project (non-interactive)
 ralph-import prd.md project  # Convert PRD/specs to Ralph project
 ralph --monitor              # Start with integrated monitoring
+ralph --live                 # Enable live streaming output
+ralph --monitor --live       # Combined: tmux + live streaming
 ralph --status               # Check current loop status
 ralph --verbose              # Enable detailed progress updates
 ralph --timeout 30           # Set 30-minute execution timeout
