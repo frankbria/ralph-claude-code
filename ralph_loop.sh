@@ -174,11 +174,24 @@ check_tmux_available() {
     fi
 }
 
+# Get the tmux base-index for windows (handles custom tmux configurations)
+# Returns: the base window index (typically 0 or 1)
+get_tmux_base_index() {
+    local base_index
+    base_index=$(tmux show-options -gv base-index 2>/dev/null)
+    # Default to 0 if not set or tmux command fails
+    echo "${base_index:-0}"
+}
+
 # Setup tmux session with monitor
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
     local project_dir="$(pwd)"
+    
+    # Get the tmux base-index to handle custom configurations (e.g., base-index 1)
+    local base_win
+    base_win=$(get_tmux_base_index)
 
     log_status "INFO" "Setting up tmux session: $session_name"
 
@@ -192,16 +205,16 @@ setup_tmux_session() {
     tmux split-window -h -t "$session_name" -c "$project_dir"
 
     # Split right pane horizontally (top: Claude output, bottom: status)
-    tmux split-window -v -t "$session_name:0.1" -c "$project_dir"
+    tmux split-window -v -t "$session_name:${base_win}.1" -c "$project_dir"
 
     # Right-top pane (pane 1): Live Claude Code output
-    tmux send-keys -t "$session_name:0.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+    tmux send-keys -t "$session_name:${base_win}.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
 
     # Right-bottom pane (pane 2): Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then
-        tmux send-keys -t "$session_name:0.2" "ralph-monitor" Enter
+        tmux send-keys -t "$session_name:${base_win}.2" "ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:0.2" "'$ralph_home/ralph_monitor.sh'" Enter
+        tmux send-keys -t "$session_name:${base_win}.2" "'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
@@ -249,18 +262,18 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
     fi
 
-    tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
+    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
 
     # Focus on left pane (main ralph loop)
-    tmux select-pane -t "$session_name:0.0"
+    tmux select-pane -t "$session_name:${base_win}.0"
 
     # Set pane titles (requires tmux 2.6+)
-    tmux select-pane -t "$session_name:0.0" -T "Ralph Loop"
-    tmux select-pane -t "$session_name:0.1" -T "Claude Output"
-    tmux select-pane -t "$session_name:0.2" -T "Status"
+    tmux select-pane -t "$session_name:${base_win}.0" -T "Ralph Loop"
+    tmux select-pane -t "$session_name:${base_win}.1" -T "Claude Output"
+    tmux select-pane -t "$session_name:${base_win}.2" -T "Status"
 
     # Set window title
-    tmux rename-window -t "$session_name:0" "Ralph: Loop | Output | Status"
+    tmux rename-window -t "$session_name:${base_win}" "Ralph: Loop | Output | Status"
 
     log_status "SUCCESS" "Tmux session created with 3 panes:"
     log_status "INFO" "  Left:         Ralph loop"
