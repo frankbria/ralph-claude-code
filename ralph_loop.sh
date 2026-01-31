@@ -5,6 +5,11 @@
 
 set -e  # Exit on any error
 
+# Note: CLAUDE_CODE_ENABLE_DANGEROUS_PERMISSIONS_IN_SANDBOX and IS_SANDBOX
+# environment variables are NOT exported here. Tool restrictions are handled
+# via --allowedTools flag in CLAUDE_CMD_ARGS, which is the proper approach.
+# Exporting sandbox variables without a verified sandbox would be misleading.
+
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
@@ -22,6 +27,8 @@ STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="claude"
 SLEEP_DURATION=3600     # 1 hour in seconds
+LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
+LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
@@ -171,22 +178,32 @@ check_tmux_available() {
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
-    
+    local project_dir="$(pwd)"
+
     log_status "INFO" "Setting up tmux session: $session_name"
-    
-    # Create new tmux session detached
-    tmux new-session -d -s "$session_name" -c "$(pwd)"
-    
-    # Split window vertically to create monitor pane on the right
-    tmux split-window -h -t "$session_name" -c "$(pwd)"
-    
-    # Start monitor in the right pane
+
+    # Initialize live.log file
+    echo "=== Ralph Live Output - Waiting for first loop... ===" > "$LIVE_LOG_FILE"
+
+    # Create new tmux session detached (left pane - Ralph loop)
+    tmux new-session -d -s "$session_name" -c "$project_dir"
+
+    # Split window vertically (right side)
+    tmux split-window -h -t "$session_name" -c "$project_dir"
+
+    # Split right pane horizontally (top: Claude output, bottom: status)
+    tmux split-window -v -t "$session_name:0.1" -c "$project_dir"
+
+    # Right-top pane (pane 1): Live Claude Code output
+    tmux send-keys -t "$session_name:0.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+
+    # Right-bottom pane (pane 2): Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then
-        tmux send-keys -t "$session_name:0.1" "ralph-monitor" Enter
+        tmux send-keys -t "$session_name:0.2" "ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:0.1" "'$ralph_home/ralph_monitor.sh'" Enter
+        tmux send-keys -t "$session_name:0.2" "'$ralph_home/ralph_monitor.sh'" Enter
     fi
-    
+
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
     # Forward all CLI parameters that were set by the user
     local ralph_cmd
@@ -195,6 +212,9 @@ setup_tmux_session() {
     else
         ralph_cmd="'$ralph_home/ralph_loop.sh'"
     fi
+
+    # Always use --live mode in tmux for real-time streaming
+    ralph_cmd="$ralph_cmd --live"
 
     # Forward --calls if non-default
     if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
@@ -230,26 +250,35 @@ setup_tmux_session() {
     fi
 
     tmux send-keys -t "$session_name:0.0" "$ralph_cmd" Enter
-    
+
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:0.0"
-    
+
+    # Set pane titles (requires tmux 2.6+)
+    tmux select-pane -t "$session_name:0.0" -T "Ralph Loop"
+    tmux select-pane -t "$session_name:0.1" -T "Claude Output"
+    tmux select-pane -t "$session_name:0.2" -T "Status"
+
     # Set window title
-    tmux rename-window -t "$session_name:0" "Ralph: Loop | Monitor"
-    
-    log_status "SUCCESS" "Tmux session created. Attaching to session..."
+    tmux rename-window -t "$session_name:0" "Ralph: Loop | Output | Status"
+
+    log_status "SUCCESS" "Tmux session created with 3 panes:"
+    log_status "INFO" "  Left:         Ralph loop"
+    log_status "INFO" "  Right-top:    Claude Code live output"
+    log_status "INFO" "  Right-bottom: Status monitor"
+    log_status "INFO" ""
     log_status "INFO" "Use Ctrl+B then D to detach from session"
     log_status "INFO" "Use 'tmux attach -t $session_name' to reattach"
-    
+
     # Attach to session (this will block until session ends)
     tmux attach-session -t "$session_name"
-    
+
     exit 0
 }
 
 # Initialize call tracking
 init_call_tracking() {
-    log_status "INFO" "DEBUG: Entered init_call_tracking..."
+    # Debug logging removed for cleaner output
     local current_hour=$(date +%Y%m%d%H)
     local last_reset_hour=""
 
@@ -272,7 +301,6 @@ init_call_tracking() {
     # Initialize circuit breaker
     init_circuit_breaker
 
-    log_status "INFO" "DEBUG: Completed init_call_tracking successfully"
 }
 
 # Log function with timestamps and colors
@@ -374,15 +402,12 @@ wait_for_reset() {
 
 # Check if we should gracefully exit
 should_exit_gracefully() {
-    log_status "INFO" "DEBUG: Checking exit conditions..." >&2
     
     if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
-        log_status "INFO" "DEBUG: No exit signals file found, continuing..." >&2
         return 1  # Don't exit, file doesn't exist
     fi
     
     local signals=$(cat "$EXIT_SIGNALS_FILE")
-    log_status "INFO" "DEBUG: Exit signals content: $signals" >&2
     
     # Count recent signals (last 5 loops) - with error handling
     local recent_test_loops
@@ -393,7 +418,6 @@ should_exit_gracefully() {
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
     
-    log_status "INFO" "DEBUG: Exit counts - test_loops:$recent_test_loops, done_signals:$recent_done_signals, completion:$recent_completion_indicators" >&2
 
     # Check for exit conditions
 
@@ -451,8 +475,6 @@ should_exit_gracefully() {
         log_status "WARN" "Exit condition: Strong completion indicators ($recent_completion_indicators) with EXIT_SIGNAL=true" >&2
         echo "project_complete"
         return 0
-    elif [[ $recent_completion_indicators -ge 2 ]]; then
-        log_status "INFO" "DEBUG: Completion indicators ($recent_completion_indicators) present but EXIT_SIGNAL=false, continuing..." >&2
     fi
     
     # 5. Check fix_plan.md for completion
@@ -465,18 +487,14 @@ should_exit_gracefully() {
         [[ -z "$total_items" ]] && total_items=0
         [[ -z "$completed_items" ]] && completed_items=0
 
-        log_status "INFO" "DEBUG: .ralph/fix_plan.md check - total_items:$total_items, completed_items:$completed_items" >&2
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
             echo "plan_complete"
             return 0
         fi
-    else
-        log_status "INFO" "DEBUG: .ralph/fix_plan.md file not found" >&2
     fi
-    
-    log_status "INFO" "DEBUG: No exit conditions met, continuing loop" >&2
+
     echo ""  # Return empty string instead of using return code
 }
 
@@ -913,6 +931,9 @@ build_claude_command() {
     local session_id=$3
 
     # Reset global array
+    # Note: We do NOT use --dangerously-skip-permissions here. Tool permissions
+    # are controlled via --allowedTools from CLAUDE_ALLOWED_TOOLS in .ralphrc.
+    # This preserves the permission denial circuit breaker (Issue #101).
     CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
 
     # Check if prompt file exists
@@ -1004,53 +1025,183 @@ execute_claude_code() {
     fi
 
     # Execute Claude Code
-    if [[ "$use_modern_cli" == "true" ]]; then
-        # Modern execution with command array (shell-injection safe)
-        # Execute array directly without bash -c to prevent shell metacharacter interpretation
-        if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
-        then
-            :  # Continue to wait loop
-        else
-            log_status "ERROR" "❌ Failed to start Claude Code process (modern mode)"
-            # Fall back to legacy mode
-            log_status "INFO" "Falling back to legacy mode..."
-            use_modern_cli=false
+    local exit_code=0
+
+    # Initialize live.log for this execution
+    echo -e "\n\n=== Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
+
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+        # LIVE MODE: Show streaming output in real-time using stream-json + jq
+        # Based on: https://www.ytyng.com/en/blog/claude-stream-json-jq/
+        #
+        # Uses CLAUDE_CMD_ARGS from build_claude_command() to preserve:
+        # - --allowedTools (tool permissions)
+        # - --append-system-prompt (loop context)
+        # - --continue (session continuity)
+        # - -p (prompt content)
+
+        # Check dependencies for live mode
+        if ! command -v jq &> /dev/null; then
+            log_status "ERROR" "Live mode requires 'jq' but it's not installed. Falling back to background mode."
+            LIVE_OUTPUT=false
+        elif ! command -v stdbuf &> /dev/null; then
+            log_status "ERROR" "Live mode requires 'stdbuf' (from coreutils) but it's not installed. Falling back to background mode."
+            LIVE_OUTPUT=false
         fi
     fi
 
-    # Fall back to legacy stdin piping if modern mode failed or not enabled
-    if [[ "$use_modern_cli" == "false" ]]; then
-        if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
-        then
-            :  # Continue to wait loop
-        else
-            log_status "ERROR" "❌ Failed to start Claude Code process"
-            return 1
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+        log_status "INFO" "📺 Live output mode enabled - showing Claude Code streaming..."
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Claude Code Output ━━━━━━━━━━━━━━━━${NC}"
+
+        # Modify CLAUDE_CMD_ARGS: replace --output-format value with stream-json
+        # and add streaming-specific flags
+        local -a LIVE_CMD_ARGS=()
+        local skip_next=false
+        for arg in "${CLAUDE_CMD_ARGS[@]}"; do
+            if [[ "$skip_next" == "true" ]]; then
+                # Replace "json" with "stream-json" for output format
+                LIVE_CMD_ARGS+=("stream-json")
+                skip_next=false
+            elif [[ "$arg" == "--output-format" ]]; then
+                LIVE_CMD_ARGS+=("$arg")
+                skip_next=true
+            else
+                LIVE_CMD_ARGS+=("$arg")
+            fi
+        done
+
+        # Add streaming-specific flags (--verbose and --include-partial-messages)
+        # These are required for stream-json to work properly
+        LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
+
+        # jq filter: show text + tool names + newlines for readability
+        local jq_filter='
+            if .type == "stream_event" then
+                if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
+                    .event.delta.text
+                elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
+                    "\n\n⚡ [" + .event.content_block.name + "]\n"
+                elif .event.type == "content_block_stop" then
+                    "\n"
+                else
+                    empty
+                end
+            else
+                empty
+            end'
+
+        # Execute with streaming, preserving all flags from build_claude_command()
+        # Use stdbuf to disable buffering for real-time output
+        # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
+        # Capture all pipeline exit codes for proper error handling
+        set -o pipefail
+        portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
+            2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+
+        # Capture exit codes from pipeline
+        local -a pipe_status=("${PIPESTATUS[@]}")
+        set +o pipefail
+
+        # Primary exit code is from Claude/timeout (first command in pipeline)
+        exit_code=${pipe_status[0]}
+
+        # Check for tee failures (second command) - could break logging/session
+        if [[ ${pipe_status[1]} -ne 0 ]]; then
+            log_status "WARN" "Failed to write stream output to log file (exit code ${pipe_status[1]})"
         fi
-    fi
 
-    # Get PID and monitor progress
-    local claude_pid=$!
-    local progress_counter=0
-
-    # Show progress while Claude Code is running
-    while kill -0 $claude_pid 2>/dev/null; do
-        progress_counter=$((progress_counter + 1))
-        case $((progress_counter % 4)) in
-            1) progress_indicator="⠋" ;;
-            2) progress_indicator="⠙" ;;
-            3) progress_indicator="⠹" ;;
-            0) progress_indicator="⠸" ;;
-        esac
-
-        # Get last line from output if available
-        local last_line=""
-        if [[ -f "$output_file" && -s "$output_file" ]]; then
-            last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
+        # Check for jq failures (third command) - warn but don't fail
+        if [[ ${pipe_status[2]} -ne 0 ]]; then
+            log_status "WARN" "jq filter had issues parsing some stream events (exit code ${pipe_status[2]})"
         fi
 
-        # Update progress file for monitor
-        cat > "$PROGRESS_FILE" << EOF
+        echo ""
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
+
+        # Extract session ID from stream-json output for session continuity
+        # Stream-json format has session_id in the final "result" type message
+        # Keep full stream output in _stream.log, extract session data separately
+        if [[ "$CLAUDE_USE_CONTINUE" == "true" && -f "$output_file" ]]; then
+            # Preserve full stream output for analysis (don't overwrite output_file)
+            local stream_output_file="${output_file%.log}_stream.log"
+            cp "$output_file" "$stream_output_file"
+
+            # Extract the result message and convert to standard JSON format
+            # Use flexible regex to match various JSON formatting styles
+            # Matches: "type":"result", "type": "result", "type" : "result"
+            local result_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"result"' "$output_file" 2>/dev/null | tail -1)
+
+            if [[ -n "$result_line" ]]; then
+                # Validate that extracted line is valid JSON before using it
+                if echo "$result_line" | jq -e . >/dev/null 2>&1; then
+                    # Write validated result as the output_file for downstream processing
+                    # (save_claude_session and analyze_response expect JSON format)
+                    echo "$result_line" > "$output_file"
+                    log_status "INFO" "Extracted and validated session data from stream output"
+                else
+                    log_status "WARN" "Extracted result line is not valid JSON, keeping stream output"
+                    # Restore original stream output
+                    cp "$stream_output_file" "$output_file"
+                fi
+            else
+                log_status "WARN" "Could not find result message in stream output"
+                # Keep stream output as-is for debugging
+            fi
+        fi
+    else
+        # BACKGROUND MODE: Original behavior with progress monitoring
+        if [[ "$use_modern_cli" == "true" ]]; then
+            # Modern execution with command array (shell-injection safe)
+            # Execute array directly without bash -c to prevent shell metacharacter interpretation
+            if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
+            then
+                :  # Continue to wait loop
+            else
+                log_status "ERROR" "❌ Failed to start Claude Code process (modern mode)"
+                # Fall back to legacy mode
+                log_status "INFO" "Falling back to legacy mode..."
+                use_modern_cli=false
+            fi
+        fi
+
+        # Fall back to legacy stdin piping if modern mode failed or not enabled
+        # Note: Legacy mode doesn't use --allowedTools, so tool permissions
+        # will be handled by Claude Code's default permission system
+        if [[ "$use_modern_cli" == "false" ]]; then
+            if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
+            then
+                :  # Continue to wait loop
+            else
+                log_status "ERROR" "❌ Failed to start Claude Code process"
+                return 1
+            fi
+        fi
+
+        # Get PID and monitor progress
+        local claude_pid=$!
+        local progress_counter=0
+
+        # Show progress while Claude Code is running
+        while kill -0 $claude_pid 2>/dev/null; do
+            progress_counter=$((progress_counter + 1))
+            case $((progress_counter % 4)) in
+                1) progress_indicator="⠋" ;;
+                2) progress_indicator="⠙" ;;
+                3) progress_indicator="⠹" ;;
+                0) progress_indicator="⠸" ;;
+            esac
+
+            # Get last line from output if available
+            local last_line=""
+            if [[ -f "$output_file" && -s "$output_file" ]]; then
+                last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
+                # Copy to live.log for tmux monitoring
+                cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null
+            fi
+
+            # Update progress file for monitor
+            cat > "$PROGRESS_FILE" << EOF
 {
     "status": "executing",
     "indicator": "$progress_indicator",
@@ -1060,21 +1211,22 @@ execute_claude_code() {
 }
 EOF
 
-        # Only log if verbose mode is enabled
-        if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-            if [[ -n "$last_line" ]]; then
-                log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
-            else
-                log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
+            # Only log if verbose mode is enabled
+            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+                if [[ -n "$last_line" ]]; then
+                    log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
+                else
+                    log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
+                fi
             fi
-        fi
 
-        sleep 10
-    done
+            sleep 10
+        done
 
-    # Wait for the process to finish and get exit code
-    wait $claude_pid
-    local exit_code=$?
+        # Wait for the process to finish and get exit code
+        wait $claude_pid
+        exit_code=$?
+    fi
 
     if [ $exit_code -eq 0 ]; then
         # Only increment counter on successful execution
@@ -1222,11 +1374,9 @@ main() {
     init_session_tracking
 
     log_status "INFO" "Starting main loop..."
-    log_status "INFO" "DEBUG: About to enter while loop, loop_count=$loop_count"
     
     while true; do
         loop_count=$((loop_count + 1))
-        log_status "INFO" "DEBUG: Successfully incremented loop_count to $loop_count"
 
         # Update session last_used timestamp
         update_session_last_used
@@ -1388,6 +1538,7 @@ Options:
     -s, --status            Show current status and exit
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
+    -l, --live              Show Claude Code output in real-time (streaming mode)
     -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
@@ -1416,6 +1567,8 @@ Example workflow:
 Examples:
     $0 --calls 50 --prompt my_prompt.md
     $0 --monitor             # Start with integrated tmux monitoring
+    $0 --live                # Show Claude Code output in real-time (streaming)
+    $0 --live --verbose      # Live streaming + verbose logging
     $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
     $0 --output-format text     # Use legacy text output format
@@ -1455,6 +1608,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -v|--verbose)
             VERBOSE_PROGRESS=true
+            shift
+            ;;
+        -l|--live)
+            LIVE_OUTPUT=true
             shift
             ;;
         -t|--timeout)
