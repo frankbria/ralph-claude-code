@@ -982,12 +982,13 @@ EOF
 @test "parse_json_response extracts denied_commands list" {
     local output_file="$LOG_DIR/test_output.log"
 
+    # Use real Claude CLI output structure with tool_input.command
     cat > "$output_file" << 'EOF'
 {
     "result": "Permission denied for npm install",
     "sessionId": "session-extract-cmds",
     "permission_denials": [
-        {"tool": "Bash", "command": "npm install express", "reason": "Not allowed"}
+        {"tool_name": "Bash", "tool_use_id": "toolu_123", "tool_input": {"command": "npm install express"}}
     ]
 }
 EOF
@@ -998,7 +999,7 @@ EOF
     local result_file="$RALPH_DIR/.json_parse_result"
     [[ -f "$result_file" ]]
 
-    # Should extract the denied commands
+    # Should extract the denied commands from tool_input.command
     local denied_cmds=$(jq -r '.denied_commands[0]' "$result_file")
     [[ "$denied_cmds" == *"npm install"* ]]
 }

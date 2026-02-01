@@ -189,9 +189,10 @@ parse_json_response() {
     fi
 
     # Extract denied commands for logging/display
+    # Note: Commands are nested under tool_input.command in the permission_denials array
     local denied_commands_json="[]"
     if [[ $permission_denial_count -gt 0 ]]; then
-        denied_commands_json=$(jq -r '[.permission_denials[].command // empty]' "$output_file" 2>/dev/null || echo "[]")
+        denied_commands_json=$(jq -r '[.permission_denials[].tool_input.command // empty]' "$output_file" 2>/dev/null || echo "[]")
     fi
 
     # Normalize values
