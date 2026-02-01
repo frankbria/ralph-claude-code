@@ -1109,3 +1109,55 @@ EOF
     local has_denials=$(jq -r '.has_permission_denials' "$result_file")
     assert_equal "$has_denials" "true"
 }
+
+# =============================================================================
+# EXIT_SIGNAL OVERRIDE BUG FIX TESTS (Issue #146)
+# =============================================================================
+# Tests for fix where STATUS: COMPLETE should NOT override explicit EXIT_SIGNAL: false
+
+@test "parse_json_response respects explicit EXIT_SIGNAL:false even with STATUS:COMPLETE" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Claude CLI format with RALPH_STATUS block in result
+    # This is the exact scenario where Claude says "task complete but keep going"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Task completed successfully.\n\n---RALPH_STATUS---\nSTATUS: COMPLETE\nTASKS_COMPLETED_THIS_LOOP: 1\nFILES_MODIFIED: 3\nTESTS_STATUS: PASSING\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nRECOMMENDATION: Continue to next task\n---END_RALPH_STATUS---",
+    "sessionId": "session-task-complete",
+    "is_error": false
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # Critical: exit_signal should be false, respecting Claude's explicit intent
+    local exit_signal=$(jq -r '.exit_signal' "$result_file")
+    assert_equal "$exit_signal" "false"
+}
+
+@test "parse_json_response uses STATUS:COMPLETE as fallback only when EXIT_SIGNAL absent" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    # Claude CLI format with RALPH_STATUS block that has NO EXIT_SIGNAL field
+    cat > "$output_file" << 'EOF'
+{
+    "result": "All done!\n\n---RALPH_STATUS---\nSTATUS: COMPLETE\nTASKS_COMPLETED_THIS_LOOP: 5\nFILES_MODIFIED: 10\n---END_RALPH_STATUS---",
+    "sessionId": "session-all-done",
+    "is_error": false
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    # When EXIT_SIGNAL is absent, STATUS: COMPLETE should imply exit
+    local exit_signal=$(jq -r '.exit_signal' "$result_file")
+    assert_equal "$exit_signal" "true"
+}
