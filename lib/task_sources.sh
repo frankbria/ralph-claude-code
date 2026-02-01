@@ -30,7 +30,7 @@ check_beads_available() {
 # fetch_beads_tasks - Fetch tasks from beads issue tracker
 #
 # Parameters:
-#   $1 (filter) - Filter string (optional, e.g., "status:open")
+#   $1 (filterStatus) - Status filter (optional, default: "open")
 #
 # Outputs:
 #   Tasks in markdown checkbox format, one per line
@@ -41,7 +41,7 @@ check_beads_available() {
 #   1 - Error fetching tasks
 #
 fetch_beads_tasks() {
-    local filter="${1:-status:open}"
+    local filterStatus="${1:-open}"
     local tasks=""
 
     # Check if beads is available
@@ -49,25 +49,51 @@ fetch_beads_tasks() {
         return 1
     fi
 
-    # Try to get tasks as JSON (pass filter if provided)
+    # Build bd list command arguments
+    local bdArgs=("list" "--json")
+    if [[ "$filterStatus" == "open" ]]; then
+        bdArgs+=("--status" "open")
+    elif [[ "$filterStatus" == "in_progress" ]]; then
+        bdArgs+=("--status" "in_progress")
+    elif [[ "$filterStatus" == "all" ]]; then
+        bdArgs+=("--all")
+    fi
+
+    # Try to get tasks as JSON
     local json_output
-    if json_output=$(bd list --json --filter "$filter" 2>/dev/null); then
+    if json_output=$(bd "${bdArgs[@]}" 2>/dev/null); then
         # Parse JSON and format as markdown tasks
+        # Note: Use 'select(.status == "closed") | not' to avoid bash escaping issues with '!='
+        # Also filter out entries with missing id or title fields
         if command -v jq &>/dev/null; then
             tasks=$(echo "$json_output" | jq -r '
                 .[] |
-                select(.status != "closed") |
+                select(.status == "closed" | not) |
+                select((.id // "") != "" and (.title // "") != "") |
                 "- [ ] [\(.id)] \(.title)"
-            ' 2>/dev/null)
+            ' 2>/dev/null || echo "")
         fi
-    else
-        # Fallback: try plain text output
-        tasks=$(bd list 2>/dev/null | while IFS= read -r line; do
+    fi
+
+    # Fallback: try plain text output if JSON failed or produced no results
+    if [[ -z "$tasks" ]]; then
+        # Build fallback args (reuse status logic, but without --json)
+        local fallbackArgs=("list")
+        if [[ "$filterStatus" == "open" ]]; then
+            fallbackArgs+=("--status" "open")
+        elif [[ "$filterStatus" == "in_progress" ]]; then
+            fallbackArgs+=("--status" "in_progress")
+        elif [[ "$filterStatus" == "all" ]]; then
+            fallbackArgs+=("--all")
+        fi
+        tasks=$(bd "${fallbackArgs[@]}" 2>/dev/null | while IFS= read -r line; do
             # Extract ID and title from bd list output
+            # Format: "○ cnzb-xxx [● P2] [task] - Title here"
             local id title
-            id=$(echo "$line" | grep -oE '^[a-z]+-[0-9]+' || echo "")
-            title=$(echo "$line" | sed 's/^[a-z]+-[0-9]* *//' || echo "$line")
-            if [[ -n "$id" ]]; then
+            id=$(echo "$line" | grep -oE '[a-z]+-[a-z0-9]+' | head -1 || echo "")
+            # Extract title after the last " - " separator
+            title=$(echo "$line" | sed 's/.*- //' || echo "$line")
+            if [[ -n "$id" && -n "$title" ]]; then
                 echo "- [ ] [$id] $title"
             fi
         done)
@@ -95,7 +121,8 @@ get_beads_count() {
 
     local count
     if command -v jq &>/dev/null; then
-        count=$(bd list --json 2>/dev/null | jq '[.[] | select(.status != "closed")] | length' 2>/dev/null || echo "0")
+        # Note: Use 'select(.status == "closed" | not)' to avoid bash escaping issues with '!='
+        count=$(bd list --json 2>/dev/null | jq '[.[] | select(.status == "closed" | not)] | length' 2>/dev/null || echo "0")
     else
         count=$(bd list 2>/dev/null | wc -l | tr -d ' ')
     fi
