@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.11.2 | **Tests**: 440 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.3 | **Tests**: 452 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -457,6 +457,12 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Live Streaming & Beads Fix (v0.11.3)
+- Added live streaming output mode with `--live` flag for real-time Claude Code visibility (#125)
+- Fixed beads task import using correct `bd list` arguments (#150)
+- Applied CodeRabbit review fixes: camelCase variable naming, status-respecting fallback, jq guards for missing fields
+- Test count: 452 (up from 440)
 
 ### Setup Permissions Fix (v0.11.2)
 - Fixed issue #136: `ralph-setup` now creates `.ralphrc` with consistent tool permissions

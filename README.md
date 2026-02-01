@@ -3,7 +3,7 @@
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-0.11.2-blue)
-![Tests](https://img.shields.io/badge/tests-440%20passing-green)
+![Tests](https://img.shields.io/badge/tests-452%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -18,7 +18,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 **Version**: v0.11.2 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 440 tests, 100% pass rate
+**Test Coverage**: 452 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -32,6 +32,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - **Interactive project enablement with `ralph-enable` wizard**
 - **`.ralphrc` configuration file for project settings**
+- **Live streaming output with `--live` flag for real-time Claude Code visibility**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
@@ -41,7 +42,13 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ### Recent Improvements
 
-**v0.11.2 - Setup Permissions Fix** (latest)
+**v0.11.3 - Live Streaming & Beads Fix** (latest)
+- Added live streaming output mode with `--live` flag for real-time Claude Code visibility (#125)
+- Fixed beads task import using correct `bd list` arguments (#150)
+- Applied CodeRabbit review fixes: camelCase variables, status-respecting fallback, jq guards
+- Added 12 new tests for live streaming and beads import improvements
+
+**v0.11.2 - Setup Permissions Fix**
 - Fixed issue #136: `ralph-setup` now creates `.ralphrc` with consistent tool permissions
 - Updated default `ALLOWED_TOOLS` to include `Edit`, `Bash(npm *)`, and `Bash(pytest)`
 - Both `ralph-setup` and `ralph-enable` now create identical `.ralphrc` configurations
@@ -126,6 +133,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
 - **CI/CD Integration** - GitHub Actions workflow with automated testing
 - **Clean Uninstall** - Dedicated uninstall script for complete removal
+- **Live Streaming Output** - Real-time visibility into Claude Code execution with `--live` flag
 
 ## Quick Start
 
@@ -455,6 +463,21 @@ ralph --verbose
 ralph --monitor --verbose --timeout 30
 ```
 
+### Live Streaming Output
+
+```bash
+# Enable real-time visibility into Claude Code execution
+ralph --live
+
+# Combine with monitoring for best experience
+ralph --monitor --live
+
+# Live output is written to .ralph/live.log
+tail -f .ralph/live.log  # Watch in another terminal
+```
+
+Live streaming mode shows Claude Code's output in real-time as it works, providing visibility into what's happening during each loop iteration.
+
 ### Session Continuity
 
 Ralph maintains session context across loop iterations for improved coherence:
@@ -576,7 +599,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (440 tests)
+# Run all tests (452 tests)
 npm test
 
 # Run specific test suites
@@ -601,8 +624,8 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **440 tests** across 15 test files
-- **100% pass rate** (440/440 passing)
+- **452 tests** across 15 test files
+- **100% pass rate** (452/452 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
 
@@ -708,7 +731,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 440 tests must pass
+npm test  # All 452 tests must pass
 ```
 
 ### Priority Contribution Areas
@@ -757,6 +780,7 @@ ralph [OPTIONS]
   -s, --status            Show current status and exit
   -m, --monitor           Start with tmux session and live monitor
   -v, --verbose           Show detailed progress updates during execution
+  -l, --live              Enable live streaming output (real-time Claude Code visibility)
   -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
   --output-format FORMAT  Set output format: json (default) or text
   --allowed-tools TOOLS   Set allowed Claude tools (default: Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest))
@@ -778,6 +802,7 @@ ralph --verbose              # Enable detailed progress updates
 ralph --timeout 30           # Set 30-minute execution timeout
 ralph --calls 50             # Limit to 50 API calls per hour
 ralph --reset-session        # Reset session state manually
+ralph --live                 # Enable live streaming output
 ralph-monitor                # Manual monitoring dashboard
 ```
 
@@ -794,14 +819,15 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.11.2
+### Current Status: v0.11.3
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- **440 comprehensive tests** (100% pass rate)
+- **452 comprehensive tests** (100% pass rate)
+- **Live streaming output mode** for real-time Claude Code visibility
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
@@ -814,7 +840,7 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Dedicated uninstall script
 
 **Test Coverage Breakdown:**
-- Unit Tests: 296 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard)
+- Unit Tests: 308 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard, live streaming)
 - Integration Tests: 144 (loop execution, edge cases, installation, project setup, PRD import)
 - Test Files: 15
 
