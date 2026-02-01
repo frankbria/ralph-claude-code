@@ -318,7 +318,8 @@ log_status() {
         "LOOP") color=$PURPLE ;;
     esac
     
-    echo -e "${color}[$timestamp] [$level] $message${NC}"
+    # Write to stderr so log messages don't interfere with function return values
+    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
 
@@ -963,8 +964,17 @@ build_claude_command() {
     fi
 
     # Add session continuity flag
+    # IMPORTANT: Use --resume with explicit session ID instead of --continue
+    # --continue resumes the "most recent session in current directory" which
+    # can hijack active Claude Code sessions. --resume with a specific session ID
+    # ensures we only resume Ralph's own sessions. (Issue #151)
     if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        CLAUDE_CMD_ARGS+=("--continue")
+        if [[ -n "$session_id" ]]; then
+            # Resume specific Ralph session by ID
+            CLAUDE_CMD_ARGS+=("--resume" "$session_id")
+        fi
+        # If no session_id, start fresh - Claude will generate a new session ID
+        # which we'll capture via save_claude_session() for future loops
     fi
 
     # Add loop context as system prompt (no escaping needed - array handles it)
@@ -1075,18 +1085,25 @@ execute_claude_code() {
         # These are required for stream-json to work properly
         LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
 
-        # jq filter: show text + tool names + newlines for readability
+        # jq filter: show text + tool names + tool inputs for verbose output
+        # Issue #151: Show more details about what tools are doing
         local jq_filter='
             if .type == "stream_event" then
                 if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
                     .event.delta.text
                 elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
                     "\n\n⚡ [" + .event.content_block.name + "]\n"
+                elif .event.type == "content_block_delta" and .event.delta.type == "input_json_delta" then
+                    # Show tool input as it streams in (verbose mode)
+                    .event.delta.partial_json // empty
                 elif .event.type == "content_block_stop" then
                     "\n"
                 else
                     empty
                 end
+            elif .type == "tool_result" then
+                # Show abbreviated tool results
+                "\n  → " + (if .result then (.result | tostring | .[0:200]) else "done" end) + "\n"
             else
                 empty
             end'
@@ -1095,26 +1112,21 @@ execute_claude_code() {
         # Use stdbuf to disable buffering for real-time output
         # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
         # Capture all pipeline exit codes for proper error handling
+        # Issue #151: Track PID for proper Ctrl+C handling
         set -o pipefail
+
+        # Run the pipeline and track the first process PID for cleanup
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+            2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE" &
+        CLAUDE_PID=$!
 
-        # Capture exit codes from pipeline
-        local -a pipe_status=("${PIPESTATUS[@]}")
+        # Wait for completion
+        wait $CLAUDE_PID 2>/dev/null
+
+        # Capture exit code from the subshell
+        exit_code=$?
         set +o pipefail
-
-        # Primary exit code is from Claude/timeout (first command in pipeline)
-        exit_code=${pipe_status[0]}
-
-        # Check for tee failures (second command) - could break logging/session
-        if [[ ${pipe_status[1]} -ne 0 ]]; then
-            log_status "WARN" "Failed to write stream output to log file (exit code ${pipe_status[1]})"
-        fi
-
-        # Check for jq failures (third command) - warn but don't fail
-        if [[ ${pipe_status[2]} -ne 0 ]]; then
-            log_status "WARN" "jq filter had issues parsing some stream events (exit code ${pipe_status[2]})"
-        fi
+        CLAUDE_PID=""  # Clear PID after completion
 
         echo ""
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1178,12 +1190,12 @@ execute_claude_code() {
             fi
         fi
 
-        # Get PID and monitor progress
-        local claude_pid=$!
+        # Get PID and monitor progress (use global for cleanup handler)
+        CLAUDE_PID=$!
         local progress_counter=0
 
         # Show progress while Claude Code is running
-        while kill -0 $claude_pid 2>/dev/null; do
+        while kill -0 $CLAUDE_PID 2>/dev/null; do
             progress_counter=$((progress_counter + 1))
             case $((progress_counter % 4)) in
                 1) progress_indicator="⠋" ;;
@@ -1224,8 +1236,9 @@ EOF
         done
 
         # Wait for the process to finish and get exit code
-        wait $claude_pid
+        wait $CLAUDE_PID
         exit_code=$?
+        CLAUDE_PID=""  # Clear PID after completion
     fi
 
     if [ $exit_code -eq 0 ]; then
@@ -1304,9 +1317,29 @@ EOF
     fi
 }
 
+# Global PID for Claude process (needed for cleanup)
+CLAUDE_PID=""
+
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+
+    # Kill Claude subprocess if running (Issue #151: Ctrl+C takes too long)
+    if [[ -n "$CLAUDE_PID" ]] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
+        log_status "INFO" "Terminating Claude process (PID: $CLAUDE_PID)..."
+        kill -TERM "$CLAUDE_PID" 2>/dev/null
+        # Give it 2 seconds to terminate gracefully
+        sleep 2
+        # Force kill if still running
+        if kill -0 "$CLAUDE_PID" 2>/dev/null; then
+            log_status "WARN" "Force killing Claude process..."
+            kill -KILL "$CLAUDE_PID" 2>/dev/null
+        fi
+    fi
+
+    # Also kill any child processes in our process group
+    pkill -P $$ 2>/dev/null
+
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
