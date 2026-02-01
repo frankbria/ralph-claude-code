@@ -273,8 +273,12 @@ check_dependencies() {
         log "ERROR" "Ralph not installed. Run ./install.sh first"
         exit 1
     fi
-    
-    if ! command -v $CLAUDE_CODE_CMD &> /dev/null 2>&1; then
+
+    if ! command -v jq &> /dev/null; then
+        log "WARN" "jq not found. Install it (brew install jq | sudo apt-get install jq | choco install jq) for faster JSON parsing."
+    fi
+
+    if ! command -v "$CLAUDE_CODE_CMD" &> /dev/null 2>&1; then
         log "WARN" "Claude Code CLI ($CLAUDE_CODE_CMD) not found. It will be downloaded when first used."
     fi
 }
