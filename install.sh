@@ -240,49 +240,15 @@ install_ralph_loop() {
 install_setup() {
     log "INFO" "Installing global setup script..."
 
-    # Create modified setup.sh for global operation
-    cat > "$RALPH_HOME/setup.sh" << 'EOF'
-#!/bin/bash
-
-# Ralph Project Setup Script - Global Version
-set -e
-
-PROJECT_NAME=${1:-"my-project"}
-RALPH_HOME="$HOME/.ralph"
-
-echo "🚀 Setting up Ralph project: $PROJECT_NAME"
-
-# Create project directory in current location
-mkdir -p "$PROJECT_NAME"
-cd "$PROJECT_NAME"
-
-# Create structure with .ralph/ subfolder
-mkdir -p src
-mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
-
-# Copy templates from Ralph home to .ralph/ subfolder
-cp "$RALPH_HOME/templates/PROMPT.md" .ralph/
-cp "$RALPH_HOME/templates/fix_plan.md" .ralph/fix_plan.md
-cp "$RALPH_HOME/templates/AGENT.md" .ralph/AGENT.md
-cp -r "$RALPH_HOME/templates/specs/"* .ralph/specs/ 2>/dev/null || true
-
-# Initialize git
-git init
-echo "# $PROJECT_NAME" > README.md
-git add .
-git commit -m "Initial Ralph project setup"
-
-echo "✅ Project $PROJECT_NAME created!"
-echo "Next steps:"
-echo "  1. Edit .ralph/PROMPT.md with your project requirements"
-echo "  2. Update .ralph/specs/ with your project specifications"
-echo "  3. Run: ralph --monitor"
-echo "  4. Monitor: ralph-monitor (if running manually)"
-EOF
-
-    chmod +x "$RALPH_HOME/setup.sh"
-
-    log "SUCCESS" "Global setup script installed"
+    # Copy the actual setup.sh from ralph-claude-code root directory so setup information will be consistent
+    if [[ -f "$SCRIPT_DIR/setup.sh" ]]; then
+        cp "$SCRIPT_DIR/setup.sh" "$RALPH_HOME/setup.sh"
+        chmod +x "$RALPH_HOME/setup.sh"
+        log "SUCCESS" "Global setup script installed (copied from $SCRIPT_DIR/setup.sh)"
+    else
+        log "ERROR" "setup.sh not found in $SCRIPT_DIR"
+        return 1
+    fi
 }
 
 # Check PATH

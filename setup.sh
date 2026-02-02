@@ -92,8 +92,10 @@ CB_OUTPUT_DECLINE_THRESHOLD=70
 RALPHRCEOF
 fi
 
-# Initialize git
-git init
+# Initialize git (skip if already initialized)
+if [[ ! -d ".git" ]]; then
+    git init
+fi
 echo "# $PROJECT_NAME" > README.md
 git add .
 git commit -m "Initial Ralph project setup"
