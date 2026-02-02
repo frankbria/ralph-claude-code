@@ -429,16 +429,18 @@ PROMPTEOF
 
     if [[ "$use_modern_cli" == "true" ]]; then
         # Modern CLI invocation with JSON output and controlled tool permissions
-        # --allowedTools permits file operations without user prompts
-        # Array expansion preserves quoting for each tool argument
-        if $CLAUDE_CODE_CMD --output-format "$CLAUDE_OUTPUT_FORMAT" --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
+        # --print: Required for piped input (prevents interactive session hang)
+        # --allowedTools: Permits file operations without user prompts
+        # --strict-mcp-config: Skip loading user MCP servers (faster startup)
+        if $CLAUDE_CODE_CMD --print --strict-mcp-config --output-format "$CLAUDE_OUTPUT_FORMAT" --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
             cli_exit_code=0
         else
             cli_exit_code=$?
         fi
     else
         # Standard CLI invocation (backward compatible)
-        if $CLAUDE_CODE_CMD < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
+        # --print: Required for piped input (prevents interactive session hang)
+        if $CLAUDE_CODE_CMD --print < "$CONVERSION_PROMPT_FILE" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
             cli_exit_code=0
         else
             cli_exit_code=$?
