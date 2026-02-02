@@ -16,10 +16,12 @@ CB_STATE_OPEN="OPEN"            # Failure detected, execution halted
 RALPH_DIR="${RALPH_DIR:-.ralph}"
 CB_STATE_FILE="$RALPH_DIR/.circuit_breaker_state"
 CB_HISTORY_FILE="$RALPH_DIR/.circuit_breaker_history"
-CB_NO_PROGRESS_THRESHOLD=3      # Open circuit after N loops with no progress
-CB_SAME_ERROR_THRESHOLD=5       # Open circuit after N loops with same error
-CB_OUTPUT_DECLINE_THRESHOLD=70  # Open circuit if output declines by >70%
-CB_PERMISSION_DENIAL_THRESHOLD=2  # Open circuit after N loops with permission denials (Issue #101)
+# Configurable thresholds - override via environment variables:
+# Example: CB_NO_PROGRESS_THRESHOLD=10 ralph --monitor
+CB_NO_PROGRESS_THRESHOLD=${CB_NO_PROGRESS_THRESHOLD:-3}        # Open circuit after N loops with no progress
+CB_SAME_ERROR_THRESHOLD=${CB_SAME_ERROR_THRESHOLD:-5}          # Open circuit after N loops with same error
+CB_OUTPUT_DECLINE_THRESHOLD=${CB_OUTPUT_DECLINE_THRESHOLD:-70} # Open circuit if output declines by >70%
+CB_PERMISSION_DENIAL_THRESHOLD=${CB_PERMISSION_DENIAL_THRESHOLD:-2}  # Open circuit after N loops with permission denials (Issue #101)
 
 # Colors
 RED='\033[0;31m'
