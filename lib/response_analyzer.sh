@@ -371,9 +371,22 @@ analyze_response() {
 
                 # Check if commits were made (HEAD changed)
                 if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
-                    git_files=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | wc -l || echo 0)
+                    # Commits were made - count union of committed files AND working tree changes
+                    git_files=$(
+                        {
+                            git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
+                            git diff --name-only HEAD 2>/dev/null           # unstaged changes
+                            git diff --name-only --cached 2>/dev/null       # staged changes
+                        } | sort -u | wc -l
+                    )
                 else
-                    git_files=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+                    # No commits - check for uncommitted changes (staged + unstaged)
+                    git_files=$(
+                        {
+                            git diff --name-only 2>/dev/null                # unstaged changes
+                            git diff --name-only --cached 2>/dev/null       # staged changes
+                        } | sort -u | wc -l
+                    )
                 fi
 
                 if [[ $git_files -gt 0 ]]; then
@@ -528,9 +541,22 @@ analyze_response() {
 
         # Check if commits were made (HEAD changed)
         if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
-            files_modified=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | wc -l || echo 0)
+            # Commits were made - count union of committed files AND working tree changes
+            files_modified=$(
+                {
+                    git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
+                    git diff --name-only HEAD 2>/dev/null           # unstaged changes
+                    git diff --name-only --cached 2>/dev/null       # staged changes
+                } | sort -u | wc -l
+            )
         else
-            files_modified=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+            # No commits - check for uncommitted changes (staged + unstaged)
+            files_modified=$(
+                {
+                    git diff --name-only 2>/dev/null                # unstaged changes
+                    git diff --name-only --cached 2>/dev/null       # staged changes
+                } | sort -u | wc -l
+            )
         fi
 
         if [[ $files_modified -gt 0 ]]; then

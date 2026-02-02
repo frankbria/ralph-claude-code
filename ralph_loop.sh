@@ -1298,12 +1298,24 @@ EOF
 
             # Check if commits were made (HEAD changed)
             if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
-                # Commits were made - count files in the commits
-                files_changed=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | wc -l || echo 0)
-                [[ "$VERBOSE_PROGRESS" == "true" ]] && log_status "DEBUG" "Detected $files_changed files changed in commits since loop start"
+                # Commits were made - count union of committed files AND working tree changes
+                # This catches cases where Claude commits some files but still has other modified files
+                files_changed=$(
+                    {
+                        git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
+                        git diff --name-only HEAD 2>/dev/null           # unstaged changes
+                        git diff --name-only --cached 2>/dev/null       # staged changes
+                    } | sort -u | wc -l
+                )
+                [[ "$VERBOSE_PROGRESS" == "true" ]] && log_status "DEBUG" "Detected $files_changed unique files changed (commits + working tree) since loop start"
             else
-                # No commits - check for uncommitted changes (original behavior)
-                files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+                # No commits - check for uncommitted changes (staged + unstaged)
+                files_changed=$(
+                    {
+                        git diff --name-only 2>/dev/null                # unstaged changes
+                        git diff --name-only --cached 2>/dev/null       # staged changes
+                    } | sort -u | wc -l
+                )
             fi
         fi
 
