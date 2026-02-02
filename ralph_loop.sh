@@ -492,15 +492,12 @@ should_exit_gracefully() {
     fi
     
     # 5. Check fix_plan.md for completion
-    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
+    # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
+    # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
-
-        # Handle case where grep returns no matches (exit code 1)
-        [[ -z "$total_items" ]] && total_items=0
-        [[ -z "$completed_items" ]] && completed_items=0
-
+        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
@@ -1013,6 +1010,14 @@ execute_claude_code() {
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
 
+    # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
+    # Store in file for access by progress detection after Claude execution
+    local loop_start_sha=""
+    if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+        loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+    fi
+    echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
+
     log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
@@ -1279,7 +1284,41 @@ EOF
         log_analysis_summary
 
         # Get file change count for circuit breaker
-        local files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+        # Fix #141: Detect both uncommitted changes AND committed changes
+        local files_changed=0
+        local loop_start_sha=""
+        local current_sha=""
+
+        if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
+            loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
+        fi
+
+        if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+            current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+            # Check if commits were made (HEAD changed)
+            if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+                # Commits were made - count union of committed files AND working tree changes
+                # This catches cases where Claude commits some files but still has other modified files
+                files_changed=$(
+                    {
+                        git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
+                        git diff --name-only HEAD 2>/dev/null           # unstaged changes
+                        git diff --name-only --cached 2>/dev/null       # staged changes
+                    } | sort -u | wc -l
+                )
+                [[ "$VERBOSE_PROGRESS" == "true" ]] && log_status "DEBUG" "Detected $files_changed unique files changed (commits + working tree) since loop start"
+            else
+                # No commits - check for uncommitted changes (staged + unstaged)
+                files_changed=$(
+                    {
+                        git diff --name-only 2>/dev/null                # unstaged changes
+                        git diff --name-only --cached 2>/dev/null       # staged changes
+                    } | sort -u | wc -l
+                )
+            fi
+        fi
+
         local has_errors="false"
 
         # Two-stage error detection to avoid JSON field false positives

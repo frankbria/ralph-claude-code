@@ -75,13 +75,15 @@ should_exit_gracefully() {
     fi
 
     # 4. Check fix_plan.md for completion
+    # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local total_items=$(grep -c "^- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
-        local completed_items=$(grep -c "^- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null)
-
-        # Handle case where grep returns no matches (exit code 1)
-        [[ -z "$total_items" ]] && total_items=0
-        [[ -z "$completed_items" ]] && completed_items=0
+        local uncompleted_items
+        local completed_items
+        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        uncompleted_items=$(echo "$uncompleted_items" | tr -d '[:space:]')
+        completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        completed_items=$(echo "$completed_items" | tr -d '[:space:]')
+        local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             echo "plan_complete"
@@ -877,4 +879,347 @@ EOF
 
     result=$(should_exit_gracefully_with_denials || true)
     assert_equal "$result" ""
+}
+
+# =============================================================================
+# CHECKBOX REGEX FIX TESTS (Issue #144)
+# =============================================================================
+# These tests verify that date entries like [2026-01-29] are NOT counted as
+# checkboxes, preventing false "plan_complete" exits when fix_plan.md contains
+# dated entries that match the old [*] pattern.
+
+# Test 41: Date entries should NOT be counted as checkboxes
+@test "fix_plan.md date entries are not counted as checkboxes" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Changelog
+- [2026-01-29] Initial version
+- [2026-01-30] Added feature X
+- [2026-01-31] Bug fixes
+
+## Tasks
+- [ ] Task 1 pending
+- [ ] Task 2 pending
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # Should NOT exit - there are 2 uncompleted tasks
+    assert_equal "$result" ""
+}
+
+# Test 42: Date entries mixed with completed tasks should not cause false exit
+@test "fix_plan.md with dates and completed tasks counts correctly" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Changelog
+- [2026-01-29] Initial version
+
+## Tasks
+- [x] Task 1 complete
+- [ ] Task 2 pending
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # 1 completed, 1 pending - should NOT exit
+    assert_equal "$result" ""
+}
+
+# Test 43: Non-checkbox bracket patterns (NOTE, TODO, FIXME) should be excluded
+@test "fix_plan.md bracket patterns like [NOTE] are not checkboxes" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Notes
+- [NOTE] Remember to update docs
+- [TODO] Consider refactoring later
+- [FIXME] Known issue with edge case
+- [WIP] Work in progress
+
+## Tasks
+- [ ] Task 1 pending
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # Only 1 real task (pending) - should NOT exit
+    assert_equal "$result" ""
+}
+
+# Test 44: Case-insensitive completed checkboxes ([x] and [X])
+@test "fix_plan.md counts both [x] and [X] as completed" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+- [x] Task 1 with lowercase x
+- [X] Task 2 with uppercase X
+- [x] Task 3 with lowercase x
+EOF
+
+    result=$(should_exit_gracefully)
+    # All 3 tasks completed - should exit with plan_complete
+    assert_equal "$result" "plan_complete"
+}
+
+# Test 45: Indented date entries should not be counted
+@test "fix_plan.md indented date entries are not checkboxes" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Releases
+  - [2026-01-29] v1.0.0 released
+    - [2026-01-30] v1.0.1 patch
+
+## Tasks
+- [x] All done
+EOF
+
+    result=$(should_exit_gracefully)
+    # Only 1 real task (completed) - should exit
+    assert_equal "$result" "plan_complete"
+}
+
+# Test 46: Empty checkbox [ ] with spaces should be counted as uncompleted
+@test "fix_plan.md empty checkboxes with extra spaces" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+- [ ] Task with single space (valid)
+- [  ] Task with double space (invalid format, not counted)
+- [x] Completed task
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # 1 uncompleted, 1 completed - should NOT exit
+    assert_equal "$result" ""
+}
+
+# Test 47: Version numbers in brackets should not be counted
+@test "fix_plan.md version numbers like [v1.0] are not checkboxes" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Version History
+- [v1.0] Initial release
+- [v1.1] Added features
+- [v2.0] Major update
+
+## Tasks
+- [x] Task complete
+EOF
+
+    result=$(should_exit_gracefully)
+    # Only 1 real task (completed) - should exit
+    assert_equal "$result" "plan_complete"
+}
+
+# Test 48: Issue/PR references should not be counted
+@test "fix_plan.md issue references like [#123] are not checkboxes" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Related Issues
+- [#141] Progress detection bug
+- [#144] Checkbox regex false positives
+- [PR#155] Setup improvements
+
+## Tasks
+- [ ] Fix issue #141
+- [ ] Fix issue #144
+EOF
+
+    result=$(should_exit_gracefully || true)
+    # 2 uncompleted tasks - should NOT exit
+    assert_equal "$result" ""
+}
+
+# =============================================================================
+# GIT COMMIT DETECTION TESTS (Issue #141)
+# =============================================================================
+# These tests verify that when Claude commits within a loop, the committed files
+# are counted as progress even though there are no uncommitted changes.
+
+# Helper function to detect progress including git commits
+detect_progress_with_commits() {
+    local loop_start_sha="$1"
+    local current_sha="$2"
+    local files_changed=0
+
+    # Check for committed changes since loop start
+    if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+        # Files changed in commits between loop start and current HEAD
+        files_changed=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | wc -l || echo 0)
+        files_changed=$(echo "$files_changed" | tr -d ' ')
+    else
+        # Fall back to uncommitted changes
+        files_changed=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+        files_changed=$(echo "$files_changed" | tr -d ' ')
+    fi
+
+    echo "$files_changed"
+}
+
+# Test 49: Git commit detection - files changed in commit count as progress
+@test "git commit detection counts committed files as progress" {
+    # Skip if git is not available
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Initialize a git repo
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+
+    # Create initial commit
+    echo "initial" > file1.txt
+    git add file1.txt
+    git commit --quiet -m "Initial commit"
+
+    local loop_start_sha=$(git rev-parse HEAD)
+
+    # Simulate Claude making changes and committing within the loop
+    echo "modified" > file1.txt
+    echo "new file" > file2.txt
+    git add file1.txt file2.txt
+    git commit --quiet -m "Claude's work"
+
+    local current_sha=$(git rev-parse HEAD)
+
+    # Detect progress
+    local files_changed=$(detect_progress_with_commits "$loop_start_sha" "$current_sha")
+
+    # Should detect 2 files changed
+    [ "$files_changed" -eq 2 ]
+}
+
+# Test 50: Git commit detection - no progress when SHA unchanged
+@test "git commit detection returns 0 when no commits made" {
+    # Skip if git is not available
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Initialize a git repo
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+
+    # Create initial commit
+    echo "initial" > file1.txt
+    git add file1.txt
+    git commit --quiet -m "Initial commit"
+
+    local loop_start_sha=$(git rev-parse HEAD)
+    local current_sha=$(git rev-parse HEAD)
+
+    # No uncommitted changes either
+    local files_changed=$(detect_progress_with_commits "$loop_start_sha" "$current_sha")
+
+    # Should detect 0 files (no commits, no uncommitted changes)
+    [ "$files_changed" -eq 0 ]
+}
+
+# Test 51: Git commit detection - falls back to uncommitted when no commit
+@test "git commit detection falls back to uncommitted changes" {
+    # Skip if git is not available
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Initialize a git repo
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+
+    # Create initial commit with two tracked files
+    echo "initial1" > file1.txt
+    echo "initial2" > file2.txt
+    git add file1.txt file2.txt
+    git commit --quiet -m "Initial commit"
+
+    local loop_start_sha=$(git rev-parse HEAD)
+
+    # Make uncommitted changes to tracked files (no commit)
+    echo "modified1" > file1.txt
+    echo "modified2" > file2.txt
+
+    local current_sha=$(git rev-parse HEAD)  # Same as loop_start_sha
+
+    # Detect progress - should fall back to uncommitted changes
+    # Note: git diff only shows modified tracked files, not untracked files
+    local files_changed=$(detect_progress_with_commits "$loop_start_sha" "$current_sha")
+
+    # Should detect 2 uncommitted modified files
+    [ "$files_changed" -eq 2 ]
+}
+
+# Test 52: Git commit detection - multiple commits within loop
+@test "git commit detection counts files across multiple commits" {
+    # Skip if git is not available
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Initialize a git repo
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+
+    # Create initial commit
+    echo "initial" > file1.txt
+    git add file1.txt
+    git commit --quiet -m "Initial commit"
+
+    local loop_start_sha=$(git rev-parse HEAD)
+
+    # First commit within loop
+    echo "change1" > file1.txt
+    git add file1.txt
+    git commit --quiet -m "First change"
+
+    # Second commit within loop
+    echo "new" > file2.txt
+    git add file2.txt
+    git commit --quiet -m "Second change"
+
+    # Third commit within loop
+    echo "another" > file3.txt
+    git add file3.txt
+    git commit --quiet -m "Third change"
+
+    local current_sha=$(git rev-parse HEAD)
+
+    # Detect progress
+    local files_changed=$(detect_progress_with_commits "$loop_start_sha" "$current_sha")
+
+    # Should detect 3 files (one per commit)
+    [ "$files_changed" -eq 3 ]
+}
+
+# Test 53: Git commit detection handles empty loop_start_sha
+@test "git commit detection handles missing loop_start_sha" {
+    # Skip if git is not available
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Initialize a git repo
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+
+    # Create initial commit
+    echo "initial" > file1.txt
+    git add file1.txt
+    git commit --quiet -m "Initial commit"
+
+    # Make uncommitted changes
+    echo "modified" > file1.txt
+
+    local current_sha=$(git rev-parse HEAD)
+
+    # Detect progress with empty loop_start_sha
+    local files_changed=$(detect_progress_with_commits "" "$current_sha")
+
+    # Should fall back to uncommitted changes (1 file)
+    [ "$files_changed" -eq 1 ]
 }
