@@ -412,7 +412,7 @@ EOF
     echo "test" > "$test_file"
 
     # Verify the function code handles stat failure by checking the implementation
-    run grep -A25 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A35 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *'echo "-1"'* ]]
 }
 
