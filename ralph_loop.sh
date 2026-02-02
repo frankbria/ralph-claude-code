@@ -626,16 +626,21 @@ get_session_file_age_hours() {
         return
     fi
 
-    local os_type
-    os_type=$(uname)
-
+    # Get file modification time using capability detection
+    # Handles macOS with Homebrew coreutils where stat flags differ
     local file_mtime
-    if [[ "$os_type" == "Darwin" ]]; then
-        # macOS (BSD stat)
-        file_mtime=$(stat -f %m "$file" 2>/dev/null)
+
+    # Try GNU stat first (Linux, macOS with Homebrew coreutils)
+    if file_mtime=$(stat -c %Y "$file" 2>/dev/null) && [[ -n "$file_mtime" && "$file_mtime" =~ ^[0-9]+$ ]]; then
+        : # success
+    # Try BSD stat (native macOS)
+    elif file_mtime=$(stat -f %m "$file" 2>/dev/null) && [[ -n "$file_mtime" && "$file_mtime" =~ ^[0-9]+$ ]]; then
+        : # success
+    # Fallback to date -r (most portable)
+    elif file_mtime=$(date -r "$file" +%s 2>/dev/null) && [[ -n "$file_mtime" && "$file_mtime" =~ ^[0-9]+$ ]]; then
+        : # success
     else
-        # Linux (GNU stat)
-        file_mtime=$(stat -c %Y "$file" 2>/dev/null)
+        file_mtime=""
     fi
 
     # Handle stat failure - return -1 to indicate error
