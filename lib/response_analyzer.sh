@@ -123,7 +123,9 @@ parse_json_response() {
     fi
 
     # Exit signal: from flat format OR derived from completion_status
+    # Track whether EXIT_SIGNAL was explicitly provided (vs inferred from STATUS)
     local exit_signal=$(jq -r '.exit_signal // false' "$output_file" 2>/dev/null)
+    local explicit_exit_signal_found=$(jq -r 'has("exit_signal")' "$output_file" 2>/dev/null)
 
     # Bug #1 Fix: If exit_signal is still false, check for RALPH_STATUS block in .result field
     # Claude CLI JSON format embeds the RALPH_STATUS block within the .result text field
@@ -131,17 +133,27 @@ parse_json_response() {
         local result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
         if [[ -n "$result_text" ]] && echo "$result_text" | grep -q -- "---RALPH_STATUS---"; then
             # Extract EXIT_SIGNAL value from RALPH_STATUS block within result text
-            local embedded_exit_sig=$(echo "$result_text" | grep "EXIT_SIGNAL:" | cut -d: -f2 | xargs)
-            if [[ "$embedded_exit_sig" == "true" ]]; then
-                exit_signal="true"
-                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Extracted EXIT_SIGNAL=true from .result RALPH_STATUS block" >&2
+            local embedded_exit_sig
+            embedded_exit_sig=$(echo "$result_text" | grep "EXIT_SIGNAL:" | cut -d: -f2 | xargs)
+            if [[ -n "$embedded_exit_sig" ]]; then
+                # Explicit EXIT_SIGNAL found in RALPH_STATUS block
+                explicit_exit_signal_found="true"
+                if [[ "$embedded_exit_sig" == "true" ]]; then
+                    exit_signal="true"
+                    [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Extracted EXIT_SIGNAL=true from .result RALPH_STATUS block" >&2
+                else
+                    exit_signal="false"
+                    [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Extracted EXIT_SIGNAL=false from .result RALPH_STATUS block (respecting explicit intent)" >&2
+                fi
             fi
-            # Also check STATUS field as fallback
-            local embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
-            if [[ "$embedded_status" == "COMPLETE" && "$exit_signal" != "true" ]]; then
-                # STATUS: COMPLETE without explicit EXIT_SIGNAL implies completion
+            # Also check STATUS field as fallback ONLY when EXIT_SIGNAL was not specified
+            # This respects explicit EXIT_SIGNAL: false which means "task complete, continue working"
+            local embedded_status
+            embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
+            if [[ "$embedded_status" == "COMPLETE" && "$explicit_exit_signal_found" != "true" ]]; then
+                # STATUS: COMPLETE without any EXIT_SIGNAL field implies completion
                 exit_signal="true"
-                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Inferred EXIT_SIGNAL=true from .result STATUS=COMPLETE" >&2
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Inferred EXIT_SIGNAL=true from .result STATUS=COMPLETE (no explicit EXIT_SIGNAL found)" >&2
             fi
         fi
     fi
@@ -197,7 +209,11 @@ parse_json_response() {
 
     # Normalize values
     # Convert exit_signal to boolean string
-    if [[ "$exit_signal" == "true" || "$status" == "COMPLETE" || "$completion_status" == "complete" || "$completion_status" == "COMPLETE" ]]; then
+    # Only infer from status/completion_status if no explicit EXIT_SIGNAL was provided
+    if [[ "$explicit_exit_signal_found" == "true" ]]; then
+        # Respect explicit EXIT_SIGNAL value (already set above)
+        [[ "$exit_signal" == "true" ]] && exit_signal="true" || exit_signal="false"
+    elif [[ "$exit_signal" == "true" || "$status" == "COMPLETE" || "$completion_status" == "complete" || "$completion_status" == "COMPLETE" ]]; then
         exit_signal="true"
     else
         exit_signal="false"
