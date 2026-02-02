@@ -331,7 +331,8 @@ log_status() {
         "LOOP") color=$PURPLE ;;
     esac
     
-    echo -e "${color}[$timestamp] [$level] $message${NC}"
+    # Write to stderr so log messages don't interfere with function return values
+    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
 
@@ -981,9 +982,15 @@ build_claude_command() {
     fi
 
     # Add session continuity flag
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        CLAUDE_CMD_ARGS+=("--continue")
+    # IMPORTANT: Use --resume with explicit session ID instead of --continue
+    # --continue resumes the "most recent session in current directory" which
+    # can hijack active Claude Code sessions. --resume with a specific session ID
+    # ensures we only resume Ralph's own sessions. (Issue #151)
+    if [[ "$CLAUDE_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
+        CLAUDE_CMD_ARGS+=("--resume" "$session_id")
     fi
+    # If no session_id, start fresh - Claude will generate a new session ID
+    # which we'll capture via save_claude_session() for future loops
 
     # Add loop context as system prompt (no escaping needed - array handles it)
     if [[ -n "$loop_context" ]]; then
