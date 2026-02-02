@@ -358,8 +358,24 @@ analyze_response() {
             fi
 
             # Check for file changes via git (supplements JSON data)
+            # Fix #141: Detect both uncommitted changes AND committed changes
             if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
-                local git_files=$(git diff --name-only 2>/dev/null | wc -l)
+                local git_files=0
+                local loop_start_sha=""
+                local current_sha=""
+
+                if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
+                    loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
+                fi
+                current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+                # Check if commits were made (HEAD changed)
+                if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+                    git_files=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | wc -l || echo 0)
+                else
+                    git_files=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+                fi
+
                 if [[ $git_files -gt 0 ]]; then
                     has_progress=true
                     files_modified=$git_files
@@ -500,8 +516,23 @@ analyze_response() {
     done
 
     # 6. Check for file changes (git integration)
+    # Fix #141: Detect both uncommitted changes AND committed changes
     if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
-        files_modified=$(git diff --name-only 2>/dev/null | wc -l)
+        local loop_start_sha=""
+        local current_sha=""
+
+        if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
+            loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
+        fi
+        current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+        # Check if commits were made (HEAD changed)
+        if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+            files_modified=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | wc -l || echo 0)
+        else
+            files_modified=$(git diff --name-only 2>/dev/null | wc -l || echo 0)
+        fi
+
         if [[ $files_modified -gt 0 ]]; then
             has_progress=true
             ((confidence_score+=20))

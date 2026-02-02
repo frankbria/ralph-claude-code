@@ -3,7 +3,7 @@
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-0.11.4-blue)
-![Tests](https://img.shields.io/badge/tests-452%20passing-green)
+![Tests](https://img.shields.io/badge/tests-465%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -18,7 +18,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 **Version**: v0.11.4 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 452 tests, 100% pass rate
+**Test Coverage**: 465 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -43,6 +43,8 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 ### Recent Improvements
 
 **v0.11.4 - Bug Fixes & Compatibility** (latest)
+- Fixed progress detection: Git commits within a loop now count as progress (#141)
+- Fixed checkbox regex: Date entries `[2026-01-29]` no longer counted as checkboxes (#144)
 - Fixed session hijacking: Use `--resume <session_id>` instead of `--continue` (#151)
 - Fixed EXIT_SIGNAL override: `STATUS: COMPLETE` with `EXIT_SIGNAL: false` now continues working (#146)
 - Fixed ralph-import hanging indefinitely (added `--print` flag for non-interactive mode)
@@ -50,6 +52,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Fixed cross-platform date commands for macOS with Homebrew coreutils
 - Added configurable circuit breaker thresholds via environment variables (#99)
 - Added tmux support for non-zero `base-index` configurations
+- Added 13 new regression tests for progress detection and checkbox regex
 
 **v0.11.3 - Live Streaming & Beads Fix**
 - Added live streaming output mode with `--live` flag for real-time Claude Code visibility (#125)
@@ -608,7 +611,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (452 tests)
+# Run all tests (465 tests)
 npm test
 
 # Run specific test suites
@@ -633,7 +636,7 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **452 tests** across 15 test files
+- **465 tests** across 15 test files
 - **100% pass rate** (452/452 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
@@ -740,7 +743,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 452 tests must pass
+npm test  # All 465 tests must pass
 ```
 
 ### Priority Contribution Areas

@@ -204,11 +204,13 @@ should_exit_gracefully() {
     fi
     
     # 4. Check fix_plan.md for completion
-    # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
+    # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
+    # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local total_items=$(grep -cE "^[[:space:]]*- \[" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -cE "^[[:space:]]*- \[x\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        
+        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local total_items=$((uncompleted_items + completed_items))
+
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
             log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)"
             echo "plan_complete"
