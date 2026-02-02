@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.11.2-blue)
+![Version](https://img.shields.io/badge/version-0.11.4-blue)
 ![Tests](https://img.shields.io/badge/tests-452%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
@@ -16,7 +16,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.11.2 - Active Development
+**Version**: v0.11.4 - Active Development
 **Core Features**: Working and tested
 **Test Coverage**: 452 tests, 100% pass rate
 
@@ -27,7 +27,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Circuit breaker with advanced error detection (prevents runaway loops)
 - Response analyzer with semantic understanding and two-stage error filtering
 - **JSON output format support with automatic fallback to text parsing**
-- **Session continuity with `--continue` flag for context preservation**
+- **Session continuity with `--resume` flag for context preservation (no session hijacking)**
 - **Session expiration with configurable timeout (default: 24 hours)**
 - **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - **Interactive project enablement with `ralph-enable` wizard**
@@ -42,7 +42,16 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ### Recent Improvements
 
-**v0.11.3 - Live Streaming & Beads Fix** (latest)
+**v0.11.4 - Bug Fixes & Compatibility** (latest)
+- Fixed session hijacking: Use `--resume <session_id>` instead of `--continue` (#151)
+- Fixed EXIT_SIGNAL override: `STATUS: COMPLETE` with `EXIT_SIGNAL: false` now continues working (#146)
+- Fixed ralph-import hanging indefinitely (added `--print` flag for non-interactive mode)
+- Fixed ralph-import absolute path handling
+- Fixed cross-platform date commands for macOS with Homebrew coreutils
+- Added configurable circuit breaker thresholds via environment variables (#99)
+- Added tmux support for non-zero `base-index` configurations
+
+**v0.11.3 - Live Streaming & Beads Fix**
 - Added live streaming output mode with `--live` flag for real-time Claude Code visibility (#125)
 - Fixed beads task import using correct `bd list` arguments (#150)
 - Applied CodeRabbit review fixes: camelCase variables, status-respecting fallback, jq guards
@@ -819,7 +828,7 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.11.3
+### Current Status: v0.11.4
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection

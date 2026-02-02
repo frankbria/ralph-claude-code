@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Ralph for Claude Code repository - an autonomous AI development loop system that enables continuous development cycles with intelligent exit detection and rate limiting.
 
-**Version**: v0.11.3 | **Tests**: 452 passing (100% pass rate) | **CI/CD**: GitHub Actions
+**Version**: v0.11.4 | **Tests**: 452 passing (100% pass rate) | **CI/CD**: GitHub Actions
 
 ## Core Architecture
 
@@ -457,6 +457,17 @@ bats tests/unit/test_cli_parsing.bats
 ```
 
 ## Recent Improvements
+
+### Bug Fixes & Compatibility (v0.11.4)
+- Fixed session hijacking: Use `--resume <session_id>` instead of `--continue` to avoid taking over active Claude Code sessions (#151)
+- Fixed EXIT_SIGNAL override: `STATUS: COMPLETE` with explicit `EXIT_SIGNAL: false` now correctly continues working (#146)
+- Fixed ralph-import hanging: Added `--print` flag for non-interactive mode
+- Fixed ralph-import absolute paths: Properly handles `/absolute/path/to/file.md`
+- Fixed cross-platform date commands: Capability detection for macOS with Homebrew coreutils
+- Added configurable circuit breaker thresholds via environment variables (#99)
+- Added tmux non-zero window support for custom `base-index` configurations
+- Fixed log_status to write to stderr (prevents function return value corruption)
+- Test count: 452 (maintained)
 
 ### Live Streaming & Beads Fix (v0.11.3)
 - Added live streaming output mode with `--live` flag for real-time Claude Code visibility (#125)
