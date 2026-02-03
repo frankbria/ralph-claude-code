@@ -200,11 +200,13 @@ parse_json_response() {
         has_permission_denials="true"
     fi
 
-    # Extract denied commands for logging/display
-    # Note: Commands are nested under tool_input.command in the permission_denials array
+    # Extract denied tool names and commands for logging/display
+    # Shows tool_name for non-Bash tools, and for Bash tools shows the command that was denied
+    # This handles both cases: AskUserQuestion denial shows "AskUserQuestion",
+    # while Bash denial shows "Bash(git commit -m ...)" with truncated command
     local denied_commands_json="[]"
     if [[ $permission_denial_count -gt 0 ]]; then
-        denied_commands_json=$(jq -r '[.permission_denials[].tool_input.command // empty]' "$output_file" 2>/dev/null || echo "[]")
+        denied_commands_json=$(jq -r '[.permission_denials[] | if .tool_name == "Bash" then "Bash(\(.tool_input.command // "?" | split("\n")[0] | .[0:60]))" else .tool_name // "unknown" end]' "$output_file" 2>/dev/null || echo "[]")
     fi
 
     # Normalize values
