@@ -42,6 +42,8 @@ _env_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
 _env_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
 _env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
+_env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
+_env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -146,6 +148,8 @@ load_ralphrc() {
     [[ -n "$_env_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$_env_CLAUDE_USE_CONTINUE"
     [[ -n "$_env_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_env_CLAUDE_SESSION_EXPIRY_HOURS"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
+    [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
+    [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
 
     RALPHRC_LOADED=true
     return 0
@@ -260,6 +264,10 @@ setup_tmux_session() {
     # Forward --session-expiry if non-default (default is 24)
     if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
         ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
+    fi
+    # Forward --auto-reset-circuit if enabled
+    if [[ "$CB_AUTO_RESET" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --auto-reset-circuit"
     fi
 
     tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
@@ -1609,6 +1617,7 @@ Options:
     -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
+    --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
 
 Modern CLI Options (Phase 1.1):
@@ -1741,6 +1750,10 @@ while [[ $# -gt 0 ]]; do
             fi
             CLAUDE_SESSION_EXPIRY_HOURS="$2"
             shift 2
+            ;;
+        --auto-reset-circuit)
+            CB_AUTO_RESET=true
+            shift
             ;;
         *)
             echo "Unknown option: $1"

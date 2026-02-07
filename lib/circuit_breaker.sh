@@ -22,6 +22,8 @@ CB_NO_PROGRESS_THRESHOLD=${CB_NO_PROGRESS_THRESHOLD:-3}        # Open circuit af
 CB_SAME_ERROR_THRESHOLD=${CB_SAME_ERROR_THRESHOLD:-5}          # Open circuit after N loops with same error
 CB_OUTPUT_DECLINE_THRESHOLD=${CB_OUTPUT_DECLINE_THRESHOLD:-70} # Open circuit if output declines by >70%
 CB_PERMISSION_DENIAL_THRESHOLD=${CB_PERMISSION_DENIAL_THRESHOLD:-2}  # Open circuit after N loops with permission denials (Issue #101)
+CB_COOLDOWN_MINUTES=${CB_COOLDOWN_MINUTES:-30}                      # Minutes before OPEN → HALF_OPEN auto-recovery (Issue #160)
+CB_AUTO_RESET=${CB_AUTO_RESET:-false}                               # Reset to CLOSED on startup instead of waiting for cooldown
 
 # Colors
 RED='\033[0;31m'
@@ -53,6 +55,61 @@ init_circuit_breaker() {
     "reason": ""
 }
 EOF
+    fi
+
+    # Auto-recovery: check if OPEN state should transition (Issue #160)
+    local current_state
+    current_state=$(jq -r '.state' "$CB_STATE_FILE" 2>/dev/null || echo "$CB_STATE_CLOSED")
+
+    if [[ "$current_state" == "$CB_STATE_OPEN" ]]; then
+        if [[ "$CB_AUTO_RESET" == "true" ]]; then
+            # Auto-reset: bypass cooldown, go straight to CLOSED
+            local current_loop total_opens
+            current_loop=$(jq -r '.current_loop // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+            total_opens=$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+            log_circuit_transition "$CB_STATE_OPEN" "$CB_STATE_CLOSED" "Auto-reset on startup (CB_AUTO_RESET=true)" "$current_loop"
+
+            cat > "$CB_STATE_FILE" << EOF
+{
+    "state": "$CB_STATE_CLOSED",
+    "last_change": "$(get_iso_timestamp)",
+    "consecutive_no_progress": 0,
+    "consecutive_same_error": 0,
+    "consecutive_permission_denials": 0,
+    "last_progress_loop": 0,
+    "total_opens": $total_opens,
+    "reason": "Auto-reset on startup"
+}
+EOF
+        else
+            # Cooldown: check if enough time has elapsed to transition to HALF_OPEN
+            local opened_at
+            opened_at=$(jq -r '.opened_at // .last_change // ""' "$CB_STATE_FILE" 2>/dev/null || echo "")
+
+            if [[ -n "$opened_at" && "$opened_at" != "null" ]]; then
+                local opened_epoch current_epoch elapsed_minutes
+                opened_epoch=$(parse_iso_to_epoch "$opened_at")
+                current_epoch=$(date +%s)
+                elapsed_minutes=$(( (current_epoch - opened_epoch) / 60 ))
+
+                if [[ $elapsed_minutes -ge 0 && $elapsed_minutes -ge $CB_COOLDOWN_MINUTES ]]; then
+                    local current_loop
+                    current_loop=$(jq -r '.current_loop // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+                    log_circuit_transition "$CB_STATE_OPEN" "$CB_STATE_HALF_OPEN" "Cooldown elapsed (${elapsed_minutes}m >= ${CB_COOLDOWN_MINUTES}m)" "$current_loop"
+
+                    # Preserve counters but transition state
+                    local state_data
+                    state_data=$(cat "$CB_STATE_FILE")
+                    echo "$state_data" | jq \
+                        --arg state "$CB_STATE_HALF_OPEN" \
+                        --arg last_change "$(get_iso_timestamp)" \
+                        --arg reason "Cooldown recovery: ${elapsed_minutes}m elapsed" \
+                        '.state = $state | .last_change = $last_change | .reason = $reason' \
+                        > "$CB_STATE_FILE"
+                fi
+                # If elapsed_minutes < 0 (clock skew), stay OPEN safely
+            fi
+        fi
     fi
 
     # Check if history file exists and is valid JSON
@@ -217,7 +274,7 @@ record_loop_result() {
             ;;
 
         "$CB_STATE_OPEN")
-            # Circuit is open - stays open (manual intervention required)
+            # Circuit is open - stays open (auto-recovery handled in init_circuit_breaker)
             reason="Circuit breaker is open, execution halted"
             ;;
     esac
@@ -227,6 +284,16 @@ record_loop_result() {
     total_opens=$((total_opens + 0))
     if [[ "$new_state" == "$CB_STATE_OPEN" && "$current_state" != "$CB_STATE_OPEN" ]]; then
         total_opens=$((total_opens + 1))
+    fi
+
+    # Determine opened_at: set when entering OPEN, preserve when staying OPEN
+    local opened_at=""
+    if [[ "$new_state" == "$CB_STATE_OPEN" && "$current_state" != "$CB_STATE_OPEN" ]]; then
+        # Entering OPEN state - record the timestamp
+        opened_at=$(get_iso_timestamp)
+    elif [[ "$new_state" == "$CB_STATE_OPEN" && "$current_state" == "$CB_STATE_OPEN" ]]; then
+        # Staying OPEN - preserve existing opened_at (fall back to last_change for old state files)
+        opened_at=$(echo "$state_data" | jq -r '.opened_at // .last_change // ""' 2>/dev/null)
     fi
 
     cat > "$CB_STATE_FILE" << EOF
@@ -239,7 +306,8 @@ record_loop_result() {
     "last_progress_loop": $last_progress_loop,
     "total_opens": $total_opens,
     "reason": "$reason",
-    "current_loop": $loop_number
+    "current_loop": $loop_number$(if [[ -n "$opened_at" ]]; then echo ",
+    \"opened_at\": \"$opened_at\""; fi)
 }
 EOF
 

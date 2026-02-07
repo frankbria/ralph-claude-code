@@ -431,7 +431,18 @@ The circuit breaker automatically:
 - Eliminates false positives from JSON fields containing "error"
 - Accurately detects stuck loops with multi-line error matching
 - Gradually recovers with half-open monitoring state
+- **Auto-recovers** after cooldown period (default: 30 minutes) — OPEN → HALF_OPEN → CLOSED
 - Provides detailed error tracking and logging with state history
+
+**Auto-recovery options:**
+```bash
+# Default: 30-minute cooldown before auto-recovery attempt
+CB_COOLDOWN_MINUTES=30     # Set in .ralphrc (0 = immediate)
+
+# Auto-reset on startup (for fully unattended operation)
+ralph --auto-reset-circuit
+# Or set in .ralphrc: CB_AUTO_RESET=true
+```
 
 ### Claude API 5-Hour Limit
 
@@ -534,6 +545,8 @@ TEST_PERCENTAGE_THRESHOLD=30     # Flag if 30%+ loops are test-only
 CB_NO_PROGRESS_THRESHOLD=3       # Open circuit after 3 loops with no file changes
 CB_SAME_ERROR_THRESHOLD=5        # Open circuit after 5 loops with repeated errors
 CB_OUTPUT_DECLINE_THRESHOLD=70   # Open circuit if output declines by >70%
+CB_COOLDOWN_MINUTES=30           # Minutes before OPEN → HALF_OPEN auto-recovery
+CB_AUTO_RESET=false              # true = reset to CLOSED on startup (bypasses cooldown)
 ```
 
 **Completion Indicators with EXIT_SIGNAL Gate:**
@@ -636,8 +649,8 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **465 tests** across 15 test files
-- **100% pass rate** (452/452 passing)
+- **484 tests** across 16 test files
+- **100% pass rate** (484/484 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
 
@@ -799,6 +812,7 @@ ralph [OPTIONS]
   --no-continue           Disable session continuity (start fresh each loop)
   --reset-circuit         Reset the circuit breaker
   --circuit-status        Show circuit breaker status
+  --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
   --reset-session         Reset session state manually
 ```
 
@@ -838,7 +852,7 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- **452 comprehensive tests** (100% pass rate)
+- **484 comprehensive tests** (100% pass rate)
 - **Live streaming output mode** for real-time Claude Code visibility
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing

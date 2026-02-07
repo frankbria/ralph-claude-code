@@ -59,6 +59,7 @@ The system uses a modular architecture with reusable components in the `lib/` di
 3. **lib/date_utils.sh** - Cross-platform date utilities
    - ISO timestamp generation for logging
    - Epoch time calculations for rate limiting
+   - ISO-to-epoch conversion for cooldown timer comparisons (`parse_iso_to_epoch()`)
 
 4. **lib/timeout_utils.sh** - Cross-platform timeout command utilities
    - Detects and uses appropriate timeout command for the platform
@@ -147,6 +148,7 @@ ralph --status
 # Circuit breaker management
 ralph --reset-circuit
 ralph --circuit-status
+ralph --auto-reset-circuit   # Auto-reset OPEN state on startup
 
 # Session management
 ralph --reset-session    # Reset session state manually
@@ -380,6 +382,24 @@ fi
 - `CB_OUTPUT_DECLINE_THRESHOLD=70%` - Open circuit if output declines by >70%
 - `CB_PERMISSION_DENIAL_THRESHOLD=2` - Open circuit after 2 loops with permission denials (Issue #101)
 
+### Circuit Breaker Auto-Recovery (Issue #160)
+
+The OPEN state is no longer terminal. Two recovery mechanisms are available:
+
+**Cooldown Timer (default):** After `CB_COOLDOWN_MINUTES` (default: 30) in OPEN state, the circuit transitions to HALF_OPEN on next `init_circuit_breaker()` call. The existing HALF_OPEN logic handles recovery (progress → CLOSED) or re-trip (no progress → OPEN).
+
+**Auto-Reset:** When `CB_AUTO_RESET=true`, the circuit resets directly to CLOSED on startup, bypassing the cooldown. Use for fully unattended operation.
+
+**Configuration:**
+```bash
+CB_COOLDOWN_MINUTES=30    # Minutes before OPEN → HALF_OPEN (0 = immediate)
+CB_AUTO_RESET=false       # true = bypass cooldown, reset to CLOSED on startup
+```
+
+**CLI flag:** `ralph --auto-reset-circuit` sets `CB_AUTO_RESET=true` for a single run.
+
+**State file:** The `opened_at` field tracks when the circuit entered OPEN state. Old state files without this field fall back to `last_change` for backward compatibility.
+
 ### Permission Denial Detection (Issue #101)
 
 When Claude Code is denied permission to execute commands (e.g., `npm install`), Ralph detects this from the `permission_denials` array in the JSON output and halts the loop immediately:
@@ -424,10 +444,11 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (420 tests total)
+### Test Files (484 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
+| `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 27 | CLI argument parsing for all 12 flags |
 | `test_cli_modern.bats` | 29 | Modern CLI commands (Phase 1.1) + build_claude_command fix |
 | `test_json_parsing.bats` | 45 | JSON output format parsing + Claude CLI format + session management + array format |
