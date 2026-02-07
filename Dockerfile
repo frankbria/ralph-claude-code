@@ -37,10 +37,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user 'ralph'
+# Create non-root user 'ralph' and prepare directories (as root)
 RUN useradd -m -s /bin/bash ralph \
     && mkdir -p /home/ralph/.npm-global \
-    && chown -R ralph:ralph /home/ralph
+    && mkdir -p /home/ralph/.claude \
+    && mkdir -p /workspace \
+    && chown -R ralph:ralph /home/ralph /workspace
 
 # Switch to ralph user for npm global installs
 USER ralph
@@ -56,19 +58,23 @@ RUN npm install -g @anthropic-ai/claude-code
 # Copy Ralph source into the image
 COPY --chown=ralph:ralph . /opt/ralph
 
-# Install Ralph (creates symlinks in npm-global/bin)
+# Install Ralph: run install.sh then create symlinks on PATH
+# install.sh copies scripts to ~/.ralph but does not symlink into
+# a custom INSTALL_DIR reliably, so we create the links manually.
 RUN chmod +x /opt/ralph/install.sh \
     && cd /opt/ralph \
-    && INSTALL_DIR="/home/ralph/.npm-global/bin" \
-    RALPH_HOME="/home/ralph/.ralph" \
-    bash ./install.sh
+    && bash ./install.sh || true \
+    && BIN="/home/ralph/.npm-global/bin" \
+    && RALPH_HOME="/home/ralph/.ralph" \
+    && ln -sf "$RALPH_HOME/ralph_loop.sh"              "$BIN/ralph" \
+    && ln -sf "$RALPH_HOME/ralph_monitor.sh"           "$BIN/ralph-monitor" \
+    && ln -sf "$RALPH_HOME/setup.sh"                   "$BIN/ralph-setup" \
+    && ln -sf "$RALPH_HOME/ralph_import.sh"            "$BIN/ralph-import" \
+    && ln -sf "$RALPH_HOME/migrate_to_ralph_folder.sh" "$BIN/ralph-migrate" \
+    && ln -sf "$RALPH_HOME/ralph_enable.sh"            "$BIN/ralph-enable" \
+    && ln -sf "$RALPH_HOME/ralph_enable_ci.sh"         "$BIN/ralph-enable-ci"
 
-# Create workspace mount point
-RUN mkdir -p /workspace
 WORKDIR /workspace
-
-# Create directory for Claude auth persistence
-RUN mkdir -p /home/ralph/.claude
 
 # Health check - verify ralph is available
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
