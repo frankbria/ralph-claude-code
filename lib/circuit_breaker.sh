@@ -57,6 +57,18 @@ init_circuit_breaker() {
 EOF
     fi
 
+    # Ensure history file exists before any transition logging
+    if [[ -f "$CB_HISTORY_FILE" ]]; then
+        if ! jq '.' "$CB_HISTORY_FILE" > /dev/null 2>&1; then
+            # Corrupted, recreate
+            rm -f "$CB_HISTORY_FILE"
+        fi
+    fi
+
+    if [[ ! -f "$CB_HISTORY_FILE" ]]; then
+        echo '[]' > "$CB_HISTORY_FILE"
+    fi
+
     # Auto-recovery: check if OPEN state should transition (Issue #160)
     local current_state
     current_state=$(jq -r '.state' "$CB_STATE_FILE" 2>/dev/null || echo "$CB_STATE_CLOSED")
@@ -110,18 +122,6 @@ EOF
                 # If elapsed_minutes < 0 (clock skew), stay OPEN safely
             fi
         fi
-    fi
-
-    # Check if history file exists and is valid JSON
-    if [[ -f "$CB_HISTORY_FILE" ]]; then
-        if ! jq '.' "$CB_HISTORY_FILE" > /dev/null 2>&1; then
-            # Corrupted, recreate
-            rm -f "$CB_HISTORY_FILE"
-        fi
-    fi
-
-    if [[ ! -f "$CB_HISTORY_FILE" ]]; then
-        echo '[]' > "$CB_HISTORY_FILE"
     fi
 }
 

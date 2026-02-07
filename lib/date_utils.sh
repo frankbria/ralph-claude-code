@@ -66,10 +66,10 @@ parse_iso_to_epoch() {
     fi
 
     # Try BSD date -j (native macOS)
-    # Strip timezone suffix for BSD compatibility
-    local stripped="${iso_timestamp%%+*}"
-    stripped="${stripped%%Z*}"
-    if result=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$stripped" +%s 2>/dev/null) && [[ "$result" =~ ^[0-9]+$ ]]; then
+    # Normalize timezone for BSD parsing (Z → +0000, ±HH:MM → ±HHMM)
+    local tz_fixed
+    tz_fixed=$(echo "$iso_timestamp" | sed -E 's/Z$/+0000/; s/([+-][0-9]{2}):([0-9]{2})$/\1\2/')
+    if result=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$tz_fixed" +%s 2>/dev/null) && [[ "$result" =~ ^[0-9]+$ ]]; then
         echo "$result"
         return
     fi
