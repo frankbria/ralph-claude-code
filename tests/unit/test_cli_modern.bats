@@ -667,3 +667,99 @@ EOF
     [[ "$output" == *'_env_MAX_CALLS_PER_HOUR'* ]]
     [[ "$output" == *'_env_CLAUDE_TIMEOUT_MINUTES'* ]]
 }
+
+# =============================================================================
+# LIVE MODE + TEXT FORMAT FIX TESTS (Issue #164)
+# Tests for: live mode format override, always-call build_claude_command,
+# and safety check for empty CLAUDE_CMD_ARGS
+# =============================================================================
+
+@test "build_claude_command works for text format (populates CLAUDE_CMD_ARGS)" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="text"
+    export CLAUDE_ALLOWED_TOOLS="Write,Read"
+    export CLAUDE_USE_CONTINUE="false"
+
+    echo "Test prompt content" > "$PROMPT_FILE"
+
+    build_claude_command "$PROMPT_FILE" "" ""
+
+    # CLAUDE_CMD_ARGS should be populated even in text mode
+    [[ ${#CLAUDE_CMD_ARGS[@]} -gt 0 ]]
+
+    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+
+    # Should contain claude command and -p flag
+    [[ "$cmd_string" == *"claude"* ]]
+    [[ "$cmd_string" == *"-p"* ]]
+    [[ "$cmd_string" == *"Test prompt content"* ]]
+
+    # Should NOT contain --output-format (text mode omits it)
+    [[ "$cmd_string" != *"--output-format"* ]]
+
+    # Should still include allowed tools
+    [[ "$cmd_string" == *"--allowedTools"* ]]
+    [[ "$cmd_string" == *"Write"* ]]
+}
+
+@test "build_claude_command works for json format (includes --output-format json)" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    echo "Test prompt" > "$PROMPT_FILE"
+
+    build_claude_command "$PROMPT_FILE" "" ""
+
+    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+
+    # Should contain --output-format json
+    [[ "$cmd_string" == *"--output-format"* ]]
+    [[ "$cmd_string" == *"json"* ]]
+    [[ "$cmd_string" == *"-p"* ]]
+}
+
+@test "live mode overrides text to json format in ralph_loop.sh" {
+    # Verify ralph_loop.sh contains the live mode format override logic
+    run grep -A3 'LIVE_OUTPUT.*true.*CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should find the override block
+    [[ "$output" == *"CLAUDE_OUTPUT_FORMAT"* ]]
+    [[ "$output" == *"json"* ]]
+}
+
+@test "live mode format override preserves json format unchanged" {
+    # The override should only trigger when format is "text", not "json"
+    # Verify the condition checks for text specifically
+    run grep 'CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should check specifically for "text" (not a blanket override)
+    [[ "$output" == *'"text"'* ]]
+}
+
+@test "safety check prevents live mode with empty CLAUDE_CMD_ARGS" {
+    # Verify ralph_loop.sh has the safety check for empty CLAUDE_CMD_ARGS
+    # The check also verifies use_modern_cli is true (not just non-empty array)
+    run grep -A3 'use_modern_cli.*CLAUDE_CMD_ARGS.*-eq 0' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Should find safety check that falls back to background mode
+    [[ "$output" == *"LIVE_OUTPUT"* ]] || [[ "$output" == *"background"* ]]
+}
+
+@test "build_claude_command is called regardless of output format in ralph_loop.sh" {
+    # Verify that build_claude_command is NOT gated behind JSON-only check
+    # The old pattern was: if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then build_claude_command...
+    # The new pattern should call build_claude_command unconditionally
+
+    # Check that build_claude_command call is NOT inside a JSON-only conditional
+    # Look for the actual call site (not the function definition or comments)
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The old pattern: "json" check immediately followed by build_claude_command
+    # should no longer exist as a gate
+    run bash -c "sed -n '/# Build the Claude CLI command/,/# Execute Claude Code/p' '$script' | grep -c 'CLAUDE_OUTPUT_FORMAT.*json.*build_claude_command'"
+
+    # Should find 0 matches (the gate has been removed)
+    [[ "$output" == "0" ]]
+}

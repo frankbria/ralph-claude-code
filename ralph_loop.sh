@@ -1048,21 +1048,24 @@ execute_claude_code() {
         session_id=$(init_claude_session)
     fi
 
+    # Live mode requires JSON output (stream-json) — override text format
+    if [[ "$LIVE_OUTPUT" == "true" && "$CLAUDE_OUTPUT_FORMAT" == "text" ]]; then
+        log_status "WARN" "Live mode requires JSON output format. Overriding text → json for this session."
+        CLAUDE_OUTPUT_FORMAT="json"
+    fi
+
     # Build the Claude CLI command with modern flags
-    # Note: We use the modern CLI with -p flag when CLAUDE_OUTPUT_FORMAT is "json"
-    # For backward compatibility, fall back to stdin piping for text mode
     local use_modern_cli=false
 
-    if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
-        # Modern approach: use CLI flags (builds CLAUDE_CMD_ARGS array)
-        if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
-            use_modern_cli=true
-            log_status "INFO" "Using modern CLI mode (JSON output)"
-        else
-            log_status "WARN" "Failed to build modern CLI command, falling back to legacy mode"
-        fi
+    if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+        use_modern_cli=true
+        log_status "INFO" "Using modern CLI mode (${CLAUDE_OUTPUT_FORMAT} output)"
     else
-        log_status "INFO" "Using legacy CLI mode (text output)"
+        log_status "WARN" "Failed to build modern CLI command, falling back to legacy mode"
+        if [[ "$LIVE_OUTPUT" == "true" ]]; then
+            log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
+            LIVE_OUTPUT=false
+        fi
     fi
 
     # Execute Claude Code
@@ -1087,6 +1090,14 @@ execute_claude_code() {
             LIVE_OUTPUT=false
         elif ! command -v stdbuf &> /dev/null; then
             log_status "ERROR" "Live mode requires 'stdbuf' (from coreutils) but it's not installed. Falling back to background mode."
+            LIVE_OUTPUT=false
+        fi
+    fi
+
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+        # Safety check: live mode requires a successfully built modern command
+        if [[ "$use_modern_cli" != "true" || ${#CLAUDE_CMD_ARGS[@]} -eq 0 ]]; then
+            log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
             LIVE_OUTPUT=false
         fi
     fi
@@ -1613,7 +1624,7 @@ Options:
     -s, --status            Show current status and exit
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
-    -l, --live              Show Claude Code output in real-time (streaming mode)
+    -l, --live              Show Claude Code output in real-time (auto-switches to JSON output)
     -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
@@ -1622,6 +1633,7 @@ Options:
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
+                            Note: --live mode requires JSON and will auto-switch
     --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
     --no-continue           Disable session continuity across loops
     --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
