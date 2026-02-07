@@ -638,6 +638,7 @@ bats tests/unit/test_enable_core.bats
 bats tests/unit/test_task_sources.bats
 bats tests/unit/test_ralph_enable.bats
 bats tests/unit/test_wizard_utils.bats
+bats tests/unit/test_circuit_breaker_recovery.bats
 bats tests/integration/test_loop_execution.bats
 bats tests/integration/test_prd_import.bats
 bats tests/integration/test_project_setup.bats
@@ -866,9 +867,9 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Dedicated uninstall script
 
 **Test Coverage Breakdown:**
-- Unit Tests: 308 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard, live streaming)
-- Integration Tests: 144 (loop execution, edge cases, installation, project setup, PRD import)
-- Test Files: 15
+- Unit Tests: 348 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard, live streaming, circuit breaker recovery)
+- Integration Tests: 136 (loop execution, edge cases, installation, project setup, PRD import)
+- Test Files: 16
 
 ### Path to v1.0.0 (~4 weeks)
 
