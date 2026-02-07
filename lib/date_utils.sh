@@ -46,8 +46,59 @@ get_epoch_seconds() {
     date +%s
 }
 
+# Convert ISO 8601 timestamp to Unix epoch seconds
+# Input: ISO timestamp (e.g., "2025-01-15T10:30:00+00:00")
+# Returns: Unix epoch seconds on stdout
+# Falls back to current epoch on parse failure (safe default)
+parse_iso_to_epoch() {
+    local iso_timestamp=$1
+
+    if [[ -z "$iso_timestamp" || "$iso_timestamp" == "null" ]]; then
+        date +%s
+        return
+    fi
+
+    # Try GNU date -d (Linux, macOS with Homebrew coreutils)
+    local result
+    if result=$(date -d "$iso_timestamp" +%s 2>/dev/null) && [[ "$result" =~ ^[0-9]+$ ]]; then
+        echo "$result"
+        return
+    fi
+
+    # Try BSD date -j (native macOS)
+    # Normalize timezone for BSD parsing (Z → +0000, ±HH:MM → ±HHMM)
+    local tz_fixed
+    tz_fixed=$(echo "$iso_timestamp" | sed -E 's/Z$/+0000/; s/([+-][0-9]{2}):([0-9]{2})$/\1\2/')
+    if result=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$tz_fixed" +%s 2>/dev/null) && [[ "$result" =~ ^[0-9]+$ ]]; then
+        echo "$result"
+        return
+    fi
+
+    # Fallback: manual epoch arithmetic from ISO components
+    # Parse: YYYY-MM-DDTHH:MM:SS (ignore timezone, assume UTC)
+    local year month day hour minute second
+    if [[ "$iso_timestamp" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2}) ]]; then
+        year="${BASH_REMATCH[1]}"
+        month="${BASH_REMATCH[2]}"
+        day="${BASH_REMATCH[3]}"
+        hour="${BASH_REMATCH[4]}"
+        minute="${BASH_REMATCH[5]}"
+        second="${BASH_REMATCH[6]}"
+
+        # Use date with explicit components if available
+        if result=$(date -u -d "${year}-${month}-${day} ${hour}:${minute}:${second}" +%s 2>/dev/null) && [[ "$result" =~ ^[0-9]+$ ]]; then
+            echo "$result"
+            return
+        fi
+    fi
+
+    # Ultimate fallback: return current epoch (safe default)
+    date +%s
+}
+
 # Export functions for use in other scripts
 export -f get_iso_timestamp
 export -f get_next_hour_time
 export -f get_basic_timestamp
 export -f get_epoch_seconds
+export -f parse_iso_to_epoch
