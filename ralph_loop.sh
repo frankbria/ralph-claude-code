@@ -1062,6 +1062,10 @@ execute_claude_code() {
         log_status "INFO" "Using modern CLI mode (${CLAUDE_OUTPUT_FORMAT} output)"
     else
         log_status "WARN" "Failed to build modern CLI command, falling back to legacy mode"
+        if [[ "$LIVE_OUTPUT" == "true" ]]; then
+            log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
+            LIVE_OUTPUT=false
+        fi
     fi
 
     # Execute Claude Code
@@ -1091,9 +1095,9 @@ execute_claude_code() {
     fi
 
     if [[ "$LIVE_OUTPUT" == "true" ]]; then
-        # Safety check: CLAUDE_CMD_ARGS must be populated for live mode
-        if [[ ${#CLAUDE_CMD_ARGS[@]} -eq 0 ]]; then
-            log_status "ERROR" "CLAUDE_CMD_ARGS is empty — cannot build live mode command. Falling back to background mode."
+        # Safety check: live mode requires a successfully built modern command
+        if [[ "$use_modern_cli" != "true" || ${#CLAUDE_CMD_ARGS[@]} -eq 0 ]]; then
+            log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
             LIVE_OUTPUT=false
         fi
     fi

@@ -740,10 +740,11 @@ EOF
 
 @test "safety check prevents live mode with empty CLAUDE_CMD_ARGS" {
     # Verify ralph_loop.sh has the safety check for empty CLAUDE_CMD_ARGS
-    run grep -A3 'CLAUDE_CMD_ARGS.*-eq 0' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # The check also verifies use_modern_cli is true (not just non-empty array)
+    run grep -A3 'use_modern_cli.*CLAUDE_CMD_ARGS.*-eq 0' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # Should find safety check that falls back to background mode
-    [[ "$output" == *"LIVE_OUTPUT"* ]] || [[ "$output" == *"empty"* ]] || [[ "$output" == *"background"* ]]
+    [[ "$output" == *"LIVE_OUTPUT"* ]] || [[ "$output" == *"background"* ]]
 }
 
 @test "build_claude_command is called regardless of output format in ralph_loop.sh" {
@@ -757,7 +758,7 @@ EOF
 
     # The old pattern: "json" check immediately followed by build_claude_command
     # should no longer exist as a gate
-    run bash -c "sed -n '/# Build the Claude CLI command/,/execute Claude Code/p' '$script' | grep -c 'CLAUDE_OUTPUT_FORMAT.*json.*build_claude_command'"
+    run bash -c "sed -n '/# Build the Claude CLI command/,/# Execute Claude Code/p' '$script' | grep -c 'CLAUDE_OUTPUT_FORMAT.*json.*build_claude_command'"
 
     # Should find 0 matches (the gate has been removed)
     [[ "$output" == "0" ]]
