@@ -1147,9 +1147,11 @@ execute_claude_code() {
         # Use stdbuf to disable buffering for real-time output
         # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
         # Capture all pipeline exit codes for proper error handling
+        # stdin must be redirected from /dev/null because newer Claude CLI versions
+        # read from stdin even in -p (print) mode, causing the process to hang
         set -o pipefail
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+            < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
@@ -1206,7 +1208,10 @@ execute_claude_code() {
         if [[ "$use_modern_cli" == "true" ]]; then
             # Modern execution with command array (shell-injection safe)
             # Execute array directly without bash -c to prevent shell metacharacter interpretation
-            if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" > "$output_file" 2>&1 &
+            # stdin must be redirected from /dev/null because newer Claude CLI versions
+            # read from stdin even in -p (print) mode, causing SIGTTIN suspension
+            # when the process is backgrounded
+            if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" < /dev/null > "$output_file" 2>&1 &
             then
                 :  # Continue to wait loop
             else
