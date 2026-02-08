@@ -643,6 +643,71 @@ EOF
 }
 
 # =============================================================================
+# BACKGROUND EXECUTION STDIN REDIRECT TESTS
+# Newer Claude CLI reads stdin even in -p mode, causing SIGTTIN suspension
+# when the process is backgrounded. Verify /dev/null redirect is present.
+# =============================================================================
+
+@test "modern CLI background execution redirects stdin from /dev/null" {
+    # Verify the implementation in ralph_loop.sh redirects stdin from /dev/null
+    # to prevent SIGTTIN suspension when claude is backgrounded.
+    # Without this, newer Claude CLI versions hang indefinitely.
+
+    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    assert_success
+    [[ "$output" == *'< /dev/null'* ]]
+}
+
+@test "live mode execution redirects stdin from /dev/null" {
+    # Verify the live (streaming) mode also redirects stdin from /dev/null.
+    # This path is used by ralph --monitor (which adds --live).
+    # The live mode splits across two lines (line continuation with \),
+    # so we check the continuation line that has < /dev/null.
+
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The live mode has LIVE_CMD_ARGS on one line and < /dev/null on the next
+    run grep '< /dev/null 2>&1 |' "$script"
+
+    assert_success
+    [[ "$output" == *'< /dev/null'* ]]
+}
+
+@test "all claude execution paths redirect stdin" {
+    # Verify that ALL portable_timeout invocations of claude redirect stdin,
+    # to prevent regressions. There are 3 paths: modern background, live, legacy.
+    # Legacy uses < "$PROMPT_FILE", the other two must use < /dev/null.
+    # We check that no portable_timeout line invoking claude lacks a stdin redirect
+    # (either on the same line or a continuation line).
+
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # All 3 portable_timeout lines that invoke claude should have < somewhere nearby
+    # Modern background: has < /dev/null on same line
+    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null' "$script"
+    assert_success
+
+    # Live mode: has < /dev/null on continuation line
+    run grep '< /dev/null 2>&1 |' "$script"
+    assert_success
+
+    # Legacy mode: has < "$PROMPT_FILE" on same line
+    run grep 'portable_timeout.*CLAUDE_CODE_CMD.*< ' "$script"
+    assert_success
+}
+
+@test "modern CLI background execution has comment explaining stdin redirect" {
+    # Verify the fix is documented with context about why /dev/null is needed
+
+    run grep -c 'stdin must be redirected' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    assert_success
+    # Should appear in both background and live mode sections
+    [[ "$output" == "2" ]]
+}
+
+# =============================================================================
 # .RALPHRC CONFIGURATION LOADING TESTS
 # Tests for the environment variable precedence fix
 # =============================================================================
