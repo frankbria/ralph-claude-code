@@ -1,0 +1,88 @@
+## =============================================================================
+## Ralph for Claude Code - Docker Compose
+## Implements: Issue #74 - Phase 6.1 Local Docker Sandbox Execution
+## =============================================================================
+##
+## Usage:
+##   # Interactive mode (recommended for first-time auth)
+##   docker compose run --rm ralph
+##
+##   # Start ralph loop with monitoring
+##   docker compose up ralph-loop ralph-monitor
+##
+##   # Use with API key instead of interactive login
+##   ANTHROPIC_API_KEY=sk-ant-... docker compose up ralph-loop
+##
+## =============================================================================
+
+services:
+  ## ---------------------------------------------------------------------------
+  ## Interactive shell - use for first-time setup, auth, and ralph-enable
+  ## ---------------------------------------------------------------------------
+  ralph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ralph-claude-code:latest
+    container_name: ralph-interactive
+    stdin_open: true
+    tty: true
+    volumes:
+      # Mount your project into the container
+      - ${RALPH_PROJECT_DIR:-.}:/workspace
+      # Persist Claude Code authentication across container restarts
+      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/ralph/.claude
+      # Persist Ralph global config
+      - ralph-home:/home/ralph/.ralph
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TERM=xterm-256color
+    working_dir: /workspace
+
+  ## ---------------------------------------------------------------------------
+  ## Ralph autonomous loop - runs ralph in the background
+  ## ---------------------------------------------------------------------------
+  ralph-loop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ralph-claude-code:latest
+    container_name: ralph-loop
+    stdin_open: true
+    tty: true
+    entrypoint: ["ralph"]
+    command: ["--live"]
+    volumes:
+      - ${RALPH_PROJECT_DIR:-.}:/workspace
+      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/ralph/.claude
+      - ralph-home:/home/ralph/.ralph
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TERM=xterm-256color
+    working_dir: /workspace
+    restart: unless-stopped
+
+  ## ---------------------------------------------------------------------------
+  ## Ralph monitor dashboard - shows live status
+  ## ---------------------------------------------------------------------------
+  ralph-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ralph-claude-code:latest
+    container_name: ralph-monitor
+    stdin_open: true
+    tty: true
+    entrypoint: ["ralph-monitor"]
+    volumes:
+      - ${RALPH_PROJECT_DIR:-.}:/workspace
+      - ralph-home:/home/ralph/.ralph
+    environment:
+      - TERM=xterm-256color
+    working_dir: /workspace
+    depends_on:
+      - ralph-loop
+
+volumes:
+  ralph-home:
+    driver: local

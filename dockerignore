@@ -1,0 +1,15 @@
+# Docker ignore for Ralph
+.git
+.github
+node_modules
+*.log
+logs/
+.ralph/logs/
+tests/
+docs/
+*.md
+!README.md
+!CLAUDE.md
+.dockerignore
+docker-compose.yml
+ralph-docker.ps1
