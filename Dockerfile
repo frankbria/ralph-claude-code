@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     grep \
     sed \
     gawk \
+    dos2unix \
     ca-certificates \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
@@ -58,21 +59,32 @@ RUN npm install -g @anthropic-ai/claude-code
 # Copy Ralph source into the image
 COPY --chown=ralph:ralph . /opt/ralph
 
-# Install Ralph: run install.sh then create symlinks on PATH
-# install.sh copies scripts to ~/.ralph but does not symlink into
-# a custom INSTALL_DIR reliably, so we create the links manually.
+# Fix Windows CRLF line endings (critical for cross-platform builds)
+RUN find /opt/ralph -type f \( -name "*.sh" -o -name "*.bats" \) -exec dos2unix {} +
+
+# Install Ralph: run install.sh then create wrapper scripts on PATH.
+# Wrapper scripts are needed (instead of symlinks) because Ralph's
+# shell scripts resolve lib/ paths relative to their own location
+# via dirname $0. A symlink would resolve to the bin/ directory
+# which doesn't contain lib/.
 RUN chmod +x /opt/ralph/install.sh \
     && cd /opt/ralph \
     && bash ./install.sh || true \
     && BIN="/home/ralph/.npm-global/bin" \
     && RALPH_HOME="/home/ralph/.ralph" \
-    && ln -sf "$RALPH_HOME/ralph_loop.sh"              "$BIN/ralph" \
-    && ln -sf "$RALPH_HOME/ralph_monitor.sh"           "$BIN/ralph-monitor" \
-    && ln -sf "$RALPH_HOME/setup.sh"                   "$BIN/ralph-setup" \
-    && ln -sf "$RALPH_HOME/ralph_import.sh"            "$BIN/ralph-import" \
-    && ln -sf "$RALPH_HOME/migrate_to_ralph_folder.sh" "$BIN/ralph-migrate" \
-    && ln -sf "$RALPH_HOME/ralph_enable.sh"            "$BIN/ralph-enable" \
-    && ln -sf "$RALPH_HOME/ralph_enable_ci.sh"         "$BIN/ralph-enable-ci"
+    && for cmd_pair in \
+         "ralph:ralph_loop.sh" \
+         "ralph-monitor:ralph_monitor.sh" \
+         "ralph-setup:setup.sh" \
+         "ralph-import:ralph_import.sh" \
+         "ralph-migrate:migrate_to_ralph_folder.sh" \
+         "ralph-enable:ralph_enable.sh" \
+         "ralph-enable-ci:ralph_enable_ci.sh"; do \
+         cmd="${cmd_pair%%:*}"; \
+         script="${cmd_pair##*:}"; \
+         printf '#!/bin/bash\nexec "%s/%s" "$@"\n' "$RALPH_HOME" "$script" > "$BIN/$cmd"; \
+         chmod +x "$BIN/$cmd"; \
+       done
 
 WORKDIR /workspace
 
