@@ -61,7 +61,8 @@ validate_allowed_tools() {
         [[ -z "$tool" ]] && continue
         local valid=false
         for pattern in "${VALID_TOOL_PATTERNS[@]}"; do
-            if [[ "$tool" == "$pattern" || "$tool" =~ ^Bash\(.+\)$ ]]; then
+            # Use glob-style matching for tool against the pattern
+            if [[ "$tool" == $pattern ]]; then
                 valid=true
                 break
             fi

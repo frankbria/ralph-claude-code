@@ -68,6 +68,32 @@ teardown() {
     declare -F validate_allowed_tools
 }
 
+@test "validate_allowed_tools matches exact patterns" {
+    source "$BATS_TEST_DIRNAME/../../lib/providers/claude.sh"
+    run validate_allowed_tools "Write,Read,Edit"
+    assert_success
+}
+
+@test "validate_allowed_tools matches wildcard patterns" {
+    source "$BATS_TEST_DIRNAME/../../lib/providers/claude.sh"
+    run validate_allowed_tools "Bash(git log),Bash(npm install)"
+    assert_success
+}
+
+@test "validate_allowed_tools rejects unauthorized Bash tools" {
+    source "$BATS_TEST_DIRNAME/../../lib/providers/claude.sh"
+    run validate_allowed_tools "Bash(rm -rf /)"
+    assert_failure
+    [[ "$output" == *"Error: Invalid tool: 'Bash(rm -rf /)'"* ]]
+}
+
+@test "validate_allowed_tools rejects unknown tools" {
+    source "$BATS_TEST_DIRNAME/../../lib/providers/claude.sh"
+    run validate_allowed_tools "EvilTool"
+    assert_failure
+    [[ "$output" == *"Error: Invalid tool: 'EvilTool'"* ]]
+}
+
 @test "load_provider rejects invalid provider names (path traversal)" {
     export RALPH_PROVIDER="../../etc/passwd"
     export RALPH_HOME="$BATS_TEST_DIRNAME/../.."
