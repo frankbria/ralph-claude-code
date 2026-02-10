@@ -13,6 +13,9 @@ Learn which files Ralph creates, which ones you should customize, and how they w
 ### [Writing Effective Requirements](03-writing-requirements.md)
 Best practices for writing PROMPT.md, when to use specs/, and how fix_plan.md evolves during development. Includes good and bad examples.
 
+### [Docker Setup (Windows & Cross-Platform)](04-docker-setup.md)
+Run Ralph inside a Docker container on Windows, Linux, or macOS. Includes Docker Compose setup, file permissions, git integration, and troubleshooting.
+
 ## Example Projects
 
 Check out the [examples/](../../examples/) directory for complete, realistic project configurations:
