@@ -17,8 +17,10 @@ provider_execute() {
     local loop_count=$1
     local prompt_file=$2
     local live_mode=$3
-    
-    local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+
+    if [[ "$live_mode" == "true" ]]; then
+        log_status "WARN" "Live mode is not yet supported for Gemini provider. Falling back to background mode."
+    fi
     local output_file="$LOG_DIR/gemini_output_${timestamp}.log"
     
     local session_arg=""
