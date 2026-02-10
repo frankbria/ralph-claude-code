@@ -76,7 +76,7 @@ teardown() {
 
 function_exists_in_ralph() {
     local func_name=$1
-    grep -qE "^${func_name}\s*\(\)|^function\s+${func_name}" "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" 2>/dev/null
+    grep -qE "^${func_name}\s*\(\)|^function\s+${func_name}" "${BATS_TEST_DIRNAME}/../../lib/session_manager.sh" 2>/dev/null
 }
 
 # =============================================================================

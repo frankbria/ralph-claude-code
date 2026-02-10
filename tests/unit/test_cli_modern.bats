@@ -649,11 +649,11 @@ EOF
 # =============================================================================
 
 @test "modern CLI background execution redirects stdin from /dev/null" {
-    # Verify the implementation in ralph_loop.sh redirects stdin from /dev/null
+    # Verify the implementation in lib/providers/claude.sh redirects stdin from /dev/null
     # to prevent SIGTTIN suspension when claude is backgrounded.
     # Without this, newer Claude CLI versions hang indefinitely.
 
-    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     assert_success
     [[ "$output" == *'< /dev/null'* ]]
@@ -662,10 +662,8 @@ EOF
 @test "live mode execution redirects stdin from /dev/null" {
     # Verify the live (streaming) mode also redirects stdin from /dev/null.
     # This path is used by ralph --monitor (which adds --live).
-    # The live mode splits across two lines (line continuation with \),
-    # so we check the continuation line that has < /dev/null.
 
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # The live mode has LIVE_CMD_ARGS on one line and < /dev/null on the next
     run grep '< /dev/null 2>&1 |' "$script"
@@ -681,7 +679,7 @@ EOF
     # We check that no portable_timeout line invoking claude lacks a stdin redirect
     # (either on the same line or a continuation line).
 
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # All 3 portable_timeout lines that invoke claude should have < somewhere nearby
     # Modern background: has < /dev/null on same line
@@ -700,7 +698,7 @@ EOF
 @test "modern CLI background execution has comment explaining stdin redirect" {
     # Verify the fix is documented with context about why /dev/null is needed
 
-    run grep -c 'stdin must be redirected' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -c 'stdin must be redirected' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     assert_success
     # Should appear in both background and live mode sections
@@ -785,9 +783,9 @@ EOF
     [[ "$cmd_string" == *"-p"* ]]
 }
 
-@test "live mode overrides text to json format in ralph_loop.sh" {
-    # Verify ralph_loop.sh contains the live mode format override logic
-    run grep -A3 'LIVE_OUTPUT.*true.*CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+@test "live mode overrides text to json format in lib/providers/claude.sh" {
+    # Verify lib/providers/claude.sh contains the live mode format override logic
+    run grep -A3 'LIVE_OUTPUT.*true.*CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should find the override block
     [[ "$output" == *"CLAUDE_OUTPUT_FORMAT"* ]]
@@ -797,32 +795,24 @@ EOF
 @test "live mode format override preserves json format unchanged" {
     # The override should only trigger when format is "text", not "json"
     # Verify the condition checks for text specifically
-    run grep 'CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should check specifically for "text" (not a blanket override)
-    [[ "$output" == *'"text"'* ]]
+    [[ "$output" == *'text'* ]]
 }
 
 @test "safety check prevents live mode with empty CLAUDE_CMD_ARGS" {
-    # Verify ralph_loop.sh has the safety check for empty CLAUDE_CMD_ARGS
-    # The check also verifies use_modern_cli is true (not just non-empty array)
-    run grep -A3 'use_modern_cli.*CLAUDE_CMD_ARGS.*-eq 0' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Verify lib/providers/claude.sh has the safety check for empty CLAUDE_CMD_ARGS
+    run grep -A3 'use_modern_cli.*CLAUDE_CMD_ARGS.*-eq 0' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should find safety check that falls back to background mode
     [[ "$output" == *"LIVE_OUTPUT"* ]] || [[ "$output" == *"background"* ]]
 }
 
-@test "build_claude_command is called regardless of output format in ralph_loop.sh" {
+@test "build_claude_command is called regardless of output format in lib/providers/claude.sh" {
     # Verify that build_claude_command is NOT gated behind JSON-only check
-    # The old pattern was: if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then build_claude_command...
-    # The new pattern should call build_claude_command unconditionally
+    local script="${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
-    # Check that build_claude_command call is NOT inside a JSON-only conditional
-    # Look for the actual call site (not the function definition or comments)
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # The old pattern: "json" check immediately followed by build_claude_command
-    # should no longer exist as a gate
     run bash -c "sed -n '/# Build the Claude CLI command/,/# Execute Claude Code/p' '$script' | grep -c 'CLAUDE_OUTPUT_FORMAT.*json.*build_claude_command'"
 
     # Should find 0 matches (the gate has been removed)

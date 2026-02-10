@@ -662,6 +662,7 @@ FIXPLANEOF
 #   $1 (project_name) - Project name
 #   $2 (project_type) - Project type
 #   $3 (task_sources) - Task sources (local, beads, github)
+#   $4 (provider) - AI Provider (claude, gemini, copilot)
 #
 # Outputs to stdout
 #
@@ -669,6 +670,7 @@ generate_ralphrc() {
     local project_name="${1:-$(basename "$(pwd)")}"
     local project_type="${2:-unknown}"
     local task_sources="${3:-local}"
+    local provider="${4:-claude}"
 
     cat << RALPHRCEOF
 # .ralphrc - Ralph project configuration
@@ -678,6 +680,10 @@ generate_ralphrc() {
 # Project identification
 PROJECT_NAME="${project_name}"
 PROJECT_TYPE="${project_type}"
+
+# AI Provider Configuration
+# Options: claude, gemini, copilot
+RALPH_PROVIDER="${provider}"
 
 # Loop settings
 MAX_CALLS_PER_HOUR=100
@@ -729,6 +735,7 @@ enable_ralph_in_directory() {
     local project_name="${ENABLE_PROJECT_NAME:-}"
     local project_type="${ENABLE_PROJECT_TYPE:-}"
     local task_content="${ENABLE_TASK_CONTENT:-}"
+    local provider="${ENABLE_PROVIDER:-claude}"
 
     # Check existing state (use || true to prevent set -e from exiting)
     check_existing_ralph || true
@@ -789,7 +796,7 @@ enable_ralph_in_directory() {
 
     # Generate .ralphrc
     local ralphrc_content
-    ralphrc_content=$(generate_ralphrc "$project_name" "$DETECTED_PROJECT_TYPE" "$task_sources")
+    ralphrc_content=$(generate_ralphrc "$project_name" "$DETECTED_PROJECT_TYPE" "$task_sources" "$provider")
     safe_create_file ".ralphrc" "$ralphrc_content"
 
     enable_log "SUCCESS" "Ralph enabled successfully!"

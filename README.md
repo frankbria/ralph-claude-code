@@ -16,25 +16,26 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.11.4 - Active Development
+**Version**: v0.12.0 - Multi-Provider Support
 **Core Features**: Working and tested
-**Test Coverage**: 484 tests, 100% pass rate
+**Providers**: Claude Code (Anthropic), Google Gemini, GitHub Copilot
 
 ### What's Working Now
+- **Multi-Provider Support**: Switch between Claude, Gemini, and Copilot
+- **Agentic Loops for all providers**: Native support for agentic CLIs
 - Autonomous development loops with intelligent exit detection
 - **Dual-condition exit gate**: Requires BOTH completion indicators AND explicit EXIT_SIGNAL
 - Rate limiting with hourly reset (100 calls/hour, configurable)
 - Circuit breaker with advanced error detection (prevents runaway loops)
 - Response analyzer with semantic understanding and two-stage error filtering
 - **JSON output format support with automatic fallback to text parsing**
-- **Session continuity with `--resume` flag for context preservation (no session hijacking)**
-- **Session expiration with configurable timeout (default: 24 hours)**
+- **Session continuity with `--resume` flag for context preservation**
 - **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - **Interactive project enablement with `ralph-enable` wizard**
 - **`.ralphrc` configuration file for project settings**
-- **Live streaming output with `--live` flag for real-time Claude Code visibility**
+- **Live streaming output with `--live` flag (Claude only)**
 - Multi-line error matching for accurate stuck loop detection
-- 5-hour API limit handling with user prompts
+- 5-hour API limit handling with user prompts (Claude only)
 - tmux integration for live monitoring
 - PRD import functionality
 - **CI/CD pipeline with GitHub Actions**

@@ -10,51 +10,27 @@ See [README.md](README.md) for version info, changelog, and user documentation.
 
 ## Core Architecture
 
-The system consists of four main bash scripts and a modular library system:
+The system consists of a modular provider architecture and a core loop:
 
 ### Main Scripts
 
-1. **ralph_loop.sh** - The main autonomous loop that executes Claude Code repeatedly
+1. **ralph_loop.sh** - The main autonomous loop that executes the selected AI provider
 2. **ralph_monitor.sh** - Live monitoring dashboard for tracking loop status
 3. **setup.sh** - Project initialization script for new Ralph projects
-4. **create_files.sh** - Bootstrap script that creates the entire Ralph system
-5. **ralph_import.sh** - PRD/specification import tool that converts documents to Ralph format
-   - Uses modern Claude Code CLI with `--output-format json` for structured responses
-   - Implements `detect_response_format()` and `parse_conversion_response()` for JSON parsing
-   - Backward compatible with older CLI versions (automatic text fallback)
-6. **ralph_enable.sh** - Interactive wizard for enabling Ralph in existing projects
-   - Multi-step wizard with environment detection, task source selection, configuration
-   - Imports tasks from beads, GitHub Issues, or PRD documents
-   - Generates `.ralphrc` project configuration file
-7. **ralph_enable_ci.sh** - Non-interactive version for CI/automation
-   - Same functionality as interactive version with CLI flags
-   - JSON output mode for machine parsing
-   - Exit codes: 0 (success), 1 (error), 2 (already enabled)
+4. **ralph_import.sh** - PRD/specification import tool (uses Claude)
+5. **ralph_enable.sh** - Interactive wizard for enabling Ralph in existing projects (includes Provider selection)
 
 ### Library Components (lib/)
 
-The system uses a modular architecture with reusable components in the `lib/` directory:
-
-1. **lib/circuit_breaker.sh** - Circuit breaker pattern implementation
-   - Prevents runaway loops by detecting stagnation
-   - Three states: CLOSED (normal), HALF_OPEN (monitoring), OPEN (halted)
-   - Configurable thresholds for no-progress and error detection
-   - Automatic state transitions and recovery
-
-2. **lib/response_analyzer.sh** - Intelligent response analysis
-   - Analyzes Claude Code output for completion signals
-   - **JSON output format detection and parsing** (with text fallback)
-   - Supports both flat JSON format and Claude CLI format (`result`, `sessionId`, `metadata`)
-   - Extracts structured fields: status, exit_signal, work_type, files_modified
-   - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
-   - Automatic session persistence to `.ralph/.claude_session_id` file with 24-hour expiration
-   - Session lifecycle: `get_session_id()`, `reset_session()`, `log_session_transition()`, `init_session_tracking()`
-   - Session history tracked in `.ralph/.ralph_session_history` (last 50 transitions)
-   - Session auto-reset on: circuit breaker open, manual interrupt, project completion
-   - Detects test-only loops and stuck error patterns
-   - Two-stage error filtering to eliminate false positives
-   - Multi-line error matching for accurate stuck loop detection
-   - Confidence scoring for exit decisions
+1. **lib/providers/base.sh** - Provider loader and abstraction layer
+2. **lib/providers/claude.sh** - Claude Code CLI integration
+3. **lib/providers/gemini.sh** - Google Gemini CLI integration (Agent Mode)
+4. **lib/providers/copilot.sh** - GitHub Copilot CLI integration (Agent Mode)
+5. **lib/session_manager.sh** - Centralized session lifecycle management
+6. **lib/circuit_breaker.sh** - Circuit breaker pattern implementation
+7. **lib/response_analyzer.sh** - Intelligent response analysis (shared across providers)
+8. **lib/tool_executor.sh** - Generic tool execution runtime for non-agentic providers (Legacy/Future)
+9. **lib/date_utils.sh** & **lib/timeout_utils.sh** - Cross-platform utilities
 
 3. **lib/date_utils.sh** - Cross-platform date utilities
    - ISO timestamp generation for logging
