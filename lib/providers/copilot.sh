@@ -49,10 +49,10 @@ $prompt_content"
     # but since this is a bash script, we can use the same trick as in ralph_loop.sh if needed.
     # For now, simplistic execution.
     
-    $COPILOT_CMD -p "$full_prompt" 
-        $session_arg 
-        --allow-all-tools 
-        --no-ask-user 
+    $COPILOT_CMD -p "$full_prompt" \
+        $session_arg \
+        --allow-all-tools \
+        --no-ask-user \
         > "$output_file" 2>&1
     
     local exit_code=$?
