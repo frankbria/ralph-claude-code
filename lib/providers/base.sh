@@ -3,7 +3,15 @@
 
 # Load the configured provider
 load_provider() {
-    local provider_name="${RALPH_PROVIDER:-claude}"
+    local raw_provider="${RALPH_PROVIDER:-claude}"
+
+    # Sanitize and validate provider name to prevent path traversal
+    if [[ ! "$raw_provider" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        log_status "ERROR" "Invalid AI provider name: $raw_provider (only alphanumeric, underscores, and hyphens allowed)"
+        exit 1
+    fi
+
+    local provider_name="$raw_provider"
     local provider_script="$RALPH_HOME/lib/providers/${provider_name}.sh"
     
     # Fallback to local path if RALPH_HOME not set or script not found

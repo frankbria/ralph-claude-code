@@ -67,3 +67,23 @@ teardown() {
     declare -F provider_execute
     declare -F validate_allowed_tools
 }
+
+@test "load_provider rejects invalid provider names (path traversal)" {
+    export RALPH_PROVIDER="../../etc/passwd"
+    export RALPH_HOME="$BATS_TEST_DIRNAME/../.."
+    source "$BATS_TEST_DIRNAME/../../lib/providers/base.sh"
+    
+    run load_provider
+    assert_failure
+    [[ "$output" == *"[ERROR] Invalid AI provider name"* ]]
+}
+
+@test "load_provider rejects provider names with special characters" {
+    export RALPH_PROVIDER="my;provider"
+    export RALPH_HOME="$BATS_TEST_DIRNAME/../.."
+    source "$BATS_TEST_DIRNAME/../../lib/providers/base.sh"
+    
+    run load_provider
+    assert_failure
+    [[ "$output" == *"[ERROR] Invalid AI provider name"* ]]
+}
