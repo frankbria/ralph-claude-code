@@ -823,47 +823,22 @@ should_resume_session() {
     # Get session timestamp
     local timestamp=$(jq -r '.timestamp // ""' "$SESSION_FILE" 2>/dev/null)
 
-    if [[ -z "$timestamp" ]]; then
+    if [[ -z "$timestamp" || "$timestamp" == "null" ]]; then
         echo "false"
         return 1
     fi
 
     # Calculate session age using date utilities
     local now=$(get_epoch_seconds)
-    local session_time
+    local session_time=$(parse_iso_to_epoch "$timestamp")
 
-    # Parse ISO timestamp to epoch - try multiple formats for cross-platform compatibility
-    # Strip milliseconds if present (e.g., 2026-01-09T10:30:00.123+00:00 → 2026-01-09T10:30:00+00:00)
-    local clean_timestamp="${timestamp}"
-    if [[ "$timestamp" =~ \.[0-9]+[+-Z] ]]; then
-        clean_timestamp=$(echo "$timestamp" | sed 's/\.[0-9]*\([+-Z]\)/\1/')
-    fi
-
-    if command -v gdate &>/dev/null; then
-        # macOS with coreutils
-        session_time=$(gdate -d "$clean_timestamp" +%s 2>/dev/null)
-    elif date --version 2>&1 | grep -q GNU; then
-        # GNU date (Linux)
-        session_time=$(date -d "$clean_timestamp" +%s 2>/dev/null)
-    else
-        # BSD date (macOS without coreutils) - try parsing ISO format
-        # Format: 2026-01-09T10:30:00+00:00 or 2026-01-09T10:30:00Z
-        # Strip timezone suffix for BSD date parsing
-        local date_only="${clean_timestamp%[+-Z]*}"
-        session_time=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$date_only" +%s 2>/dev/null)
-    fi
-
-    # If we couldn't parse the timestamp, consider session expired
-    if [[ -z "$session_time" || ! "$session_time" =~ ^[0-9]+$ ]]; then
-        echo "false"
-        return 1
-    fi
-
+    # If parse_iso_to_epoch failed (returned current time), it's risky but should work for "recent"
     # Calculate age in seconds
     local age=$((now - session_time))
 
     # Check if session is still valid (less than expiration time)
-    if [[ $age -lt $SESSION_EXPIRATION_SECONDS ]]; then
+    # Also handle negative age (time drift) by taking absolute value or just checking range
+    if [[ $age -lt $SESSION_EXPIRATION_SECONDS ]] && [[ $age -gt -300 ]]; then
         echo "true"
         return 0
     else

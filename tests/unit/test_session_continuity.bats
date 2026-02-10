@@ -271,12 +271,12 @@ EOF
 # SESSION CONTINUITY IN CLAUDE CLI COMMAND
 # =============================================================================
 
-@test "--continue flag is added to Claude CLI command" {
-    # Check that --continue is used in build_claude_command
-    run grep -E '\-\-continue' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+@test "--resume flag is added to Claude CLI command" {
+    # Check that --resume is used in build_claude_command in the provider script
+    run grep -E '\-\-resume' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     [[ $status -eq 0 ]]
-    [[ "$output" == *"--continue"* ]]
+    [[ "$output" == *"--resume"* ]]
 }
 
 @test "CLAUDE_USE_CONTINUE configuration controls session continuity" {
@@ -372,7 +372,7 @@ EOF
 
 @test "init_claude_session checks session expiration" {
     # Check that init_claude_session includes expiration logic
-    run grep -A30 'init_claude_session' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A30 'init_claude_session' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should reference expiration or age checking
     [[ "$output" == *"expir"* ]] || [[ "$output" == *"age"* ]] || [[ "$output" == *"stat"* ]] || skip "Session expiration not yet implemented in init_claude_session"
@@ -380,7 +380,7 @@ EOF
 
 @test "init_claude_session uses cross-platform stat command" {
     # Check for uname or Darwin/Linux detection in get_session_file_age_hours
-    run grep -A30 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A30 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should have cross-platform handling
     [[ "$output" == *"Darwin"* ]] || [[ "$output" == *"uname"* ]] || skip "Cross-platform stat not yet implemented"
@@ -388,31 +388,31 @@ EOF
 
 @test "get_session_file_age_hours returns correct age" {
     # Check if helper function exists
-    run grep 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     [[ $status -eq 0 ]] || skip "get_session_file_age_hours function not yet implemented"
 }
 
-@test "get_session_file_age_hours returns 0 for missing file" {
+@test "get_session_file_age_hours returns -1 for missing file" {
     # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Test with non-existent file
     run get_session_file_age_hours "/nonexistent/path/file"
 
-    [[ "$output" == "0" ]]
+    [[ "$output" == "-1" ]]
 }
 
 @test "get_session_file_age_hours returns -1 for stat failure" {
     # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Create a file then make it inaccessible (simulate stat failure via directory permissions)
     local test_file="$TEST_DIR/unreadable_file"
     echo "test" > "$test_file"
 
     # Verify the function code handles stat failure by checking the implementation
-    run grep -A35 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A35 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
     [[ "$output" == *'echo "-1"'* ]]
 }
 
@@ -435,28 +435,28 @@ EOF
 
 @test "init_claude_session logs expiration with age info" {
     # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Verify code structure includes age logging
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
     [[ "$output" == *'age_hours'* ]] && [[ "$output" == *'expired'* ]]
 }
 
 @test "init_claude_session logs session age when resuming" {
     # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Verify code structure includes resume logging
-    run grep -A50 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A50 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
     [[ "$output" == *'Resuming'* ]] && [[ "$output" == *'old'* ]]
 }
 
 @test "init_claude_session handles stat failure gracefully" {
     # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Verify code structure handles -1 return
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
     [[ "$output" == *"-1"* ]] && [[ "$output" == *"WARN"* ]]
 }
 

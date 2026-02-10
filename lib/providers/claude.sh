@@ -103,11 +103,18 @@ init_claude_session() {
     local session_file="$RALPH_DIR/.claude_session_id"
     if [[ -f "$session_file" ]]; then
         local age_hours=$(get_session_file_age_hours "$session_file")
-        if [[ $age_hours -eq -1 ]] || [[ $age_hours -ge $CLAUDE_SESSION_EXPIRY_HOURS ]]; then
+        if [[ $age_hours -eq -1 ]]; then
+            log_status "WARN" "Failed to determine session age, starting fresh"
+            rm -f "$session_file"
+            echo ""
+        elif [[ $age_hours -ge ${CLAUDE_SESSION_EXPIRY_HOURS:-24} ]]; then
+            log_status "INFO" "Session expired (age: $age_hours hours), starting fresh"
             rm -f "$session_file"
             echo ""
         else
-            cat "$session_file" 2>/dev/null
+            local session_id=$(cat "$session_file" 2>/dev/null)
+            log_status "INFO" "Resuming Claude session: $session_id ($age_hours hours old)"
+            echo "$session_id"
         fi
     else
         echo ""
@@ -335,7 +342,7 @@ save_claude_session() {
 # Helper for session age
 get_session_file_age_hours() {
     local file=$1
-    [[ ! -f "$file" ]] && echo "0" && return
+    [[ ! -f "$file" ]] && echo "-1" && return
     local file_mtime
     if file_mtime=$(stat -c %Y "$file" 2>/dev/null); then :
     elif file_mtime=$(stat -f %m "$file" 2>/dev/null); then :
