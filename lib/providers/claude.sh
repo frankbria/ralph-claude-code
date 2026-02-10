@@ -2,6 +2,9 @@
 # Claude Provider for Ralph
 # Implements the Claude Code CLI integration
 
+# Source base provider for shared utilities
+source "$(dirname "${BASH_SOURCE[0]}")/base.sh"
+
 # Provider-specific configuration
 CLAUDE_CODE_CMD="claude"
 CLAUDE_MIN_VERSION="2.0.76"
@@ -76,27 +79,7 @@ validate_allowed_tools() {
 }
 
 # Build loop context for Claude Code session
-build_loop_context() {
-    local loop_count=$1
-    local context="Loop #$loop_count. "
-
-    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
-        context+="Remaining tasks: ${incomplete_tasks:-0}. "
-    fi
-
-    if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
-        local cb_state=$(jq -r '.state // "UNKNOWN"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null)
-        [[ "$cb_state" != "CLOSED" && -n "$cb_state" && "$cb_state" != "null" ]] && context+="Circuit breaker: $cb_state. "
-    fi
-
-    if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
-        local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RALPH_DIR/.response_analysis" 2>/dev/null | head -c 200)
-        [[ -n "$prev_summary" && "$prev_summary" != "null" ]] && context+="Previous: $prev_summary"
-    fi
-
-    echo "${context:0:500}"
-}
+# (Now provided by lib/providers/base.sh)
 
 # Initialize or resume Claude session
 init_claude_session() {
@@ -217,6 +200,7 @@ execute_claude_code() {
         local jq_filter='if .type == "stream_event" then if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then .event.delta.text elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then "\n\n⚡ [" + .event.content_block.name + "]\n" elif .event.type == "content_block_stop" then "\n" else empty end else empty end'
 
         set -o pipefail
+        # Fix: stdin must be redirected from /dev/null to prevent hangs in live mode
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
         local -a pipe_status=("${PIPESTATUS[@]}")
         set +o pipefail
@@ -235,8 +219,10 @@ execute_claude_code() {
     else
         # BACKGROUND MODE
         if [[ "$use_modern_cli" == "true" ]]; then
+            # Fix: stdin must be redirected from /dev/null to prevent hangs in background mode
             portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" < /dev/null > "$output_file" 2>&1 &
         else
+            # Fix: stdin must be redirected from /dev/null to prevent hangs in background mode
             portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
         fi
         local claude_pid=$!

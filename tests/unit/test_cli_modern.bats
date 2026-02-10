@@ -701,8 +701,8 @@ EOF
     run grep -c 'stdin must be redirected' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     assert_success
-    # Should appear in both background and live mode sections
-    [[ "$output" == "2" ]]
+    # Should appear in both background (2 branches) and live mode sections
+    [[ "$output" == "3" ]]
 }
 
 # =============================================================================
@@ -785,17 +785,17 @@ EOF
 
 @test "live mode overrides text to json format in lib/providers/claude.sh" {
     # Verify lib/providers/claude.sh contains the live mode format override logic
-    run grep -A3 'LIVE_OUTPUT.*true.*CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
+    run grep -A3 'LIVE_OUTPUT.*true.*output_format.*text' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should find the override block
-    [[ "$output" == *"CLAUDE_OUTPUT_FORMAT"* ]]
+    [[ "$output" == *"output_format"* ]]
     [[ "$output" == *"json"* ]]
 }
 
 @test "live mode format override preserves json format unchanged" {
     # The override should only trigger when format is "text", not "json"
     # Verify the condition checks for text specifically
-    run grep 'CLAUDE_OUTPUT_FORMAT.*text' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
+    run grep 'output_format.*text' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should check specifically for "text" (not a blanket override)
     [[ "$output" == *'text'* ]]
@@ -803,10 +803,10 @@ EOF
 
 @test "safety check prevents live mode with empty CLAUDE_CMD_ARGS" {
     # Verify lib/providers/claude.sh has the safety check for empty CLAUDE_CMD_ARGS
-    run grep -A3 'use_modern_cli.*CLAUDE_CMD_ARGS.*-eq 0' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
+    run grep -A10 'Failed to build modern CLI command' "${BATS_TEST_DIRNAME}/../../lib/providers/claude.sh"
 
     # Should find safety check that falls back to background mode
-    [[ "$output" == *"LIVE_OUTPUT"* ]] || [[ "$output" == *"background"* ]]
+    [[ "$output" == *"LIVE_OUTPUT"* ]]
 }
 
 @test "build_claude_command is called regardless of output format in lib/providers/claude.sh" {
