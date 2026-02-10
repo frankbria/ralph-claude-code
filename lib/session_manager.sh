@@ -56,6 +56,12 @@ log_session_transition() {
     local to_state=$2
     local reason=$3
     local loop_number=${4:-0}
+    
+    # Ensure loop_number is a valid integer
+    if [[ ! "$loop_number" =~ ^[0-9]+$ ]]; then
+        loop_number=0
+    fi
+    
     local ts=$(get_iso_timestamp)
 
     local transition=$(jq -n -c \

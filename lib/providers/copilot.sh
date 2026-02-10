@@ -36,6 +36,11 @@ provider_execute() {
     
     # Build loop context
     local loop_context=$(build_loop_context "$loop_count")
+    
+    if [[ ! -r "$prompt_file" ]]; then
+        log_status "ERROR" "Prompt file not found or unreadable: $prompt_file"
+        return 1
+    fi
     local prompt_content=$(cat "$prompt_file")
     local full_prompt="$loop_context
 
@@ -70,6 +75,8 @@ $prompt_content"
         return 0
     else
         log_status "ERROR" "Copilot execution failed."
+        # TODO: Detect specific API limit errors if Copilot exposes them in stdout/stderr
+        # If grep -q "rate limit" "$output_file"; then return 2; fi
         return 1
     fi
 }

@@ -59,6 +59,12 @@ provider_execute() {
         update_exit_signals
         return 0
     else
+        # Check for specific error conditions in output file
+        if grep -qi "429\|quota\|limit" "$output_file"; then
+            log_status "ERROR" "Gemini API rate limit reached."
+            return 2
+        fi
+        
         log_status "ERROR" "Gemini execution failed."
         return 1
     fi
