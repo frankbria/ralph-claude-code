@@ -158,17 +158,18 @@ execute_claude_code() {
         session_id=$(init_claude_session)
     fi
 
-    # Live mode requires JSON output (stream-json) — override text format
-    if [[ "$LIVE_OUTPUT" == "true" && "$CLAUDE_OUTPUT_FORMAT" == "text" ]]; then
-        log_status "WARN" "Live mode requires JSON output format. Overriding text → json for this session."
-        CLAUDE_OUTPUT_FORMAT="json"
+    # Live mode requires JSON output (stream-json) — use local override instead of global mutation
+    local output_format="$CLAUDE_OUTPUT_FORMAT"
+    if [[ "$LIVE_OUTPUT" == "true" && "$output_format" == "text" ]]; then
+        log_status "WARN" "Live mode requires JSON output format. Using json override for this session."
+        output_format="json"
     fi
 
     # Build the Claude CLI command with modern flags
     local use_modern_cli=false
-    if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+    if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id" "$output_format"; then
         use_modern_cli=true
-        log_status "INFO" "Using modern CLI mode (${CLAUDE_OUTPUT_FORMAT} output)"
+        log_status "INFO" "Using modern CLI mode (${output_format} output)"
     else
         log_status "WARN" "Failed to build modern CLI command, falling back to legacy mode"
         if [[ "$LIVE_OUTPUT" == "true" ]]; then
@@ -296,9 +297,10 @@ build_claude_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
+    local output_format="${4:-$CLAUDE_OUTPUT_FORMAT}"
     CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
     [[ ! -f "$prompt_file" ]] && return 1
-    [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]] && CLAUDE_CMD_ARGS+=("--output-format" "json")
+    [[ "$output_format" == "json" ]] && CLAUDE_CMD_ARGS+=("--output-format" "json")
     if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
         CLAUDE_CMD_ARGS+=("--allowedTools")
         local IFS=','
