@@ -599,7 +599,7 @@ main() {
         
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
-            reset_session "circuit_breaker_open"
+            reset_session "circuit_breaker_open" "$loop_count"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
             break
@@ -617,7 +617,7 @@ main() {
             # Handle permission_denied specially (Issue #101)
             if [[ "$exit_reason" == "permission_denied" ]]; then
                 log_status "ERROR" "🚫 Permission denied - halting loop"
-                reset_session "permission_denied"
+                reset_session "permission_denied" "$loop_count"
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "permission_denied" "halted" "permission_denied"
 
                 # Display helpful guidance for resolving permission issues
@@ -654,7 +654,7 @@ main() {
             fi
 
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
-            reset_session "project_complete"
+            reset_session "project_complete" "$loop_count"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
 
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
@@ -680,7 +680,7 @@ main() {
             sleep 5
         elif [ $exec_result -eq 3 ]; then
             # Circuit breaker opened
-            reset_session "circuit_breaker_trip"
+            reset_session "circuit_breaker_trip" "$loop_count"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
@@ -845,14 +845,14 @@ while [[ $# -gt 0 ]]; do
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
             source "$SCRIPT_DIR/lib/date_utils.sh"
             reset_circuit_breaker "Manual reset via command line"
-            reset_session "manual_circuit_reset"
+            reset_session "manual_circuit_reset" 0
             exit 0
             ;;
         --reset-session)
             # Reset session state only
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/date_utils.sh"
-            reset_session "manual_reset_flag"
+            reset_session "manual_reset_flag" 0
             echo -e "\033[0;32m✅ Session state reset successfully\033[0m"
             exit 0
             ;;

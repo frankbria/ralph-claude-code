@@ -22,6 +22,7 @@ get_session_id() {
 # Reset session with reason logging
 reset_session() {
     local reason=${1:-"manual_reset"}
+    local explicit_loop_count=${2:-0}
     local reset_timestamp=$(get_iso_timestamp)
 
     jq -n \
@@ -45,7 +46,7 @@ reset_session() {
     fi
     rm -f "$RALPH_DIR/.response_analysis" 2>/dev/null
 
-    log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true
+    log_session_transition "active" "reset" "$reason" "$explicit_loop_count" || true
     log_status "INFO" "Session reset: $reason"
 }
 
