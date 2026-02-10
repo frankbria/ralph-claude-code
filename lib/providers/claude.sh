@@ -241,9 +241,12 @@ execute_claude_code() {
                 last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
                 cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null
             fi
-            cat > "$PROGRESS_FILE" << EOF
-{ "status": "executing", "elapsed_seconds": $((progress_counter * 10)), "last_output": "$last_line", "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')" }
-EOF
+            jq -n \
+                --arg status "executing" \
+                --argjson elapsed_seconds "$((progress_counter * 10))" \
+                --arg last_output "$last_line" \
+                --arg timestamp "$(date '+%Y-%m-%d %H:%M:%S')" \
+                '{status: $status, elapsed_seconds: $elapsed_seconds, last_output: $last_output, timestamp: $timestamp}' > "$PROGRESS_FILE"
             sleep 10
         done
         wait $claude_pid
@@ -252,7 +255,10 @@ EOF
 
     if [ $exit_code -eq 0 ]; then
         echo "$calls_made" > "$CALL_COUNT_FILE"
-        echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        jq -n \
+            --arg status "completed" \
+            --arg timestamp "$(date '+%Y-%m-%d %H:%M:%S')" \
+            '{status: $status, timestamp: $timestamp}' > "$PROGRESS_FILE"
         log_status "SUCCESS" "✅ Claude Code execution completed successfully"
         [[ "$CLAUDE_USE_CONTINUE" == "true" ]] && save_claude_session "$output_file"
         log_status "INFO" "🔍 Analyzing Claude Code response..."
@@ -281,7 +287,10 @@ EOF
         [[ $? -ne 0 ]] && return 3
         return 0
     else
-        echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        jq -n \
+            --arg status "failed" \
+            --arg timestamp "$(date '+%Y-%m-%d %H:%M:%S')" \
+            '{status: $status, timestamp: $timestamp}' > "$PROGRESS_FILE"
         if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
             log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
             return 2
