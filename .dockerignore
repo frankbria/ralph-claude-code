@@ -1,0 +1,34 @@
+# Git
+.git
+
+# Node modules
+node_modules/
+
+# Ralph state files (rebuilt at runtime)
+.ralph/.call_count
+.ralph/.last_reset
+.ralph/.exit_signals
+.ralph/.response_analysis
+.ralph/.circuit_breaker_state
+.ralph/.circuit_breaker_history
+.ralph/.json_parse_result
+.ralph/.last_output_length
+.ralph/.ralph_session
+.ralph/.ralph_session_history
+.ralph/.claude_session_id
+.ralph/status.json
+.ralph/logs/
+
+# Coverage and test artifacts
+coverage/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -45,6 +45,9 @@ target/
 *.swp
 *.swo
 
+# Docker
+docker/tmp/
+
 # Claude Code local settings
 .claude/settings.local.json
 

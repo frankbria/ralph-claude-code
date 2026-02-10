@@ -1,0 +1,21 @@
+# Force LF line endings for all shell scripts and test files
+# Prevents Windows CRLF corruption of bash scripts
+*.sh text eol=lf
+*.bats text eol=lf
+*.bash text eol=lf
+
+# Docker files
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Keep markdown and other text files as auto
+*.md text
+*.yml text
+*.yaml text
+*.json text
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary

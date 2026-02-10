@@ -248,6 +248,36 @@ To completely remove Ralph from your system:
 curl -sL https://raw.githubusercontent.com/frankbria/ralph-claude-code/main/uninstall.sh | bash
 ```
 
+## Docker Setup (Windows & Cross-Platform)
+
+Ralph can run inside a Docker container, which is the recommended approach for **Windows** users. It also works on Linux and macOS.
+
+```bash
+# 1. Build the image (one time)
+docker build -t ralph-claude-code .
+
+# 2. Run Ralph in your project
+cd /path/to/your-project
+docker run -it --rm \
+  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  -v "$(pwd):/workspace" \
+  ralph-claude-code \
+  ralph --monitor
+```
+
+**Windows PowerShell:**
+```powershell
+docker run -it --rm `
+  -e ANTHROPIC_API_KEY="$env:ANTHROPIC_API_KEY" `
+  -v "${PWD}:/workspace" `
+  ralph-claude-code `
+  ralph --monitor
+```
+
+Convenience wrapper scripts are available in `docker/` (bash and PowerShell).
+
+> See [Docker Setup Guide](docs/user-guide/04-docker-setup.md) for full documentation including Docker Compose, file permissions, git integration, and troubleshooting.
+
 ## Understanding Ralph Files
 
 After running `ralph-enable` or `ralph-import`, you'll have a `.ralph/` directory with several files. Here's what each file does and whether you need to edit it:

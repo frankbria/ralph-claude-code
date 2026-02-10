@@ -1,0 +1,21 @@
+services:
+  ralph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ralph-claude-code:latest
+    container_name: ralph
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - RALPH_UID=${RALPH_UID:-1000}
+      - RALPH_GID=${RALPH_GID:-1000}
+    volumes:
+      - ./:/workspace
+      # Optional: mount git config for commits
+      # - ~/.gitconfig:/home/ralph/.gitconfig:ro
+      # Optional: mount SSH keys for git push
+      # - ~/.ssh:/home/ralph/.ssh:ro
+    command: ["ralph", "--help"]

@@ -1,0 +1,51 @@
+name: Docker Build
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Dockerfile'
+      - 'docker/**'
+      - '.dockerignore'
+      - 'install.sh'
+      - 'lib/**'
+      - 'ralph_loop.sh'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'docker/**'
+      - '.dockerignore'
+      - 'install.sh'
+      - 'lib/**'
+      - 'ralph_loop.sh'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build Docker image
+      run: docker build -t ralph-claude-code:test .
+
+    - name: Verify Ralph is installed
+      run: docker run --rm ralph-claude-code:test ralph --help
+
+    - name: Verify dependencies
+      run: |
+        docker run --rm ralph-claude-code:test bash -c '
+          echo "=== Checking dependencies ==="
+          bash --version | head -1
+          node --version
+          npm --version
+          jq --version
+          git --version
+          tmux -V
+          timeout --version | head -1
+          echo "=== All dependencies OK ==="
+        '
+
+    - name: Run tests inside Docker
+      run: docker run --rm ralph-claude-code:test bash -c 'cd /opt/ralph-claude-code && npm test'

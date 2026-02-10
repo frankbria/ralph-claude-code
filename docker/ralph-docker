@@ -1,0 +1,45 @@
+#!/bin/bash
+# ralph-docker - Convenience wrapper for running Ralph in Docker
+#
+# Usage:
+#   ./docker/ralph-docker [ralph-options]
+#
+# Examples:
+#   ./docker/ralph-docker --help
+#   ./docker/ralph-docker --monitor
+#   ./docker/ralph-docker --live --verbose
+#
+# Environment:
+#   ANTHROPIC_API_KEY  Required. Your Anthropic API key.
+#   RALPH_IMAGE        Optional. Docker image name (default: ralph-claude-code:latest)
+
+set -e
+
+IMAGE_NAME="${RALPH_IMAGE:-ralph-claude-code:latest}"
+
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "Error: ANTHROPIC_API_KEY environment variable is not set."
+    echo "Export it first: export ANTHROPIC_API_KEY=sk-ant-..."
+    exit 1
+fi
+
+EXTRA_VOLUMES=()
+
+# Mount git config if available
+if [ -f "$HOME/.gitconfig" ]; then
+    EXTRA_VOLUMES+=(-v "$HOME/.gitconfig:/home/ralph/.gitconfig:ro")
+fi
+
+# Mount SSH keys if available
+if [ -d "$HOME/.ssh" ]; then
+    EXTRA_VOLUMES+=(-v "$HOME/.ssh:/home/ralph/.ssh:ro")
+fi
+
+docker run -it --rm \
+    -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+    -e RALPH_UID="$(id -u)" \
+    -e RALPH_GID="$(id -g)" \
+    -v "$(pwd):/workspace" \
+    "${EXTRA_VOLUMES[@]}" \
+    "$IMAGE_NAME" \
+    ralph "$@"

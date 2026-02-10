@@ -330,6 +330,34 @@ After installation, the following global commands are available:
 - `ralph-enable` - Interactive wizard to enable Ralph in existing projects
 - `ralph-enable-ci` - Non-interactive version for CI/automation
 
+## Docker Support
+
+Ralph can run inside a Docker container for Windows users or containerized workflows.
+
+### Docker Files
+- **`Dockerfile`** - Debian slim image with all Ralph dependencies (bash, jq, git, tmux, Node.js 20, Claude Code CLI)
+- **`docker-compose.yml`** - Compose configuration with volume mounts and API key passthrough
+- **`docker/docker-entrypoint.sh`** - Entrypoint handling UID/GID remapping and git safe.directory
+- **`docker/ralph-docker`** - Bash convenience wrapper for `docker run`
+- **`docker/ralph-docker.ps1`** - PowerShell convenience wrapper for Windows
+- **`.dockerignore`** - Build context exclusions
+- **`.gitattributes`** - Forces LF line endings for shell scripts (prevents Windows CRLF corruption)
+
+### Docker Commands
+```bash
+# Build image
+docker build -t ralph-claude-code .
+
+# Run Ralph
+docker run -it --rm -e ANTHROPIC_API_KEY="$KEY" -v "$(pwd):/workspace" ralph-claude-code ralph --monitor
+
+# Run tests inside container
+docker run --rm ralph-claude-code bash -c 'cd /opt/ralph-claude-code && npm test'
+```
+
+### CI Workflow
+`.github/workflows/docker.yml` verifies the Docker image builds and all tests pass inside the container.
+
 ## Integration Points
 
 Ralph integrates with:
@@ -338,6 +366,7 @@ Ralph integrates with:
 - **Git**: Expects projects to be git repositories
 - **jq**: For JSON processing of status and exit signals
 - **GitHub Actions**: CI/CD pipeline for automated testing
+- **Docker**: Container-based execution for Windows and cross-platform support
 - **Standard Unix tools**: bash, grep, date, etc.
 
 ## Exit Conditions and Thresholds
