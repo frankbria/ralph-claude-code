@@ -21,12 +21,13 @@ provider_execute() {
     if [[ "$live_mode" == "true" ]]; then
         log_status "WARN" "Live mode is not yet supported for Gemini provider. Falling back to background mode."
     fi
+    local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/gemini_output_${timestamp}.log"
     
-    local session_arg=""
+    local session_arg=()
     if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
         # Gemini uses --resume latest or session ID
-        session_arg="--resume latest" 
+        session_arg=(--resume latest) 
     fi
     
     # Build loop context
@@ -41,7 +42,7 @@ provider_execute() {
     # We use -p for non-interactive prompt
     
     $GEMINI_CMD -p "$full_prompt" \
-        $session_arg \
+        "${session_arg[@]}" \
         --yolo \
         --output-format text \
         > "$output_file" 2>&1
