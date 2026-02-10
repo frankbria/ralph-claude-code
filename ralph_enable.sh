@@ -336,11 +336,55 @@ phase_task_source_selection() {
 }
 
 # =============================================================================
-# PHASE 3: CONFIGURATION
+# PHASE 3: AI PROVIDER SELECTION
+# =============================================================================
+
+phase_provider_selection() {
+    print_header "AI Provider Selection" "Phase 3 of 6"
+
+    # Default provider
+    CONFIG_PROVIDER="claude"
+
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        echo "Using default provider: $CONFIG_PROVIDER"
+        return 0
+    fi
+
+    echo "Select the AI provider to use:"
+    echo ""
+
+    local options=("Claude Code (Anthropic)" "Google Gemini" "GitHub Copilot (Coming Soon)")
+    local selection
+    selection=$(select_option "Select provider" "${options[@]}")
+
+    case "$selection" in
+        "Claude Code (Anthropic)")
+            CONFIG_PROVIDER="claude"
+            ;;
+        "Google Gemini")
+            CONFIG_PROVIDER="gemini"
+            if [[ -z "$GEMINI_API_KEY" ]]; then
+                echo ""
+                print_warning "GEMINI_API_KEY is not set in your environment."
+                echo "Please ensure it is set before running Ralph."
+            fi
+            ;;
+        "GitHub Copilot (Coming Soon)")
+            CONFIG_PROVIDER="copilot"
+            print_warning "Copilot support is experimental."
+            ;;
+    esac
+
+    echo ""
+    echo "Selected provider: $CONFIG_PROVIDER"
+}
+
+# =============================================================================
+# PHASE 4: CONFIGURATION
 # =============================================================================
 
 phase_configuration() {
-    print_header "Configuration" "Phase 3 of 5"
+    print_header "Configuration" "Phase 4 of 6"
 
     # Project name
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
@@ -385,16 +429,17 @@ phase_configuration() {
     print_summary "Configuration" \
         "Project=$CONFIG_PROJECT_NAME" \
         "Type=$DETECTED_PROJECT_TYPE" \
+        "Provider=$CONFIG_PROVIDER" \
         "Max calls/hour=$CONFIG_MAX_CALLS" \
         "Task sources=${SELECTED_SOURCES:-none}"
 }
 
 # =============================================================================
-# PHASE 4: FILE GENERATION
+# PHASE 5: FILE GENERATION
 # =============================================================================
 
 phase_file_generation() {
-    print_header "File Generation" "Phase 4 of 5"
+    print_header "File Generation" "Phase 5 of 6"
 
     # Import tasks if sources selected
     local imported_tasks=""
@@ -438,6 +483,7 @@ phase_file_generation() {
     export ENABLE_SKIP_TASKS="$SKIP_TASKS"
     export ENABLE_PROJECT_NAME="$CONFIG_PROJECT_NAME"
     export ENABLE_TASK_CONTENT="$imported_tasks"
+    export ENABLE_PROVIDER="$CONFIG_PROVIDER"
 
     # Run core enable logic
     echo "Creating Ralph configuration..."
