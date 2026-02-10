@@ -6,6 +6,7 @@ Ralph runs natively on Linux and macOS. For **Windows** users (or anyone who pre
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/macOS) or Docker Engine (Linux)
 - Windows users: Docker Desktop must use the **WSL 2 backend** (default on modern installations)
+- **Docker Desktop must be running** before executing any `docker` commands. Look for the Docker whale icon in your system tray (Windows) or menu bar (macOS).
 - Your `ANTHROPIC_API_KEY`
 
 ## Quick Start
@@ -156,6 +157,10 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 
 ## Troubleshooting
+
+### "error during connect: docker daemon is not running"
+
+Docker Desktop is not started. On Windows, launch Docker Desktop from the Start menu and wait until the whale icon in the system tray shows "Docker Desktop is running". On macOS, launch it from Applications. On Linux, start the daemon with `sudo systemctl start docker`.
 
 ### "ANTHROPIC_API_KEY is not set"
 
