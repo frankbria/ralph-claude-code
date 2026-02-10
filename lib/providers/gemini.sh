@@ -33,7 +33,8 @@ provider_execute() {
     # Build loop context
     local loop_context=$(build_loop_context "$loop_count")
     local prompt_content=$(cat "$prompt_file")
-    local full_prompt="$loop_context\n\n$prompt_content"
+    local full_prompt
+    full_prompt=$(printf "%s\n\n%s" "$loop_context" "$prompt_content")
     
     log_status "INFO" "Executing Gemini CLI (Agent Mode)..."
     
