@@ -270,7 +270,12 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
     fi
 
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
+    # Chain tmux kill-session after the loop command so the entire tmux
+    # session is torn down when the Ralph loop exits (graceful completion,
+    # circuit breaker, error, or manual interrupt). Without this, the
+    # tail -f and ralph_monitor.sh panes keep the session alive forever.
+    # Issue: https://github.com/frankbria/ralph-claude-code/issues/176
+    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:${base_win}.0"
