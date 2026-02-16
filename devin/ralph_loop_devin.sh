@@ -592,15 +592,11 @@ execute_devin_session() {
 
         local devin_pid=$!
         local progress_counter=0
+        local last_displayed_line=0
 
-        # If LIVE_OUTPUT is enabled (even in background mode), tail the output file
-        local tail_pid=""
         if [[ "$LIVE_OUTPUT" == "true" ]]; then
             echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session (Live Output) ━━━━━━━━━━━━━━━━${NC}"
-            # Wait a moment for output file to be created
-            sleep 1
-            tail -f "$output_file" 2>/dev/null &
-            tail_pid=$!
+            sleep 1  # Wait for output file to be created
         fi
 
         # Show progress while Devin is running
@@ -615,6 +611,17 @@ execute_devin_session() {
 
             local last_line=""
             if [[ -f "$output_file" && -s "$output_file" ]]; then
+                # If LIVE_OUTPUT is enabled, display new lines from output file
+                if [[ "$LIVE_OUTPUT" == "true" ]]; then
+                    local current_lines
+                    current_lines=$(wc -l < "$output_file" 2>/dev/null || echo "0")
+                    if [[ $current_lines -gt $last_displayed_line ]]; then
+                        # Display new lines since last check
+                        tail -n +$((last_displayed_line + 1)) "$output_file" 2>/dev/null
+                        last_displayed_line=$current_lines
+                    fi
+                fi
+
                 last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
                 cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null
             fi
@@ -637,16 +644,19 @@ EOF
                 fi
             fi
 
-            sleep 10
+            sleep 2  # Reduced from 10s to 2s for more responsive live output
         done
 
         wait $devin_pid
         exit_code=$?
 
-        # Stop tail if it was started
-        if [[ -n "$tail_pid" ]]; then
-            kill $tail_pid 2>/dev/null || true
-            wait $tail_pid 2>/dev/null || true
+        # Display any remaining output
+        if [[ "$LIVE_OUTPUT" == "true" && -f "$output_file" ]]; then
+            local final_lines
+            final_lines=$(wc -l < "$output_file" 2>/dev/null || echo "0")
+            if [[ $final_lines -gt $last_displayed_line ]]; then
+                tail -n +$((last_displayed_line + 1)) "$output_file" 2>/dev/null
+            fi
             echo ""
             echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
         fi
