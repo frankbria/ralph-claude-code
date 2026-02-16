@@ -511,9 +511,11 @@ execute_devin_session() {
     fi
 
     log_status "INFO" "Using Devin CLI (model: ${DEVIN_MODEL:-default}, permissions: ${DEVIN_PERMISSION_MODE:-auto})"
+    log_status "INFO" "Command: ${DEVIN_CMD_ARGS[*]}"
 
     # Initialize live.log for this execution
     echo -e "\n\n=== Devin Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
+    echo "Command: ${DEVIN_CMD_ARGS[*]}" >> "$LIVE_LOG_FILE"
 
     # Execute Devin CLI (local agent, blocks until done — same as Claude Code)
     local exit_code=0
@@ -523,9 +525,8 @@ execute_devin_session() {
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Output ━━━━━━━━━━━━━━━━${NC}"
 
         # Execute with output to both terminal and file
-        # stdin redirected from /dev/null to prevent blocking on input
         portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}" \
-            < /dev/null 2>&1 | tee "$output_file" | tee "$LIVE_LOG_FILE"
+            2>&1 | tee "$output_file" | tee -a "$LIVE_LOG_FILE"
         exit_code=${PIPESTATUS[0]}
 
         echo ""
@@ -783,6 +784,12 @@ main() {
         if beads_sync_available; then
             log_status "INFO" "Syncing open beads into fix_plan.md..."
             beads_pre_sync "$RALPH_DIR/fix_plan.md" 2>&1 | while IFS= read -r sync_msg; do
+                log_status "INFO" "$sync_msg"
+            done
+
+            # Claim uncompleted beads as in_progress before working on them
+            log_status "INFO" "Claiming beads as in_progress..."
+            beads_mark_in_progress "$RALPH_DIR/fix_plan.md" "$loop_count" 2>&1 | while IFS= read -r sync_msg; do
                 log_status "INFO" "$sync_msg"
             done
         fi

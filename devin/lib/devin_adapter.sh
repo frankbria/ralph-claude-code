@@ -302,6 +302,66 @@ devin_extract_result_text() {
 # BEADS BIDIRECTIONAL SYNC
 # =============================================================================
 
+# beads_mark_in_progress - Claim beads that are about to be worked on
+# Scans fix_plan.md for uncompleted bead items and marks them in_progress via `bd update --claim`.
+# Only claims beads whose current status is "open" (skips already in_progress/closed).
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+#   $2 - loop_count: Current loop number
+# Returns:
+#   0 on success, 1 if beads unavailable
+beads_mark_in_progress() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+    local loop_count="${2:-0}"
+
+    if ! command -v bd &>/dev/null; then
+        return 1
+    fi
+
+    if [[ ! -f "$fix_plan_file" ]]; then
+        return 0
+    fi
+
+    # Find uncompleted items with bead IDs: "- [ ] [some-id] ..."
+    local uncompleted_lines
+    uncompleted_lines=$(grep -E '^\s*- \[ \] \[' "$fix_plan_file" 2>/dev/null) || return 0
+
+    if [[ -z "$uncompleted_lines" ]]; then
+        return 0
+    fi
+
+    # Get list of beads that are still in "open" status (not already in_progress)
+    local open_ids=""
+    local open_ids_json
+    if open_ids_json=$(bd list --json --status open 2>/dev/null); then
+        open_ids=$(echo "$open_ids_json" | jq -r '.[].id // empty' 2>/dev/null)
+    fi
+
+    local claimed=0
+    while IFS= read -r line; do
+        local bead_id
+        bead_id=$(echo "$line" | sed -n 's/.*\[ \] \[\([a-zA-Z0-9_-]*\)\].*/\1/p' | head -1)
+
+        if [[ -z "$bead_id" ]]; then
+            continue
+        fi
+
+        # Only claim if this bead is currently open
+        if echo "$open_ids" | grep -qxF "$bead_id" 2>/dev/null; then
+            if bd update "$bead_id" --claim 2>/dev/null; then
+                claimed=$((claimed + 1))
+            fi
+        fi
+    done <<< "$uncompleted_lines"
+
+    if [[ $claimed -gt 0 ]]; then
+        echo "BEADS_CLAIM: Claimed $claimed bead(s) as in_progress" >&2
+    fi
+
+    return 0
+}
+
 # beads_pre_sync - Fetch open beads and merge new ones into fix_plan.md
 # Called at the start of each loop iteration.
 # Only adds beads that aren't already present in fix_plan.md (by bead ID).
