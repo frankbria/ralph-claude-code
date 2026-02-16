@@ -842,6 +842,79 @@ tmux attach -t <name>     # Reattach to detached session
 
 ---
 
+## Devin CLI Support
+
+Ralph now supports **Devin CLI** as an alternative AI engine alongside Claude Code. All functionality is mirrored in separate scripts — no changes to the existing Claude-based workflow.
+
+### Install Devin Support (After Base Install)
+
+```bash
+# Base Ralph must be installed first (./install.sh)
+# Then install Devin support separately:
+cd ralph-claude-code
+./devin/install_devin.sh
+```
+
+### Devin Commands (Parallel to Claude Commands)
+
+| Claude Code Command | Devin CLI Command | Description |
+|---|---|---|
+| `ralph` | `ralph-devin` | Main autonomous loop |
+| `ralph-monitor` | `ralph-devin-monitor` | Live status dashboard |
+| `ralph-setup` | `ralph-devin-setup` | Create new project |
+| `ralph-enable` | `ralph-devin-enable` | Enable in existing project |
+| `ralph-enable-ci` | `ralph-devin-enable-ci` | Non-interactive enable |
+| `ralph-import` | `ralph-devin-import` | Convert PRD to project |
+
+### Quick Start with Devin
+
+```bash
+# Option A: New project
+ralph-devin-setup my-project
+cd my-project
+ralph-devin --monitor
+
+# Option B: Existing project
+cd my-existing-project
+ralph-devin-enable
+ralph-devin --monitor
+```
+
+### Key Differences from Claude Code
+
+- **Cloud-based sessions**: Devin works remotely via session-based API
+- **Session continuity**: Uses `devin message` instead of `--resume`
+- **Polling**: Ralph polls Devin session status instead of waiting on local process
+- **ACU limits**: Configurable via `--max-acu` or `DEVIN_MAX_ACU` in `.ralphrc`
+
+### Devin-Specific Configuration (.ralphrc)
+
+```bash
+# Engine selection
+RALPH_ENGINE="devin"
+
+# Devin settings
+DEVIN_TIMEOUT_MINUTES=30
+DEVIN_MAX_ACU=100           # Optional ACU limit
+DEVIN_POLL_INTERVAL=15      # Seconds between status polls
+DEVIN_USE_CONTINUE=true     # Session continuity
+```
+
+### Devin CLI Requirements
+
+- **Devin CLI**: `pip install devin-cli` or `brew tap revanthpobala/tap && brew install devin-cli`
+- **API Token**: Run `devin configure` to set your token
+- **jq**: For JSON parsing (same as Claude version)
+
+### Uninstalling Devin Support
+
+```bash
+./devin/uninstall_devin.sh    # Removes only Devin components
+                               # Claude Code Ralph is NOT affected
+```
+
+---
+
 ## Development Roadmap
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.

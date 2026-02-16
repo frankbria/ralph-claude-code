@@ -1,0 +1,969 @@
+#!/bin/bash
+
+# Ralph Loop for Devin CLI
+# Autonomous AI development loop adapted for Devin's cloud-based sessions.
+# This is a parallel implementation to ralph_loop.sh (Claude Code) — no shared state.
+#
+# Key differences from Claude Code loop:
+#   - Uses Devin sessions instead of local Claude CLI
+#   - Session-based: create → poll → analyze → continue/exit
+#   - Cloud execution: Devin works on repos remotely
+#   - Uses `devin message` for session continuity instead of --resume
+#
+# Version: 0.1.0
+
+set -e
+
+# Source library components (shared with Claude version)
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+RALPH_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+source "$RALPH_ROOT/lib/date_utils.sh"
+source "$RALPH_ROOT/lib/timeout_utils.sh"
+source "$RALPH_ROOT/lib/response_analyzer.sh"
+source "$RALPH_ROOT/lib/circuit_breaker.sh"
+source "$SCRIPT_DIR/lib/devin_adapter.sh"
+
+# Configuration
+RALPH_DIR=".ralph"
+PROMPT_FILE="$RALPH_DIR/PROMPT.md"
+LOG_DIR="$RALPH_DIR/logs"
+DOCS_DIR="$RALPH_DIR/docs/generated"
+STATUS_FILE="$RALPH_DIR/status.json"
+PROGRESS_FILE="$RALPH_DIR/progress.json"
+LIVE_LOG_FILE="$RALPH_DIR/live.log"
+CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+USE_TMUX=false
+LIVE_OUTPUT=false
+SLEEP_DURATION=3600
+
+# Save environment variable state BEFORE setting defaults
+_env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
+_env_DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-}"
+_env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
+_env_DEVIN_MAX_ACU="${DEVIN_MAX_ACU:-}"
+_env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
+_env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
+_env_MAX_LOOPS="${MAX_LOOPS:-}"
+
+# Defaults
+MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
+VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
+DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-30}"
+DEVIN_MAX_ACU="${DEVIN_MAX_ACU:-}"
+DEVIN_USE_CONTINUE="${DEVIN_USE_CONTINUE:-true}"
+MAX_LOOPS="${MAX_LOOPS:-0}"  # 0 = unlimited
+
+# Session management
+DEVIN_SESSION_EXPIRY_HOURS="${DEVIN_SESSION_EXPIRY_HOURS:-24}"
+
+# Exit detection configuration
+EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
+RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+MAX_CONSECUTIVE_TEST_LOOPS=3
+MAX_CONSECUTIVE_DONE_SIGNALS=2
+TEST_PERCENTAGE_THRESHOLD=30
+
+# .ralphrc configuration file
+RALPHRC_FILE=".ralphrc"
+RALPHRC_LOADED=false
+
+# load_ralphrc - Load project-specific configuration from .ralphrc
+load_ralphrc() {
+    if [[ ! -f "$RALPHRC_FILE" ]]; then
+        return 0
+    fi
+
+    # shellcheck source=/dev/null
+    source "$RALPHRC_FILE"
+
+    # Map .ralphrc variable names to internal names
+    if [[ -n "${DEVIN_TIMEOUT:-}" ]]; then
+        DEVIN_TIMEOUT_MINUTES="$DEVIN_TIMEOUT"
+    fi
+    if [[ -n "${RALPH_VERBOSE:-}" ]]; then
+        VERBOSE_PROGRESS="$RALPH_VERBOSE"
+    fi
+
+    # Restore explicitly set environment variables
+    [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
+    [[ -n "$_env_DEVIN_TIMEOUT_MINUTES" ]] && DEVIN_TIMEOUT_MINUTES="$_env_DEVIN_TIMEOUT_MINUTES"
+    [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
+    [[ -n "$_env_DEVIN_MAX_ACU" ]] && DEVIN_MAX_ACU="$_env_DEVIN_MAX_ACU"
+    [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
+    [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
+    [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
+
+    RALPHRC_LOADED=true
+    return 0
+}
+
+# Colors for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+NC='\033[0m'
+
+# Initialize directories
+mkdir -p "$LOG_DIR" "$DOCS_DIR"
+
+# =============================================================================
+# TMUX INTEGRATION
+# =============================================================================
+
+check_tmux_available() {
+    if ! command -v tmux &>/dev/null; then
+        log_status "ERROR" "tmux is not installed. Please install tmux or run without --monitor flag."
+        echo "Install tmux:"
+        echo "  Ubuntu/Debian: sudo apt-get install tmux"
+        echo "  macOS: brew install tmux"
+        exit 1
+    fi
+}
+
+get_tmux_base_index() {
+    local base_index
+    base_index=$(tmux show-options -gv base-index 2>/dev/null)
+    echo "${base_index:-0}"
+}
+
+setup_tmux_session() {
+    local session_name="ralph-devin-$(date +%s)"
+    local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
+    local project_dir
+    project_dir=$(pwd)
+
+    local base_win
+    base_win=$(get_tmux_base_index)
+
+    log_status "INFO" "Setting up tmux session: $session_name"
+
+    echo "=== Ralph Devin Live Output - Waiting for first loop... ===" > "$LIVE_LOG_FILE"
+
+    tmux new-session -d -s "$session_name" -c "$project_dir"
+    tmux split-window -h -t "$session_name" -c "$project_dir"
+    tmux split-window -v -t "$session_name:${base_win}.1" -c "$project_dir"
+
+    # Right-top pane: Live Devin output
+    tmux send-keys -t "$session_name:${base_win}.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+
+    # Right-bottom pane: Ralph status monitor
+    if command -v ralph-devin-monitor &>/dev/null; then
+        tmux send-keys -t "$session_name:${base_win}.2" "ralph-devin-monitor" Enter
+    elif [[ -f "$ralph_home/devin/ralph_monitor_devin.sh" ]]; then
+        tmux send-keys -t "$session_name:${base_win}.2" "'$ralph_home/devin/ralph_monitor_devin.sh'" Enter
+    else
+        tmux send-keys -t "$session_name:${base_win}.2" "watch -n 5 cat '$project_dir/$STATUS_FILE'" Enter
+    fi
+
+    # Build ralph-devin command for left pane
+    local ralph_cmd
+    if command -v ralph-devin &>/dev/null; then
+        ralph_cmd="ralph-devin"
+    else
+        ralph_cmd="'$ralph_home/devin/ralph_loop_devin.sh'"
+    fi
+
+    ralph_cmd="$ralph_cmd --live"
+
+    [[ "$MAX_CALLS_PER_HOUR" != "100" ]] && ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
+    [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]] && ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
+    [[ "$VERBOSE_PROGRESS" == "true" ]] && ralph_cmd="$ralph_cmd --verbose"
+    [[ "$DEVIN_TIMEOUT_MINUTES" != "30" ]] && ralph_cmd="$ralph_cmd --timeout $DEVIN_TIMEOUT_MINUTES"
+    [[ "$DEVIN_USE_CONTINUE" == "false" ]] && ralph_cmd="$ralph_cmd --no-continue"
+    [[ "$CB_AUTO_RESET" == "true" ]] && ralph_cmd="$ralph_cmd --auto-reset-circuit"
+
+    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
+    tmux select-pane -t "$session_name:${base_win}.0"
+
+    tmux select-pane -t "$session_name:${base_win}.0" -T "Ralph Devin Loop"
+    tmux select-pane -t "$session_name:${base_win}.1" -T "Devin Output"
+    tmux select-pane -t "$session_name:${base_win}.2" -T "Status"
+
+    tmux rename-window -t "$session_name:${base_win}" "Ralph Devin: Loop | Output | Status"
+
+    log_status "SUCCESS" "Tmux session created with 3 panes:"
+    log_status "INFO" "  Left:         Ralph Devin loop"
+    log_status "INFO" "  Right-top:    Devin live output"
+    log_status "INFO" "  Right-bottom: Status monitor"
+    log_status "INFO" ""
+    log_status "INFO" "Use Ctrl+B then D to detach from session"
+    log_status "INFO" "Use 'tmux attach -t $session_name' to reattach"
+
+    tmux attach-session -t "$session_name"
+    exit 0
+}
+
+# =============================================================================
+# CALL TRACKING & RATE LIMITING
+# =============================================================================
+
+init_call_tracking() {
+    local current_hour
+    current_hour=$(date +%Y%m%d%H)
+    local last_reset_hour=""
+
+    if [[ -f "$TIMESTAMP_FILE" ]]; then
+        last_reset_hour=$(cat "$TIMESTAMP_FILE")
+    fi
+
+    if [[ "$current_hour" != "$last_reset_hour" ]]; then
+        echo "0" > "$CALL_COUNT_FILE"
+        echo "$current_hour" > "$TIMESTAMP_FILE"
+        log_status "INFO" "Call counter reset for new hour: $current_hour"
+    fi
+
+    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    fi
+
+    init_circuit_breaker
+}
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+log_status() {
+    local level=$1
+    local message=$2
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local color=""
+
+    case $level in
+        "INFO")  color=$BLUE ;;
+        "WARN")  color=$YELLOW ;;
+        "ERROR") color=$RED ;;
+        "SUCCESS") color=$GREEN ;;
+        "LOOP") color=$PURPLE ;;
+    esac
+
+    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2
+    echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
+}
+
+# =============================================================================
+# STATUS TRACKING
+# =============================================================================
+
+update_status() {
+    local loop_count=$1
+    local calls_made=$2
+    local last_action=$3
+    local status=$4
+    local exit_reason=${5:-""}
+
+    cat > "$STATUS_FILE" << STATUSEOF
+{
+    "timestamp": "$(get_iso_timestamp)",
+    "engine": "devin",
+    "loop_count": $loop_count,
+    "calls_made_this_hour": $calls_made,
+    "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
+    "last_action": "$last_action",
+    "status": "$status",
+    "exit_reason": "$exit_reason",
+    "devin_session_id": "${DEVIN_SESSION_ID:-}",
+    "next_reset": "$(get_next_hour_time)"
+}
+STATUSEOF
+}
+
+# =============================================================================
+# RATE LIMITING
+# =============================================================================
+
+can_make_call() {
+    local calls_made=0
+    if [[ -f "$CALL_COUNT_FILE" ]]; then
+        calls_made=$(cat "$CALL_COUNT_FILE")
+    fi
+
+    if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+increment_call_counter() {
+    local calls_made=0
+    if [[ -f "$CALL_COUNT_FILE" ]]; then
+        calls_made=$(cat "$CALL_COUNT_FILE")
+    fi
+
+    ((calls_made++))
+    echo "$calls_made" > "$CALL_COUNT_FILE"
+    echo "$calls_made"
+}
+
+wait_for_reset() {
+    local calls_made
+    calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+    log_status "WARN" "Rate limit reached ($calls_made/$MAX_CALLS_PER_HOUR). Waiting for reset..."
+
+    local current_minute
+    current_minute=$(date +%M)
+    local current_second
+    current_second=$(date +%S)
+    local wait_time=$(((60 - current_minute - 1) * 60 + (60 - current_second)))
+
+    log_status "INFO" "Sleeping for $wait_time seconds until next hour..."
+
+    while [[ $wait_time -gt 0 ]]; do
+        local hours=$((wait_time / 3600))
+        local minutes=$(((wait_time % 3600) / 60))
+        local seconds=$((wait_time % 60))
+
+        printf "\r${YELLOW}Time until reset: %02d:%02d:%02d${NC}" $hours $minutes $seconds
+        sleep 1
+        ((wait_time--))
+    done
+    printf "\n"
+
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
+    log_status "SUCCESS" "Rate limit reset! Ready for new calls."
+}
+
+# =============================================================================
+# EXIT DETECTION
+# =============================================================================
+
+should_exit_gracefully() {
+    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
+        return 1
+    fi
+
+    local signals
+    signals=$(cat "$EXIT_SIGNALS_FILE")
+
+    local recent_test_loops
+    local recent_done_signals
+    local recent_completion_indicators
+
+    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
+    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
+    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
+
+    # 1. Too many consecutive test-only loops
+    if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
+        log_status "WARN" "Exit condition: Too many test-focused loops ($recent_test_loops >= $MAX_CONSECUTIVE_TEST_LOOPS)"
+        echo "test_saturation"
+        return 0
+    fi
+
+    # 2. Multiple "done" signals
+    if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
+        log_status "WARN" "Exit condition: Multiple completion signals ($recent_done_signals >= $MAX_CONSECUTIVE_DONE_SIGNALS)"
+        echo "completion_signals"
+        return 0
+    fi
+
+    # 3. Safety circuit breaker
+    if [[ $recent_completion_indicators -ge 5 ]]; then
+        log_status "WARN" "SAFETY CIRCUIT BREAKER: Force exit after 5 consecutive EXIT_SIGNAL=true responses ($recent_completion_indicators)" >&2
+        echo "safety_circuit_breaker"
+        return 0
+    fi
+
+    # 4. Strong completion indicators with EXIT_SIGNAL gate
+    local devin_exit_signal="false"
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        devin_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+    fi
+
+    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$devin_exit_signal" == "true" ]]; then
+        log_status "WARN" "Exit condition: Strong completion indicators ($recent_completion_indicators) with EXIT_SIGNAL=true" >&2
+        echo "project_complete"
+        return 0
+    fi
+
+    # 5. Check fix_plan.md for completion
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local uncompleted_items
+        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
+        [[ -z "$uncompleted_items" ]] && uncompleted_items=0
+        local completed_items
+        completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
+        [[ -z "$completed_items" ]] && completed_items=0
+        local total_items=$((uncompleted_items + completed_items))
+
+        if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
+            log_status "WARN" "Exit condition: All fix_plan.md items completed ($completed_items/$total_items)" >&2
+            echo "plan_complete"
+            return 0
+        fi
+    fi
+
+    echo ""
+}
+
+# =============================================================================
+# LOOP CONTEXT
+# =============================================================================
+
+build_loop_context() {
+    local loop_count=$1
+    local context=""
+
+    context="Loop #${loop_count}. "
+
+    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+        local incomplete_tasks
+        incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
+        [[ -z "$incomplete_tasks" ]] && incomplete_tasks=0
+        context+="Remaining tasks: ${incomplete_tasks}. "
+    fi
+
+    if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
+        local cb_state
+        cb_state=$(jq -r '.state // "UNKNOWN"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null)
+        if [[ "$cb_state" != "CLOSED" && "$cb_state" != "null" && -n "$cb_state" ]]; then
+            context+="Circuit breaker: ${cb_state}. "
+        fi
+    fi
+
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local prev_summary
+        prev_summary=$(jq -r '.analysis.work_summary // ""' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null | head -c 200)
+        if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
+            context+="Previous: ${prev_summary}"
+        fi
+    fi
+
+    echo "${context:0:500}"
+}
+
+# =============================================================================
+# SESSION MANAGEMENT
+# =============================================================================
+
+reset_session() {
+    local reason=${1:-"manual_reset"}
+
+    devin_clear_session
+    devin_log_session_transition "active" "reset" "$reason" "${loop_count:-0}"
+
+    # Clear exit signals
+    if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
+        echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    fi
+
+    rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
+
+    log_status "INFO" "Session reset: $reason"
+}
+
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+
+execute_devin_session() {
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+    local output_file="$LOG_DIR/devin_output_${timestamp}.log"
+    local loop_count=$1
+    local calls_made
+    calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+    calls_made=$((calls_made + 1))
+
+    # Capture git HEAD SHA at loop start for progress detection
+    local loop_start_sha=""
+    if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+        loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+    fi
+    echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
+
+    log_status "LOOP" "Executing Devin Session (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    local timeout_seconds=$((DEVIN_TIMEOUT_MINUTES * 60))
+    log_status "INFO" "Starting Devin session... (timeout: ${DEVIN_TIMEOUT_MINUTES}m)"
+
+    # Build prompt with loop context
+    local loop_context=""
+    if [[ "$DEVIN_USE_CONTINUE" == "true" ]]; then
+        loop_context=$(build_loop_context "$loop_count")
+        if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
+            log_status "INFO" "Loop context: $loop_context"
+        fi
+    fi
+
+    # Read prompt file
+    if [[ ! -f "$PROMPT_FILE" ]]; then
+        log_status "ERROR" "Prompt file not found: $PROMPT_FILE"
+        return 1
+    fi
+
+    local prompt_content
+    prompt_content=$(cat "$PROMPT_FILE")
+
+    # Append loop context to prompt
+    if [[ -n "$loop_context" ]]; then
+        prompt_content="$prompt_content
+
+---
+RALPH LOOP CONTEXT: $loop_context
+
+IMPORTANT: When you finish working, include a RALPH_STATUS block in your output:
+\`\`\`
+RALPH_STATUS
+STATUS: <COMPLETE|IN_PROGRESS|BLOCKED>
+EXIT_SIGNAL: <true|false>
+SUMMARY: <brief description of work done>
+\`\`\`
+"
+    fi
+
+    # Initialize live.log for this execution
+    echo -e "\n\n=== Devin Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
+
+    local exit_code=0
+    local existing_session=""
+
+    # Check for existing session to continue
+    if [[ "$DEVIN_USE_CONTINUE" == "true" ]]; then
+        existing_session=$(devin_load_session)
+    fi
+
+    if [[ -n "$existing_session" && "$DEVIN_USE_CONTINUE" == "true" ]]; then
+        # Continue existing session by sending a message
+        log_status "INFO" "Continuing Devin session: ${existing_session:0:20}..."
+
+        if devin_send_message "$prompt_content" "$existing_session"; then
+            log_status "INFO" "Message sent to existing session, polling for completion..."
+
+            devin_poll_session "$existing_session" "$output_file" "$timeout_seconds" "$LIVE_LOG_FILE"
+            exit_code=$?
+        else
+            log_status "WARN" "Failed to continue session, creating new one..."
+            devin_clear_session
+            existing_session=""
+        fi
+    fi
+
+    if [[ -z "$existing_session" || "$DEVIN_USE_CONTINUE" == "false" ]]; then
+        # Create new session
+        log_status "INFO" "Creating new Devin session..."
+
+        local session_title="Ralph Loop #${loop_count} - $(basename "$(pwd)")"
+        local session_id
+
+        session_id=$(devin_create_session "$prompt_content" "$session_title" "" "$DEVIN_MAX_ACU")
+        local create_exit=$?
+
+        if [[ $create_exit -ne 0 || -z "$session_id" ]]; then
+            log_status "ERROR" "Failed to create Devin session"
+            echo '{"error": "session_creation_failed"}' > "$output_file"
+            return 1
+        fi
+
+        log_status "SUCCESS" "Devin session created: ${session_id:0:20}..."
+        devin_save_session "$session_id"
+
+        # Poll for completion
+        if [[ "$LIVE_OUTPUT" == "true" ]]; then
+            log_status "INFO" "Live output mode enabled - streaming Devin output..."
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Output ━━━━━━━━━━━━━━━━${NC}"
+        fi
+
+        devin_poll_session "$session_id" "$output_file" "$timeout_seconds" "$LIVE_LOG_FILE"
+        exit_code=$?
+
+        if [[ "$LIVE_OUTPUT" == "true" ]]; then
+            echo ""
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
+        fi
+    fi
+
+    # Process results
+    if [[ $exit_code -eq 0 ]]; then
+        echo "$calls_made" > "$CALL_COUNT_FILE"
+        echo '{"status": "completed", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
+
+        log_status "SUCCESS" "Devin session completed successfully"
+
+        # Analyze the response
+        log_status "INFO" "Analyzing Devin response..."
+
+        # Parse Devin-specific output for RALPH_STATUS
+        local devin_analysis
+        devin_analysis=$(devin_parse_output "$output_file")
+
+        # Write analysis in format compatible with shared response_analyzer
+        local devin_exit_signal
+        devin_exit_signal=$(echo "$devin_analysis" | jq -r '.exit_signal' 2>/dev/null || echo "false")
+        local devin_summary
+        devin_summary=$(echo "$devin_analysis" | jq -r '.work_summary' 2>/dev/null || echo "")
+
+        # Create response analysis file compatible with exit detection
+        jq -n \
+            --arg exit_signal "$devin_exit_signal" \
+            --arg work_summary "$devin_summary" \
+            --argjson loop_count "$loop_count" \
+            '{
+                analysis: {
+                    exit_signal: ($exit_signal == "true"),
+                    work_summary: $work_summary,
+                    has_permission_denials: false,
+                    permission_denial_count: 0,
+                    denied_commands: []
+                },
+                loop_count: $loop_count,
+                engine: "devin"
+            }' > "$RESPONSE_ANALYSIS_FILE"
+
+        # Update exit signals
+        update_exit_signals
+
+        # Log analysis summary
+        log_analysis_summary
+
+        # Get file change count for circuit breaker
+        local files_changed=0
+        local current_sha=""
+
+        if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+            current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+            if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+                files_changed=$(
+                    {
+                        git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
+                        git diff --name-only HEAD 2>/dev/null
+                        git diff --name-only --cached 2>/dev/null
+                    } | sort -u | wc -l
+                )
+            else
+                files_changed=$(
+                    {
+                        git diff --name-only 2>/dev/null
+                        git diff --name-only --cached 2>/dev/null
+                    } | sort -u | wc -l
+                )
+            fi
+        fi
+
+        local has_errors="false"
+        if [[ -f "$output_file" ]]; then
+            if grep -qiE '(error|failed|exception|fatal)' "$output_file" 2>/dev/null; then
+                has_errors="true"
+                log_status "WARN" "Errors detected in output, check: $output_file"
+            fi
+        fi
+
+        local output_length
+        output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+
+        record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
+        local circuit_result=$?
+
+        if [[ $circuit_result -ne 0 ]]; then
+            log_status "WARN" "Circuit breaker opened - halting execution"
+            return 3
+        fi
+
+        return 0
+    elif [[ $exit_code -eq 2 ]]; then
+        # Timeout
+        echo '{"status": "timeout", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
+        log_status "WARN" "Devin session timed out after ${DEVIN_TIMEOUT_MINUTES}m"
+        return 1
+    elif [[ $exit_code -eq 3 ]]; then
+        # Blocked
+        echo '{"status": "blocked", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
+        log_status "WARN" "Devin session is blocked - may need user intervention"
+        return 1
+    else
+        echo '{"status": "failed", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
+        log_status "ERROR" "Devin session failed, check: $output_file"
+        return 1
+    fi
+}
+
+# =============================================================================
+# CLEANUP & SIGNAL HANDLERS
+# =============================================================================
+
+cleanup() {
+    log_status "INFO" "Ralph Devin loop interrupted. Cleaning up..."
+
+    # Terminate active Devin session
+    if [[ -n "$DEVIN_SESSION_ID" ]]; then
+        log_status "INFO" "Terminating Devin session: ${DEVIN_SESSION_ID:0:20}..."
+        devin_terminate_session "$DEVIN_SESSION_ID" 2>/dev/null || true
+    fi
+
+    reset_session "manual_interrupt"
+    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+# Global variable for loop count
+loop_count=0
+
+# =============================================================================
+# MAIN LOOP
+# =============================================================================
+
+main() {
+    if load_ralphrc; then
+        if [[ "$RALPHRC_LOADED" == "true" ]]; then
+            log_status "INFO" "Loaded configuration from .ralphrc"
+        fi
+    fi
+
+    # Check Devin CLI availability
+    if ! check_devin_cli; then
+        exit 1
+    fi
+
+    log_status "SUCCESS" "Ralph loop starting with Devin CLI"
+    log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
+    log_status "INFO" "Timeout per session: ${DEVIN_TIMEOUT_MINUTES}m"
+    log_status "INFO" "Logs: $LOG_DIR/ | Status: $STATUS_FILE"
+
+    # Check if this is a Ralph project directory
+    if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
+        log_status "ERROR" "This project uses the old flat structure."
+        echo "Run: ralph-migrate"
+        exit 1
+    fi
+
+    if [[ ! -f "$PROMPT_FILE" ]]; then
+        log_status "ERROR" "Prompt file '$PROMPT_FILE' not found!"
+        echo ""
+        echo "This directory is not a Ralph project."
+        echo "To fix:"
+        echo "  1. ralph-devin-enable   # Enable Ralph+Devin in existing project"
+        echo "  2. ralph-devin-setup my-project  # Create new project"
+        echo "  3. ralph-devin-import prd.md     # Import requirements"
+        exit 1
+    fi
+
+    log_status "INFO" "Starting main loop..."
+
+    while true; do
+        loop_count=$((loop_count + 1))
+
+        log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
+        init_call_tracking
+
+        log_status "LOOP" "=== Starting Loop #$loop_count ==="
+
+        # Check max loops limit
+        if [[ $MAX_LOOPS -gt 0 ]] && [[ $loop_count -gt $MAX_LOOPS ]]; then
+            log_status "SUCCESS" "Max loops reached ($MAX_LOOPS). Stopping."
+            reset_session "max_loops_reached"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "max_loops" "completed" "max_loops_reached"
+            break
+        fi
+
+        # Check circuit breaker
+        if should_halt_execution; then
+            reset_session "circuit_breaker_open"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
+            log_status "ERROR" "Circuit breaker has opened - execution halted"
+            break
+        fi
+
+        # Check rate limits
+        if ! can_make_call; then
+            wait_for_reset
+            continue
+        fi
+
+        # Check for graceful exit conditions
+        local exit_reason
+        exit_reason=$(should_exit_gracefully)
+        if [[ "$exit_reason" != "" ]]; then
+            log_status "SUCCESS" "Graceful exit triggered: $exit_reason"
+            reset_session "project_complete"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
+
+            log_status "SUCCESS" "Ralph has completed the project! Final stats:"
+            log_status "INFO" "  - Total loops: $loop_count"
+            log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
+            log_status "INFO" "  - Exit reason: $exit_reason"
+            break
+        fi
+
+        # Update status
+        local calls_made
+        calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        update_status "$loop_count" "$calls_made" "executing" "running"
+
+        # Execute Devin session
+        execute_devin_session "$loop_count"
+        local exec_result=$?
+
+        if [[ $exec_result -eq 0 ]]; then
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
+            sleep 5
+        elif [[ $exec_result -eq 3 ]]; then
+            reset_session "circuit_breaker_trip"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
+            log_status "ERROR" "Circuit breaker has opened - halting loop"
+            log_status "INFO" "Run 'ralph-devin --reset-circuit' to reset"
+            break
+        else
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
+            log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
+            sleep 30
+        fi
+
+        log_status "LOOP" "=== Completed Loop #$loop_count ==="
+    done
+}
+
+# =============================================================================
+# HELP
+# =============================================================================
+
+show_help() {
+    cat << HELPEOF
+Ralph Loop for Devin CLI
+
+Usage: $0 [OPTIONS]
+
+IMPORTANT: This command must be run from a Ralph project directory.
+
+Options:
+    -h, --help              Show this help message
+    -c, --calls NUM         Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
+    -p, --prompt FILE       Set prompt file (default: $PROMPT_FILE)
+    -s, --status            Show current status and exit
+    -m, --monitor           Start with tmux session and live monitor (requires tmux)
+    -v, --verbose           Show detailed progress updates during execution
+    -l, --live              Show Devin output in real-time
+    -t, --timeout MIN       Set Devin session timeout in minutes (default: $DEVIN_TIMEOUT_MINUTES)
+    --max-acu NUM           Set maximum ACU limit for Devin sessions
+    --no-continue           Disable session continuity across loops
+    --reset-circuit         Reset circuit breaker to CLOSED state
+    --circuit-status        Show circuit breaker status and exit
+    --auto-reset-circuit    Auto-reset circuit breaker on startup
+    --reset-session         Reset session state and exit
+    --max-loops NUM         Stop after NUM loops (default: 0 = unlimited)
+
+Examples:
+    $0 --calls 50 --timeout 30
+    $0 --monitor
+    $0 --live --verbose
+    $0 --max-acu 100
+    $0 --max-loops 5
+
+HELPEOF
+}
+
+# =============================================================================
+# CLI ARGUMENT PARSING
+# =============================================================================
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -c|--calls)
+            MAX_CALLS_PER_HOUR="$2"
+            shift 2
+            ;;
+        -p|--prompt)
+            PROMPT_FILE="$2"
+            shift 2
+            ;;
+        -s|--status)
+            if [[ -f "$STATUS_FILE" ]]; then
+                echo "Current Status (Devin):"
+                cat "$STATUS_FILE" | jq . 2>/dev/null || cat "$STATUS_FILE"
+            else
+                echo "No status file found. Ralph Devin may not be running."
+            fi
+            exit 0
+            ;;
+        -m|--monitor)
+            USE_TMUX=true
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE_PROGRESS=true
+            shift
+            ;;
+        -l|--live)
+            LIVE_OUTPUT=true
+            shift
+            ;;
+        -t|--timeout)
+            if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
+                DEVIN_TIMEOUT_MINUTES="$2"
+            else
+                echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --max-acu)
+            DEVIN_MAX_ACU="$2"
+            shift 2
+            ;;
+        --max-loops)
+            if [[ "$2" =~ ^[0-9]+$ ]]; then
+                MAX_LOOPS="$2"
+            else
+                echo "Error: --max-loops must be a non-negative integer"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --no-continue)
+            DEVIN_USE_CONTINUE=false
+            shift
+            ;;
+        --reset-circuit)
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$RALPH_ROOT/lib/circuit_breaker.sh"
+            source "$RALPH_ROOT/lib/date_utils.sh"
+            reset_circuit_breaker "Manual reset via command line"
+            reset_session "manual_circuit_reset"
+            exit 0
+            ;;
+        --reset-session)
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$RALPH_ROOT/lib/date_utils.sh"
+            reset_session "manual_reset_flag"
+            echo -e "\033[0;32mSession state reset successfully\033[0m"
+            exit 0
+            ;;
+        --circuit-status)
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$RALPH_ROOT/lib/circuit_breaker.sh"
+            show_circuit_status
+            exit 0
+            ;;
+        --auto-reset-circuit)
+            CB_AUTO_RESET=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Only execute when run directly, not when sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    if [[ "$USE_TMUX" == "true" ]]; then
+        check_tmux_available
+        setup_tmux_session
+    fi
+
+    main
+fi
