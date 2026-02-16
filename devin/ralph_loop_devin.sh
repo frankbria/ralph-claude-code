@@ -882,14 +882,15 @@ main() {
         fi
 
         # Create worktree for this loop iteration
+        # NOTE: worktree_create must NOT be called inside $() — that runs a subshell
+        # and the internal state variables (_WT_CURRENT_PATH, _WT_CURRENT_BRANCH)
+        # would be lost. Instead, call directly and use accessors afterward.
         local work_dir
         work_dir="$(pwd)"
         if [[ "$WORKTREE_ENABLED" == "true" ]]; then
-            local wt_path
-            wt_path=$(worktree_create "$loop_count")
-            if [[ $? -eq 0 && -n "$wt_path" ]]; then
-                work_dir="$wt_path"
-                log_status "SUCCESS" "Worktree: $wt_path (branch: $(worktree_get_branch))"
+            if worktree_create "$loop_count" > /dev/null; then
+                work_dir="$(worktree_get_path)"
+                log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
             else
                 log_status "WARN" "Worktree creation failed, using main directory"
             fi
