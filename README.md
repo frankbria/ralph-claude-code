@@ -842,6 +842,161 @@ tmux attach -t <name>     # Reattach to detached session
 
 ---
 
+## Devin CLI Support
+
+Ralph now supports **Devin CLI** as an alternative AI engine alongside Claude Code. All functionality is mirrored in separate scripts — no changes to the existing Claude-based workflow.
+
+### Install Devin Support (After Base Install)
+
+```bash
+# Base Ralph must be installed first (./install.sh)
+# Then install Devin support separately:
+cd ralph-claude-code
+./devin/install_devin.sh
+```
+
+### Devin Commands (Parallel to Claude Commands)
+
+| Claude Code Command | Devin CLI Command | Description |
+|---|---|---|
+| `ralph` | `ralph-devin` | Main autonomous loop |
+| `ralph-monitor` | `ralph-devin-monitor` | Live status dashboard |
+| `ralph-setup` | `ralph-devin-setup` | Create new project |
+| `ralph-enable` | `ralph-devin-enable` | Enable in existing project |
+| `ralph-enable-ci` | `ralph-devin-enable-ci` | Non-interactive enable |
+| `ralph-import` | `ralph-devin-import` | Convert PRD to project |
+
+### Quick Start with Devin
+
+```bash
+# Option A: New project
+ralph-devin-setup my-project
+cd my-project
+ralph-devin --monitor
+
+# Option B: Existing project
+cd my-existing-project
+ralph-devin-enable
+ralph-devin --monitor
+```
+
+### Key Differences from Claude Code
+
+- **Cloud-based sessions**: Devin works remotely via session-based API
+- **Session continuity**: Uses `devin message` instead of `--resume`
+- **Polling**: Ralph polls Devin session status instead of waiting on local process
+- **ACU limits**: Configurable via `--max-acu` or `DEVIN_MAX_ACU` in `.ralphrc`
+- **Git worktree isolation**: Each loop runs in an isolated worktree with quality gates before merge (enabled by default)
+
+### Devin-Specific Configuration (.ralphrc.devin)
+
+```bash
+# Engine selection
+RALPH_ENGINE="devin"
+
+# Devin settings
+DEVIN_TIMEOUT_MINUTES=30
+DEVIN_MAX_ACU=100           # Optional ACU limit
+DEVIN_POLL_INTERVAL=15      # Seconds between status polls
+DEVIN_USE_CONTINUE=true     # Session continuity
+
+# Worktree isolation (enabled by default)
+WORKTREE_ENABLED=true              # true|false
+WORKTREE_MERGE_STRATEGY=squash     # squash|merge|rebase
+WORKTREE_QUALITY_GATES=auto        # auto|none|"cmd1;cmd2"
+WORKTREE_AUTO_CLEANUP=true         # Delete branches after merge
+WORKTREE_BRANCH_PREFIX=ralph-devin # Branch name prefix
+WORKTREE_AUTO_COMMIT=true          # Auto-commit before merge
+```
+
+### Git Worktree Isolation
+
+Ralph Devin isolates each loop iteration in a **git worktree** so the agent works on a dedicated branch without touching your main branch. Changes are only merged back after passing quality gates.
+
+**Lifecycle per loop:**
+1. **Create** — New worktree + branch (`ralph-devin/loop-<N>-<ts>`) off current HEAD
+2. **Execute** — Devin runs inside the worktree directory
+3. **Quality gates** — Auto-detected lint/test/build checks run in the worktree
+4. **Merge** — Squash merge (default) back to main branch if gates pass
+5. **Cleanup** — Worktree removed; branch deleted on success, preserved on failure
+
+**Worktree location:** `<project_root>/<project_name>-worktrees/` (auto-gitignored)
+
+```bash
+# Default: worktree isolation enabled
+ralph-devin --monitor
+
+# Disable worktree isolation (work directly on main branch)
+ralph-devin --no-worktree
+
+# Use merge commit instead of squash
+ralph-devin --merge-strategy merge
+
+# Use rebase strategy
+ralph-devin --merge-strategy rebase
+
+# Custom quality gates (semicolon-separated)
+ralph-devin --quality-gates "npm run lint;npm test;npm run build"
+
+# Skip quality gates entirely
+ralph-devin --quality-gates none
+```
+
+**Auto-detected quality gates** (when set to `auto`):
+
+| Project Type | Gates Detected |
+|---|---|
+| Node.js (npm/pnpm/bun/yarn) | `lint`, `typecheck`, `test`, `build` from `package.json` scripts |
+| Python | `ruff check .` (if configured), `pytest` |
+| Go | `go vet ./...`, `go test ./...` |
+| Rust | `cargo clippy`, `cargo test` |
+| Makefile | `make lint`, `make test` (if targets exist) |
+
+**On failure:**
+- **Quality gates fail** → Branch preserved for inspection, worktree removed, no merge
+- **Merge conflict** → Branch preserved, merge aborted, worktree removed
+- **Execution error** → Full cleanup (branch + worktree deleted)
+
+### Devin CLI Requirements
+
+- **Devin CLI**: `pip install devin-cli` or `brew tap revanthpobala/tap && brew install devin-cli`
+- **API Token**: Run `devin configure` to set your token
+- **jq**: For JSON parsing (same as Claude version)
+
+### Devin Loop Options
+
+```bash
+ralph-devin [OPTIONS]
+  -h, --help              Show help message
+  -c, --calls NUM         Set max calls per hour (default: 100)
+  -p, --prompt FILE       Set prompt file
+  -s, --status            Show current status and exit
+  -m, --monitor           Start with tmux session and live monitor
+  -v, --verbose           Show detailed progress updates
+  -l, --live              Show Devin output in real-time
+  -t, --timeout MIN       Set session timeout in minutes (1-120, default: 30)
+  --model MODEL           Set Devin model: opus, sonnet, swe, gpt
+  --permission-mode MODE  Set permission mode: auto or dangerous
+  --no-continue           Disable session continuity
+  --max-loops NUM         Stop after NUM loops (0 = unlimited)
+  --no-worktree           Disable git worktree isolation
+  --merge-strategy STR    Merge strategy: squash, merge, rebase (default: squash)
+  --quality-gates GATES   Quality gates: auto, none, or "cmd1;cmd2" (default: auto)
+  --reset-circuit         Reset circuit breaker
+  --circuit-status        Show circuit breaker status
+  --auto-reset-circuit    Auto-reset circuit breaker on startup
+  --reset-session         Reset session state
+```
+
+### Uninstalling Devin Support
+
+```bash
+./devin/uninstall_devin.sh    # Removes only Devin components
+                               # Claude Code Ralph is NOT affected
+```
+
+---
+
 ## Development Roadmap
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.

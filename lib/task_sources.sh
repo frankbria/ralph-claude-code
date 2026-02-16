@@ -560,6 +560,134 @@ ${prd_tasks}
 }
 
 # =============================================================================
+# BEADS BIDIRECTIONAL SYNC
+# =============================================================================
+
+# beads_sync_available - Check if beads sync should be performed
+# Returns 0 if bd CLI exists and .beads/ directory is present
+beads_sync_available() {
+    [[ -d ".beads" ]] && command -v bd &>/dev/null
+}
+
+# beads_pre_sync - Fetch open beads and merge new ones into fix_plan.md
+# Called at the start of each loop iteration.
+# Only adds beads that aren't already present in fix_plan.md (by bead ID).
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+# Returns:
+#   0 on success, 1 if beads unavailable
+beads_pre_sync() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+
+    if ! command -v bd &>/dev/null; then
+        return 1
+    fi
+
+    local json_output
+    json_output=$(bd list --json --status open 2>/dev/null) || return 1
+
+    if [[ -z "$json_output" ]] || ! echo "$json_output" | jq empty 2>/dev/null; then
+        return 1
+    fi
+
+    local bead_lines
+    bead_lines=$(echo "$json_output" | jq -r '
+        .[] |
+        select((.id // "") != "" and (.title // "") != "") |
+        "- [ ] [\(.id)] \(.title)"
+    ' 2>/dev/null) || return 1
+
+    if [[ -z "$bead_lines" ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$fix_plan_file" ]]; then
+        echo "# Fix Plan" > "$fix_plan_file"
+    fi
+
+    local added=0
+    while IFS= read -r line; do
+        local bead_id
+        bead_id=$(echo "$line" | sed -n 's/.*\[\([a-zA-Z0-9_-]*\)\].*/\1/p' | head -1)
+
+        if [[ -z "$bead_id" ]]; then
+            continue
+        fi
+
+        if ! grep -qF "[$bead_id]" "$fix_plan_file" 2>/dev/null; then
+            echo "$line" >> "$fix_plan_file"
+            added=$((added + 1))
+        fi
+    done <<< "$bead_lines"
+
+    if [[ $added -gt 0 ]]; then
+        echo "BEADS_PRE_SYNC: Added $added new bead(s) to fix_plan.md" >&2
+    fi
+
+    return 0
+}
+
+# beads_post_sync - Close beads that were marked completed in fix_plan.md
+# Called at the end of each loop iteration.
+# Scans fix_plan.md for "- [x] [bead-id] ..." lines and runs `bd close <id>`.
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+#   $2 - loop_count: Current loop number (for close reason)
+#   $3 - engine: Engine name for close reason (default: "Ralph")
+# Returns:
+#   0 on success, 1 if beads unavailable
+beads_post_sync() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+    local loop_count="${2:-0}"
+    local engine="${3:-Ralph}"
+
+    if ! command -v bd &>/dev/null; then
+        return 1
+    fi
+
+    if [[ ! -f "$fix_plan_file" ]]; then
+        return 0
+    fi
+
+    local completed_lines
+    completed_lines=$(grep -E '^\s*- \[[xX]\] \[' "$fix_plan_file" 2>/dev/null) || return 0
+
+    if [[ -z "$completed_lines" ]]; then
+        return 0
+    fi
+
+    local open_ids=""
+    local open_ids_json
+    if open_ids_json=$(bd list --json --status open 2>/dev/null); then
+        open_ids=$(echo "$open_ids_json" | jq -r '.[].id // empty' 2>/dev/null)
+    fi
+
+    local closed=0
+    while IFS= read -r line; do
+        local bead_id
+        bead_id=$(echo "$line" | sed -n 's/.*\[[xX]\] \[\([a-zA-Z0-9_-]*\)\].*/\1/p' | head -1)
+
+        if [[ -z "$bead_id" ]]; then
+            continue
+        fi
+
+        if echo "$open_ids" | grep -qxF "$bead_id" 2>/dev/null; then
+            if bd close "$bead_id" -r "Completed by $engine loop #${loop_count}" 2>/dev/null; then
+                closed=$((closed + 1))
+            fi
+        fi
+    done <<< "$completed_lines"
+
+    if [[ $closed -gt 0 ]]; then
+        echo "BEADS_POST_SYNC: Closed $closed bead(s)" >&2
+    fi
+
+    return 0
+}
+
+# =============================================================================
 # EXPORTS
 # =============================================================================
 
@@ -575,3 +703,6 @@ export -f convert_prd_with_claude
 export -f normalize_tasks
 export -f prioritize_tasks
 export -f import_tasks_from_sources
+export -f beads_sync_available
+export -f beads_pre_sync
+export -f beads_post_sync
