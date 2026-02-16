@@ -25,6 +25,7 @@ source "$RALPH_ROOT/lib/timeout_utils.sh"
 source "$RALPH_ROOT/lib/response_analyzer.sh"
 source "$RALPH_ROOT/lib/circuit_breaker.sh"
 source "$SCRIPT_DIR/lib/devin_adapter.sh"
+source "$SCRIPT_DIR/lib/worktree_manager.sh"
 
 # Configuration
 RALPH_DIR=".ralph"
@@ -49,6 +50,9 @@ _env_DEVIN_PERMISSION_MODE="${DEVIN_PERMISSION_MODE:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_MAX_LOOPS="${MAX_LOOPS:-}"
+_env_WORKTREE_ENABLED="${WORKTREE_ENABLED:-}"
+_env_WORKTREE_MERGE_STRATEGY="${WORKTREE_MERGE_STRATEGY:-}"
+_env_WORKTREE_QUALITY_GATES="${WORKTREE_QUALITY_GATES:-}"
 
 # Defaults
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -97,6 +101,9 @@ load_ralphrc() {
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
+    [[ -n "$_env_WORKTREE_ENABLED" ]] && WORKTREE_ENABLED="$_env_WORKTREE_ENABLED"
+    [[ -n "$_env_WORKTREE_MERGE_STRATEGY" ]] && WORKTREE_MERGE_STRATEGY="$_env_WORKTREE_MERGE_STRATEGY"
+    [[ -n "$_env_WORKTREE_QUALITY_GATES" ]] && WORKTREE_QUALITY_GATES="$_env_WORKTREE_QUALITY_GATES"
 
     RALPHRC_LOADED=true
     return 0
@@ -178,6 +185,8 @@ setup_tmux_session() {
     [[ "$DEVIN_TIMEOUT_MINUTES" != "30" ]] && ralph_cmd="$ralph_cmd --timeout $DEVIN_TIMEOUT_MINUTES"
     [[ "$DEVIN_USE_CONTINUE" == "false" ]] && ralph_cmd="$ralph_cmd --no-continue"
     [[ "$CB_AUTO_RESET" == "true" ]] && ralph_cmd="$ralph_cmd --auto-reset-circuit"
+    [[ "$WORKTREE_ENABLED" == "false" ]] && ralph_cmd="$ralph_cmd --no-worktree"
+    [[ "$WORKTREE_MERGE_STRATEGY" != "squash" ]] && ralph_cmd="$ralph_cmd --merge-strategy $WORKTREE_MERGE_STRATEGY"
 
     tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
     tmux select-pane -t "$session_name:${base_win}.0"
@@ -271,6 +280,9 @@ update_status() {
     "status": "$status",
     "exit_reason": "$exit_reason",
     "devin_session_id": "${DEVIN_SESSION_ID:-}",
+    "worktree_enabled": $([[ "$WORKTREE_ENABLED" == "true" ]] && echo "true" || echo "false"),
+    "worktree_branch": "$(worktree_get_branch 2>/dev/null)",
+    "worktree_path": "$(worktree_get_path 2>/dev/null)",
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
@@ -467,18 +479,25 @@ reset_session() {
 # =============================================================================
 
 execute_devin_session() {
+    local loop_count=$1
+    local work_dir="${2:-$(pwd)}"
+    local main_dir
+    main_dir="$(pwd)"
     local timestamp
     timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
-    local output_file="$LOG_DIR/devin_output_${timestamp}.log"
-    local loop_count=$1
+    local output_file="${main_dir}/${LOG_DIR}/devin_output_${timestamp}.log"
     local calls_made
     calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
 
     # Capture git HEAD SHA at loop start for progress detection
     local loop_start_sha=""
-    if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
-        loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+    if command -v git &>/dev/null; then
+        if [[ "$work_dir" != "$main_dir" ]]; then
+            loop_start_sha=$(cd "$work_dir" && git rev-parse HEAD 2>/dev/null || echo "")
+        elif git rev-parse --git-dir &>/dev/null 2>&1; then
+            loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+        fi
     fi
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
 
@@ -512,13 +531,24 @@ execute_devin_session() {
         print_mode="false"
     fi
 
-    if ! build_devin_command "$PROMPT_FILE" "$loop_context" "$session_id" "$print_mode"; then
+    # Use worktree's prompt file (absolute path) when in worktree mode
+    local effective_prompt="$PROMPT_FILE"
+    if [[ "$work_dir" != "$main_dir" && -f "$work_dir/$PROMPT_FILE" ]]; then
+        effective_prompt="$work_dir/$PROMPT_FILE"
+    elif [[ "$work_dir" != "$main_dir" && -f "${main_dir}/$PROMPT_FILE" ]]; then
+        effective_prompt="${main_dir}/$PROMPT_FILE"
+    fi
+
+    if ! build_devin_command "$effective_prompt" "$loop_context" "$session_id" "$print_mode"; then
         log_status "ERROR" "Failed to build Devin command"
         return 1
     fi
 
     log_status "INFO" "Using Devin CLI (model: ${DEVIN_MODEL:-default}, permissions: ${DEVIN_PERMISSION_MODE:-auto})"
     log_status "INFO" "Command: ${DEVIN_CMD_ARGS[*]}"
+    if [[ "$work_dir" != "$main_dir" ]]; then
+        log_status "INFO" "Working directory: $work_dir"
+    fi
 
     # Initialize live.log for this execution
     echo -e "\n\n=== Devin Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
@@ -539,14 +569,13 @@ execute_devin_session() {
         resolved_timeout_cmd=$(detect_timeout_command 2>/dev/null)
 
         if command -v script &>/dev/null && [[ -n "$resolved_timeout_cmd" ]]; then
-            script -q "$output_file" "$resolved_timeout_cmd" ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}"
+            (cd "$work_dir" && script -q "$output_file" "$resolved_timeout_cmd" ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}")
             exit_code=$?
         elif [[ -n "$resolved_timeout_cmd" ]]; then
-            "$resolved_timeout_cmd" ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}"
+            (cd "$work_dir" && "$resolved_timeout_cmd" ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}")
             exit_code=$?
         else
-            # No timeout command available, run without timeout
-            "${DEVIN_CMD_ARGS[@]}"
+            (cd "$work_dir" && "${DEVIN_CMD_ARGS[@]}")
             exit_code=$?
         fi
 
@@ -555,7 +584,7 @@ execute_devin_session() {
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
     else
         # Background mode: non-interactive (-p flag), output to file
-        portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}" \
+        (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}") \
             < /dev/null > "$output_file" 2>&1 &
 
         local devin_pid=$!
@@ -668,13 +697,15 @@ EOF
         # Get file change count for circuit breaker
         local files_changed=0
         local current_sha=""
+        local git_dir="$main_dir"
+        [[ "$work_dir" != "$main_dir" ]] && git_dir="$work_dir"
 
-        if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
-            current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+        if command -v git &>/dev/null; then
+            current_sha=$(cd "$git_dir" && git rev-parse HEAD 2>/dev/null || echo "")
 
             if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
                 files_changed=$(
-                    {
+                    cd "$git_dir" && {
                         git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
                         git diff --name-only HEAD 2>/dev/null
                         git diff --name-only --cached 2>/dev/null
@@ -682,7 +713,7 @@ EOF
                 )
             else
                 files_changed=$(
-                    {
+                    cd "$git_dir" && {
                         git diff --name-only 2>/dev/null
                         git diff --name-only --cached 2>/dev/null
                     } | sort -u | wc -l
@@ -724,6 +755,10 @@ EOF
 
 cleanup() {
     log_status "INFO" "Ralph Devin loop interrupted. Cleaning up..."
+    if worktree_is_active 2>/dev/null; then
+        log_status "INFO" "Cleaning up active worktree..."
+        worktree_cleanup "true" 2>/dev/null || true
+    fi
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
@@ -754,6 +789,7 @@ main() {
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Timeout per session: ${DEVIN_TIMEOUT_MINUTES}m"
     log_status "INFO" "Logs: $LOG_DIR/ | Status: $STATUS_FILE"
+    log_status "INFO" "Worktree: ${WORKTREE_ENABLED} | Merge: ${WORKTREE_MERGE_STRATEGY} | Gates: ${WORKTREE_QUALITY_GATES}"
 
     # Check if this is a Ralph project directory
     if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
@@ -771,6 +807,16 @@ main() {
         echo "  2. ralph-devin-setup my-project  # Create new project"
         echo "  3. ralph-devin-import prd.md     # Import requirements"
         exit 1
+    fi
+
+    # Initialize worktree system
+    if [[ "$WORKTREE_ENABLED" == "true" ]]; then
+        if worktree_init; then
+            log_status "SUCCESS" "Worktree mode enabled (base: $(worktree_get_base_dir))"
+        else
+            log_status "WARN" "Worktree init failed, using direct mode"
+            WORKTREE_ENABLED="false"
+        fi
     fi
 
     log_status "INFO" "Starting main loop..."
@@ -834,16 +880,58 @@ main() {
             done
         fi
 
+        # Create worktree for this loop iteration
+        local work_dir
+        work_dir="$(pwd)"
+        if [[ "$WORKTREE_ENABLED" == "true" ]]; then
+            local wt_path
+            wt_path=$(worktree_create "$loop_count")
+            if [[ $? -eq 0 && -n "$wt_path" ]]; then
+                work_dir="$wt_path"
+                log_status "SUCCESS" "Worktree: $wt_path (branch: $(worktree_get_branch))"
+            else
+                log_status "WARN" "Worktree creation failed, using main directory"
+            fi
+        fi
+
         # Update status
         local calls_made
         calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
 
-        # Execute Devin session
-        execute_devin_session "$loop_count"
+        # Execute Devin session (in worktree if active)
+        execute_devin_session "$loop_count" "$work_dir"
         local exec_result=$?
 
         if [[ $exec_result -eq 0 ]]; then
+            # Worktree: quality gates + merge + cleanup
+            if [[ "$WORKTREE_ENABLED" == "true" ]] && worktree_is_active; then
+                log_status "INFO" "Running quality gates in worktree..."
+                local gate_output
+                gate_output=$(worktree_run_quality_gates 2>&1)
+                local gate_result=$?
+                while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$gate_output"
+
+                if [[ $gate_result -eq 0 ]]; then
+                    log_status "SUCCESS" "Quality gates passed. Merging..."
+                    local merge_output
+                    merge_output=$(worktree_merge 2>&1)
+                    local merge_result=$?
+                    while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$merge_output"
+
+                    if [[ $merge_result -eq 0 ]]; then
+                        log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
+                        worktree_cleanup "true"
+                    else
+                        log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
+                        worktree_cleanup "false"
+                    fi
+                else
+                    log_status "WARN" "Quality gates failed. Branch preserved: $(worktree_get_branch)"
+                    worktree_cleanup "false"
+                fi
+            fi
+
             # Beads post-sync: close completed beads
             if beads_sync_available; then
                 log_status "INFO" "Syncing completed tasks back to beads..."
@@ -855,12 +943,17 @@ main() {
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
             sleep 5
         elif [[ $exec_result -eq 3 ]]; then
+            if worktree_is_active; then worktree_cleanup "true"; fi
             reset_session "circuit_breaker_trip"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph-devin --reset-circuit' to reset"
             break
         else
+            if worktree_is_active; then
+                log_status "WARN" "Cleaning up worktree after failure..."
+                worktree_cleanup "true"
+            fi
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
             sleep 30
@@ -899,6 +992,9 @@ Options:
     --auto-reset-circuit    Auto-reset circuit breaker on startup
     --reset-session         Reset session state and exit
     --max-loops NUM         Stop after NUM loops (default: 0 = unlimited)
+    --no-worktree           Disable git worktree isolation
+    --merge-strategy STR    Merge strategy: squash, merge, rebase (default: squash)
+    --quality-gates GATES   Quality gates: auto, none, or "cmd1;cmd2" (default: auto)
 
 Examples:
     $0 --calls 50 --timeout 30
@@ -907,6 +1003,8 @@ Examples:
     $0 --model opus
     $0 --max-loops 5
     $0 --permission-mode dangerous
+    $0 --no-worktree
+    $0 --merge-strategy merge --quality-gates "npm test;npm run lint"
 
 HELPEOF
 }
@@ -1009,6 +1107,23 @@ while [[ $# -gt 0 ]]; do
         --auto-reset-circuit)
             CB_AUTO_RESET=true
             shift
+            ;;
+        --no-worktree)
+            WORKTREE_ENABLED=false
+            shift
+            ;;
+        --merge-strategy)
+            if [[ "$2" == "squash" || "$2" == "merge" || "$2" == "rebase" ]]; then
+                WORKTREE_MERGE_STRATEGY="$2"
+            else
+                echo "Error: --merge-strategy must be 'squash', 'merge', or 'rebase'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --quality-gates)
+            WORKTREE_QUALITY_GATES="$2"
+            shift 2
             ;;
         *)
             echo "Unknown option: $1"

@@ -1291,10 +1291,24 @@ EOF
 
     if [ $exit_code -eq 0 ]; then
         # Check for API errors hidden inside a successful exit code (e.g., rate limits)
-        # Claude Code returns exit 0 but sets "is_error":true in JSON output
+        # Claude Code returns exit 0 but sets "is_error":true in JSON output (NDJSON format)
         if [[ -f "$output_file" && -s "$output_file" ]]; then
             local api_error=""
-            api_error=$(jq -r 'select(.is_error == true) | .result // empty' "$output_file" 2>/dev/null | head -1)
+            # NDJSON: grep for the result line with is_error, then extract the message
+            local error_line
+            error_line=$(grep '"is_error"' "$output_file" 2>/dev/null | grep 'true' | tail -1)
+
+            if [[ -n "$error_line" ]]; then
+                api_error=$(echo "$error_line" | jq -r '.result // empty' 2>/dev/null)
+            fi
+
+            # Fallback: grep for common error patterns in raw output
+            if [[ -z "$api_error" ]]; then
+                api_error=$(grep -oE '"result":"[^"]*hit your limit[^"]*"' "$output_file" 2>/dev/null | head -1 | sed 's/"result":"//;s/"$//')
+            fi
+            if [[ -z "$api_error" ]]; then
+                api_error=$(grep -oE '"text":"[^"]*hit your limit[^"]*"' "$output_file" 2>/dev/null | head -1 | sed 's/"text":"//;s/"$//')
+            fi
 
             if [[ -n "$api_error" ]]; then
                 log_status "ERROR" "Claude API error: $api_error"
@@ -1302,7 +1316,6 @@ EOF
                 echo -e "${YELLOW}$api_error${NC}"
                 echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
-                # Check if it's a rate limit error specifically
                 if echo "$api_error" | grep -qiE '(rate.limit|hit your limit|resets|quota|too many)'; then
                     return 2  # API limit exit code
                 fi
@@ -1592,6 +1605,27 @@ main() {
         # Execute Claude Code
         execute_claude_code "$loop_count"
         local exec_result=$?
+
+        # Check latest output log for API errors (rate limits, etc.)
+        # Done here in the main loop because set -e can kill the function prematurely
+        local latest_log
+        latest_log=$(ls -t "$LOG_DIR"/claude_output_*.log 2>/dev/null | head -1)
+        if [[ -n "$latest_log" && -f "$latest_log" ]]; then
+            local _err_msg=""
+            _err_msg=$(grep -o '"result":"[^"]*"' "$latest_log" 2>/dev/null | tail -1 | sed 's/"result":"//;s/"$//' || true)
+            if [[ -z "$_err_msg" ]]; then
+                _err_msg=$(grep -o '"text":"[^"]*"' "$latest_log" 2>/dev/null | grep -i 'limit\|error\|quota' | head -1 | sed 's/"text":"//;s/"$//' || true)
+            fi
+            if [[ -n "$_err_msg" ]] && echo "$_err_msg" | grep -qiE 'hit your limit|rate.limit|resets|quota exceeded' 2>/dev/null; then
+                log_status "ERROR" "API Rate Limit: $_err_msg"
+                echo ""
+                echo -e "${RED}━━━ API Rate Limit Hit ━━━${NC}"
+                echo -e "${YELLOW}$_err_msg${NC}"
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+                exec_result=2
+            fi
+        fi
         
         if [ $exec_result -eq 0 ]; then
             # Beads post-sync: close completed beads

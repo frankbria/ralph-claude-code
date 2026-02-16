@@ -111,7 +111,10 @@ build_devin_command() {
     # --prompt-file and -- PROMPT are mutually exclusive in Devin CLI.
     # When loop context exists, merge prompt + context into a temp file.
     if [[ -n "$loop_context" ]]; then
-        local combined_file="${RALPH_DIR:-.ralph}/.devin_prompt_combined.md"
+        # Place combined file next to the prompt file (works from any cwd, including worktrees)
+        local prompt_dir
+        prompt_dir=$(dirname "$prompt_file")
+        local combined_file="${prompt_dir}/.devin_prompt_combined.md"
         cat "$prompt_file" > "$combined_file"
         printf '\n\n---\nRALPH LOOP CONTEXT: %s\n' "$loop_context" >> "$combined_file"
         DEVIN_CMD_ARGS+=("--prompt-file" "$combined_file")

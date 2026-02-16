@@ -136,6 +136,25 @@ while true; do
         echo -e "  ${BOLD}Circuit Breaker:${NC} ${cb_color}${cb_state}${NC} (trips: ${cb_trips})"
     fi
 
+    # Worktree status
+    if [[ -f "$STATUS_FILE" ]]; then
+        wt_enabled=$(echo "$local_status" | jq -r '.worktree_enabled // false' 2>/dev/null || echo "false")
+        wt_branch=$(echo "$local_status" | jq -r '.worktree_branch // ""' 2>/dev/null || echo "")
+        wt_path=$(echo "$local_status" | jq -r '.worktree_path // ""' 2>/dev/null || echo "")
+
+        if [[ "$wt_enabled" == "true" ]]; then
+            echo -e "  ${BOLD}Worktree:${NC}       ${GREEN}enabled${NC}"
+            if [[ -n "$wt_branch" && "$wt_branch" != "null" ]]; then
+                echo -e "  ${BOLD}WT Branch:${NC}      ${CYAN}${wt_branch}${NC}"
+            fi
+            if [[ -n "$wt_path" && "$wt_path" != "null" ]]; then
+                echo -e "  ${BOLD}WT Path:${NC}        ${wt_path}"
+            fi
+        else
+            echo -e "  ${BOLD}Worktree:${NC}       ${YELLOW}disabled${NC}"
+        fi
+    fi
+
     # Devin session info
     if [[ -f "$RALPH_DIR/.devin_session_id" ]]; then
         devin_sid=$(cat "$RALPH_DIR/.devin_session_id" 2>/dev/null)
