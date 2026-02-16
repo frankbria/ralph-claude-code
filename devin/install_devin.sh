@@ -106,9 +106,11 @@ create_install_dirs() {
 install_scripts() {
     log "INFO" "Installing Ralph Devin scripts..."
 
-    # Copy Devin adapter library
+    # Copy Devin adapter libraries
     cp "$SCRIPT_DIR/lib/devin_adapter.sh" "$DEVIN_HOME/lib/"
+    cp "$SCRIPT_DIR/lib/worktree_manager.sh" "$DEVIN_HOME/lib/"
     chmod +x "$DEVIN_HOME/lib/devin_adapter.sh"
+    chmod +x "$DEVIN_HOME/lib/worktree_manager.sh"
 
     # Copy Devin-specific scripts
     cp "$SCRIPT_DIR/ralph_loop_devin.sh" "$DEVIN_HOME/"
