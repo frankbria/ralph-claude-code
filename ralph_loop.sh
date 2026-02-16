@@ -1153,6 +1153,11 @@ execute_claude_code() {
         # Capture all pipeline exit codes for proper error handling
         # stdin must be redirected from /dev/null because newer Claude CLI versions
         # read from stdin even in -p (print) mode, causing the process to hang
+        # CRITICAL: Disable set -e around the pipeline. When Claude returns a
+        # non-stream-json response (e.g., rate limit error), jq fails and with
+        # set -o pipefail + set -e the ENTIRE script dies silently before we
+        # can display any error message to the user.
+        set +e
         set -o pipefail
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
             < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
@@ -1160,6 +1165,7 @@ execute_claude_code() {
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
         set +o pipefail
+        set -e
 
         # Primary exit code is from Claude/timeout (first command in pipeline)
         exit_code=${pipe_status[0]}
@@ -1292,17 +1298,17 @@ EOF
     if [ $exit_code -eq 0 ]; then
         # Check for API errors hidden inside a successful exit code (e.g., rate limits)
         # Claude Code returns exit 0 but sets "is_error":true in JSON output (NDJSON format)
+        # CRITICAL: set +e to prevent grep/jq non-zero returns from killing the script
+        set +e
         if [[ -f "$output_file" && -s "$output_file" ]]; then
             local api_error=""
-            # NDJSON: grep for the result line with is_error, then extract the message
-            local error_line
+            local error_line=""
             error_line=$(grep '"is_error"' "$output_file" 2>/dev/null | grep 'true' | tail -1)
 
             if [[ -n "$error_line" ]]; then
                 api_error=$(echo "$error_line" | jq -r '.result // empty' 2>/dev/null)
             fi
 
-            # Fallback: grep for common error patterns in raw output
             if [[ -z "$api_error" ]]; then
                 api_error=$(grep -oE '"result":"[^"]*hit your limit[^"]*"' "$output_file" 2>/dev/null | head -1 | sed 's/"result":"//;s/"$//')
             fi
@@ -1316,12 +1322,14 @@ EOF
                 echo -e "${YELLOW}$api_error${NC}"
                 echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
+                set -e
                 if echo "$api_error" | grep -qiE '(rate.limit|hit your limit|resets|quota|too many)'; then
-                    return 2  # API limit exit code
+                    return 2
                 fi
                 return 1
             fi
         fi
+        set -e
 
         # Only increment counter on successful execution
         echo "$calls_made" > "$CALL_COUNT_FILE"
@@ -1603,29 +1611,37 @@ main() {
         update_status "$loop_count" "$calls_made" "executing" "running"
         
         # Execute Claude Code
+        # CRITICAL: Disable set -e for the entire execution + error detection block.
+        # set -e causes silent script death at multiple points:
+        #   1. Live mode pipeline when jq fails on non-stream-json (rate limit)
+        #   2. grep commands returning 1 on no-match during error detection
+        #   3. Function return codes triggering script exit
+        set +e
         execute_claude_code "$loop_count"
         local exec_result=$?
 
-        # Check latest output log for API errors (rate limits, etc.)
-        # Done here in the main loop because set -e can kill the function prematurely
-        local latest_log
+        # Check latest output log for API errors (rate limits return exit 0)
+        local latest_log=""
         latest_log=$(ls -t "$LOG_DIR"/claude_output_*.log 2>/dev/null | head -1)
         if [[ -n "$latest_log" && -f "$latest_log" ]]; then
-            local _err_msg=""
-            _err_msg=$(grep -o '"result":"[^"]*"' "$latest_log" 2>/dev/null | tail -1 | sed 's/"result":"//;s/"$//' || true)
-            if [[ -z "$_err_msg" ]]; then
-                _err_msg=$(grep -o '"text":"[^"]*"' "$latest_log" 2>/dev/null | grep -i 'limit\|error\|quota' | head -1 | sed 's/"text":"//;s/"$//' || true)
-            fi
-            if [[ -n "$_err_msg" ]] && echo "$_err_msg" | grep -qiE 'hit your limit|rate.limit|resets|quota exceeded' 2>/dev/null; then
-                log_status "ERROR" "API Rate Limit: $_err_msg"
-                echo ""
-                echo -e "${RED}━━━ API Rate Limit Hit ━━━${NC}"
-                echo -e "${YELLOW}$_err_msg${NC}"
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                exec_result=2
+            if grep -q 'hit your limit\|rate_limit\|quota.*exceeded' "$latest_log" 2>/dev/null; then
+                local _err_msg=""
+                _err_msg=$(grep -o '"result":"[^"]*"' "$latest_log" 2>/dev/null | tail -1 | sed 's/"result":"//;s/"$//')
+                if [[ -z "$_err_msg" ]]; then
+                    _err_msg=$(grep -o '"text":"[^"]*"' "$latest_log" 2>/dev/null | tail -1 | sed 's/"text":"//;s/"$//')
+                fi
+                if [[ -n "$_err_msg" ]]; then
+                    log_status "ERROR" "API Rate Limit: $_err_msg"
+                    echo ""
+                    echo -e "${RED}━━━ API Rate Limit Hit ━━━${NC}"
+                    echo -e "${YELLOW}$_err_msg${NC}"
+                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo ""
+                    exec_result=2
+                fi
             fi
         fi
+        set -e
         
         if [ $exec_result -eq 0 ]; then
             # Beads post-sync: close completed beads
