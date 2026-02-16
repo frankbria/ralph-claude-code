@@ -138,7 +138,6 @@ while true; do
 
     # Devin session info
     if [[ -f "$RALPH_DIR/.devin_session_id" ]]; then
-        local devin_sid
         devin_sid=$(cat "$RALPH_DIR/.devin_session_id" 2>/dev/null)
         if [[ -n "$devin_sid" ]]; then
             echo -e "  ${BOLD}Devin Session ID:${NC} ${CYAN}${devin_sid}${NC}"
@@ -171,18 +170,16 @@ while true; do
     echo -e "${BOLD}━━━ Fix Plan Progress ━━━${NC}"
 
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local completed
         completed=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local remaining
         remaining=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local total=$((completed + remaining))
+        total=$((completed + remaining))
 
         if [[ $total -gt 0 ]]; then
-            local pct=$((completed * 100 / total))
+            pct=$((completed * 100 / total))
             # Progress bar
-            local bar_len=30
-            local filled=$((pct * bar_len / 100))
-            local empty=$((bar_len - filled))
+            bar_len=30
+            filled=$((pct * bar_len / 100))
+            empty=$((bar_len - filled))
 
             printf "  ["
             printf "${GREEN}"
