@@ -81,15 +81,7 @@ worktree_init() {
     _WT_BASE_DIR="$(cd "${_WT_MAIN_DIR}/.." && pwd)/${_WT_PROJECT_NAME}-worktrees"
     mkdir -p "$_WT_BASE_DIR"
 
-    # Ensure the worktrees directory is gitignored
-    local gitignore_entry="${_WT_PROJECT_NAME}-worktrees/"
-    if [[ -f .gitignore ]]; then
-        if ! grep -qxF "$gitignore_entry" .gitignore 2>/dev/null; then
-            echo "$gitignore_entry" >> .gitignore
-        fi
-    else
-        echo "$gitignore_entry" > .gitignore
-    fi
+    # No gitignore needed — worktrees dir is a sibling outside the project root
 
     return 0
 }
