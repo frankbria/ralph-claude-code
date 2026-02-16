@@ -560,7 +560,9 @@ execute_devin_session() {
     # Execute Devin CLI
     local exit_code=0
 
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+    # Use interactive mode ONLY if LIVE_OUTPUT=true AND worktree is disabled
+    # Otherwise use background mode (which supports live streaming for worktree)
+    if [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
         log_status "INFO" "Live output mode - Devin running interactively..."
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session ━━━━━━━━━━━━━━━━${NC}"
 
