@@ -48,6 +48,7 @@ _env_DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_DEVIN_MODEL="${DEVIN_MODEL:-}"
 _env_DEVIN_PERMISSION_MODE="${DEVIN_PERMISSION_MODE:-}"
+_env_DEVIN_AUTO_EXIT="${DEVIN_AUTO_EXIT:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_MAX_LOOPS="${MAX_LOOPS:-}"
@@ -60,6 +61,7 @@ MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-30}"
 DEVIN_USE_CONTINUE="${DEVIN_USE_CONTINUE:-true}"
+DEVIN_AUTO_EXIT="${DEVIN_AUTO_EXIT:-true}"  # true = use -p flag (auto-exit), false = interactive
 MAX_LOOPS="${MAX_LOOPS:-0}"  # 0 = unlimited
 
 # Session management
@@ -99,6 +101,7 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_DEVIN_MODEL" ]] && DEVIN_MODEL="$_env_DEVIN_MODEL"
     [[ -n "$_env_DEVIN_PERMISSION_MODE" ]] && DEVIN_PERMISSION_MODE="$_env_DEVIN_PERMISSION_MODE"
+    [[ -n "$_env_DEVIN_AUTO_EXIT" ]] && DEVIN_AUTO_EXIT="$_env_DEVIN_AUTO_EXIT"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
@@ -527,8 +530,13 @@ execute_devin_session() {
     # Build the Devin CLI command
     # --live mode: interactive (no -p), user sees Devin's TUI directly
     # background mode: non-interactive (-p), output captured to file
+    # DEVIN_AUTO_EXIT controls -p flag: true = auto-exit, false = interactive
     local print_mode="true"
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+    if [[ "$DEVIN_AUTO_EXIT" == "false" ]]; then
+        # Interactive mode - no -p flag, Devin waits for user input
+        print_mode="false"
+    elif [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
+        # Legacy behavior: live output without worktree = interactive
         print_mode="false"
     fi
 
@@ -558,7 +566,9 @@ execute_devin_session() {
     # Execute Devin CLI
     local exit_code=0
 
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+    # Use interactive mode if print_mode is false (DEVIN_AUTO_EXIT=false or legacy live mode)
+    # Otherwise use background mode (which supports live streaming)
+    if [[ "$print_mode" == "false" ]]; then
         log_status "INFO" "Live output mode - Devin running interactively..."
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session ━━━━━━━━━━━━━━━━${NC}"
 
@@ -583,6 +593,30 @@ execute_devin_session() {
         cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null || true
         echo ""
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
+
+        # If DEVIN_AUTO_EXIT=false and worktree is enabled, inject cleanup prompt
+        if [[ "$DEVIN_AUTO_EXIT" == "false" && "$WORKTREE_ENABLED" == "true" && "$exit_code" -eq 0 ]]; then
+            log_status "INFO" "Injecting worktree cleanup prompt to Devin..."
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Worktree Cleanup Phase ━━━━━━━━━━━━━━━━${NC}"
+            
+            # Create cleanup prompt
+            local cleanup_prompt="Task complete. Now perform git worktree cleanup:
+
+1. Review all changes in the current worktree
+2. If there are uncommitted changes, commit them with a descriptive message
+3. Run quality checks: \`npm test\` and \`npm run lint\` (or equivalent for this project)
+4. If all checks pass, merge this worktree branch into the main branch using the squash strategy
+5. After successful merge, delete this worktree
+6. Clean up any other stale worktrees that have no uncommitted changes
+
+After completing these steps, type 'exit' to end the session."
+
+            # Inject cleanup prompt into Devin
+            echo "$cleanup_prompt" | (cd "$work_dir" && "${DEVIN_CMD_ARGS[@]}")
+            echo ""
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Cleanup Complete ━━━━━━━━━━━━━━━━━━━${NC}"
+        fi
     else
         # Background mode: non-interactive (-p flag), output to file
         (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}") \
@@ -590,6 +624,12 @@ execute_devin_session() {
 
         local devin_pid=$!
         local progress_counter=0
+        local last_displayed_line=0
+
+        if [[ "$LIVE_OUTPUT" == "true" ]]; then
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session (Live Output) ━━━━━━━━━━━━━━━━${NC}"
+            sleep 1  # Wait for output file to be created
+        fi
 
         # Show progress while Devin is running
         while kill -0 $devin_pid 2>/dev/null; do
@@ -603,6 +643,17 @@ execute_devin_session() {
 
             local last_line=""
             if [[ -f "$output_file" && -s "$output_file" ]]; then
+                # If LIVE_OUTPUT is enabled, display new lines from output file
+                if [[ "$LIVE_OUTPUT" == "true" ]]; then
+                    local current_lines
+                    current_lines=$(wc -l < "$output_file" 2>/dev/null || echo "0")
+                    if [[ $current_lines -gt $last_displayed_line ]]; then
+                        # Display new lines since last check
+                        tail -n +$((last_displayed_line + 1)) "$output_file" 2>/dev/null
+                        last_displayed_line=$current_lines
+                    fi
+                fi
+
                 last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
                 cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null
             fi
@@ -617,7 +668,7 @@ execute_devin_session() {
 }
 EOF
 
-            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            if [[ "$VERBOSE_PROGRESS" == "true" && "$LIVE_OUTPUT" != "true" ]]; then
                 if [[ -n "$last_line" ]]; then
                     log_status "INFO" "$progress_indicator Devin: $last_line... (${progress_counter}0s)"
                 else
@@ -625,11 +676,22 @@ EOF
                 fi
             fi
 
-            sleep 10
+            sleep 2  # Reduced from 10s to 2s for more responsive live output
         done
 
         wait $devin_pid
         exit_code=$?
+
+        # Display any remaining output
+        if [[ "$LIVE_OUTPUT" == "true" && -f "$output_file" ]]; then
+            local final_lines
+            final_lines=$(wc -l < "$output_file" 2>/dev/null || echo "0")
+            if [[ $final_lines -gt $last_displayed_line ]]; then
+                tail -n +$((last_displayed_line + 1)) "$output_file" 2>/dev/null
+            fi
+            echo ""
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
+        fi
     fi
 
     # Process results
@@ -1009,6 +1071,8 @@ Options:
     --no-worktree           Disable git worktree isolation
     --merge-strategy STR    Merge strategy: squash, merge, rebase (default: squash)
     --quality-gates GATES   Quality gates: auto, none, or "cmd1;cmd2" (default: auto)
+    --devin-auto-exit       Force Devin to auto-exit with -p flag (default: true)
+    --no-devin-auto-exit    Disable auto-exit, inject cleanup prompt after work
 
 Examples:
     $0 --calls 50 --timeout 30
@@ -1124,6 +1188,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-worktree)
             WORKTREE_ENABLED=false
+            shift
+            ;;
+        --devin-auto-exit)
+            DEVIN_AUTO_EXIT=true
+            shift
+            ;;
+        --no-devin-auto-exit)
+            DEVIN_AUTO_EXIT=false
             shift
             ;;
         --merge-strategy)
