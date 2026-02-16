@@ -779,6 +779,14 @@ main() {
             break
         fi
 
+        # Beads pre-sync: pull new open beads into fix_plan.md
+        if beads_sync_available; then
+            log_status "INFO" "Syncing open beads into fix_plan.md..."
+            beads_pre_sync "$RALPH_DIR/fix_plan.md" 2>&1 | while IFS= read -r sync_msg; do
+                log_status "INFO" "$sync_msg"
+            done
+        fi
+
         # Update status
         local calls_made
         calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
@@ -789,6 +797,14 @@ main() {
         local exec_result=$?
 
         if [[ $exec_result -eq 0 ]]; then
+            # Beads post-sync: close completed beads
+            if beads_sync_available; then
+                log_status "INFO" "Syncing completed tasks back to beads..."
+                beads_post_sync "$RALPH_DIR/fix_plan.md" "$loop_count" 2>&1 | while IFS= read -r sync_msg; do
+                    log_status "INFO" "$sync_msg"
+                done
+            fi
+
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
             sleep 5
         elif [[ $exec_result -eq 3 ]]; then

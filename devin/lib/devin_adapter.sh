@@ -105,12 +105,15 @@ build_devin_command() {
         DEVIN_CMD_ARGS+=("-r" "$session_id")
     fi
 
-    # Use --prompt-file for the main prompt
-    DEVIN_CMD_ARGS+=("--prompt-file" "$prompt_file")
-
-    # If there's loop context, append it after -- as additional prompt text
+    # --prompt-file and -- PROMPT are mutually exclusive in Devin CLI.
+    # When loop context exists, merge prompt + context into a temp file.
     if [[ -n "$loop_context" ]]; then
-        DEVIN_CMD_ARGS+=("--" "$loop_context")
+        local combined_file="${RALPH_DIR:-.ralph}/.devin_prompt_combined.md"
+        cat "$prompt_file" > "$combined_file"
+        printf '\n\n---\nRALPH LOOP CONTEXT: %s\n' "$loop_context" >> "$combined_file"
+        DEVIN_CMD_ARGS+=("--prompt-file" "$combined_file")
+    else
+        DEVIN_CMD_ARGS+=("--prompt-file" "$prompt_file")
     fi
 }
 
@@ -293,4 +296,143 @@ devin_extract_result_text() {
 
     # Fallback: return raw content (truncated)
     head -c 5000 "$output_file"
+}
+
+# =============================================================================
+# BEADS BIDIRECTIONAL SYNC
+# =============================================================================
+
+# beads_pre_sync - Fetch open beads and merge new ones into fix_plan.md
+# Called at the start of each loop iteration.
+# Only adds beads that aren't already present in fix_plan.md (by bead ID).
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+# Returns:
+#   0 on success, 1 if beads unavailable
+beads_pre_sync() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+
+    # Check if bd is available
+    if ! command -v bd &>/dev/null; then
+        return 1
+    fi
+
+    # Fetch open beads as JSON
+    local json_output
+    json_output=$(bd list --json --status open 2>/dev/null) || return 1
+
+    if [[ -z "$json_output" ]] || ! echo "$json_output" | jq empty 2>/dev/null; then
+        return 1
+    fi
+
+    # Parse into "- [ ] [id] title" lines
+    local bead_lines
+    bead_lines=$(echo "$json_output" | jq -r '
+        .[] |
+        select((.id // "") != "" and (.title // "") != "") |
+        "- [ ] [\(.id)] \(.title)"
+    ' 2>/dev/null) || return 1
+
+    if [[ -z "$bead_lines" ]]; then
+        return 0
+    fi
+
+    # Ensure fix_plan.md exists
+    if [[ ! -f "$fix_plan_file" ]]; then
+        echo "# Fix Plan" > "$fix_plan_file"
+    fi
+
+    local existing_content
+    existing_content=$(cat "$fix_plan_file")
+
+    local added=0
+    while IFS= read -r line; do
+        # Extract bead ID from "- [ ] [some-id] ..."
+        local bead_id
+        bead_id=$(echo "$line" | sed -n 's/.*\[\([a-zA-Z0-9_-]*\)\].*/\1/p' | head -1)
+
+        if [[ -z "$bead_id" ]]; then
+            continue
+        fi
+
+        # Check if this bead ID already exists in fix_plan.md (open or completed)
+        if ! grep -qF "[$bead_id]" "$fix_plan_file" 2>/dev/null; then
+            echo "$line" >> "$fix_plan_file"
+            added=$((added + 1))
+        fi
+    done <<< "$bead_lines"
+
+    if [[ $added -gt 0 ]]; then
+        echo "BEADS_PRE_SYNC: Added $added new bead(s) to fix_plan.md" >&2
+    fi
+
+    return 0
+}
+
+# beads_post_sync - Close beads that were marked completed in fix_plan.md
+# Called at the end of each loop iteration.
+# Scans fix_plan.md for "- [x] [bead-id] ..." lines and runs `bd close <id>`.
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+#   $2 - loop_count: Current loop number (for close reason)
+# Returns:
+#   0 on success, 1 if beads unavailable
+beads_post_sync() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+    local loop_count="${2:-0}"
+
+    # Check if bd is available
+    if ! command -v bd &>/dev/null; then
+        return 1
+    fi
+
+    if [[ ! -f "$fix_plan_file" ]]; then
+        return 0
+    fi
+
+    # Find completed items with bead IDs: "- [x] [some-id] ..."
+    local completed_lines
+    completed_lines=$(grep -E '^\s*- \[[xX]\] \[' "$fix_plan_file" 2>/dev/null) || return 0
+
+    if [[ -z "$completed_lines" ]]; then
+        return 0
+    fi
+
+    # Get list of currently open beads so we only try to close open ones
+    local open_ids=""
+    if open_ids_json=$(bd list --json --status open 2>/dev/null); then
+        open_ids=$(echo "$open_ids_json" | jq -r '.[].id // empty' 2>/dev/null)
+    fi
+
+    local closed=0
+    while IFS= read -r line; do
+        # Extract bead ID from "- [x] [some-id] ..."
+        local bead_id
+        bead_id=$(echo "$line" | sed -n 's/.*\[[xX]\] \[\([a-zA-Z0-9_-]*\)\].*/\1/p' | head -1)
+
+        if [[ -z "$bead_id" ]]; then
+            continue
+        fi
+
+        # Only close if this ID is in the open beads list
+        if echo "$open_ids" | grep -qxF "$bead_id" 2>/dev/null; then
+            if bd close "$bead_id" -r "Completed by Ralph Devin loop #${loop_count}" 2>/dev/null; then
+                closed=$((closed + 1))
+            fi
+        fi
+    done <<< "$completed_lines"
+
+    if [[ $closed -gt 0 ]]; then
+        echo "BEADS_POST_SYNC: Closed $closed bead(s)" >&2
+    fi
+
+    return 0
+}
+
+# beads_sync_available - Check if beads sync should be performed
+# Returns 0 if bd CLI exists and .beads/ directory is present
+beads_sync_available() {
+    [[ -d ".beads" ]] && command -v bd &>/dev/null
 }
