@@ -1,16 +1,18 @@
 #!/bin/bash
 
 # Ralph Loop for Devin CLI
-# Autonomous AI development loop adapted for Devin's cloud-based sessions.
+# Autonomous AI development loop using the official Cognition Devin CLI.
 # This is a parallel implementation to ralph_loop.sh (Claude Code) — no shared state.
 #
-# Key differences from Claude Code loop:
-#   - Uses Devin sessions instead of local Claude CLI
-#   - Session-based: create → poll → analyze → continue/exit
-#   - Cloud execution: Devin works on repos remotely
-#   - Uses `devin message` for session continuity instead of --resume
+# The official Devin CLI is a local agent (like Claude Code):
+#   devin -p --prompt-file FILE     # Non-interactive execution
+#   devin -r SESSION_ID             # Resume specific session
+#   devin --model opus|sonnet       # Model selection
+#   devin --permission-mode auto    # Permission control
 #
-# Version: 0.1.0
+# Config: Uses .ralphrc.devin (separate from Claude's .ralphrc)
+#
+# Version: 0.2.0
 
 set -e
 
@@ -42,7 +44,8 @@ SLEEP_DURATION=3600
 _env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
 _env_DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
-_env_DEVIN_MAX_ACU="${DEVIN_MAX_ACU:-}"
+_env_DEVIN_MODEL="${DEVIN_MODEL:-}"
+_env_DEVIN_PERMISSION_MODE="${DEVIN_PERMISSION_MODE:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_MAX_LOOPS="${MAX_LOOPS:-}"
@@ -51,7 +54,6 @@ _env_MAX_LOOPS="${MAX_LOOPS:-}"
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-30}"
-DEVIN_MAX_ACU="${DEVIN_MAX_ACU:-}"
 DEVIN_USE_CONTINUE="${DEVIN_USE_CONTINUE:-true}"
 MAX_LOOPS="${MAX_LOOPS:-0}"  # 0 = unlimited
 
@@ -65,8 +67,8 @@ MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30
 
-# .ralphrc configuration file
-RALPHRC_FILE=".ralphrc"
+# .ralphrc.devin configuration file (separate from Claude's .ralphrc)
+RALPHRC_FILE=".ralphrc.devin"
 RALPHRC_LOADED=false
 
 # load_ralphrc - Load project-specific configuration from .ralphrc
@@ -86,11 +88,12 @@ load_ralphrc() {
         VERBOSE_PROGRESS="$RALPH_VERBOSE"
     fi
 
-    # Restore explicitly set environment variables
+    # Restore explicitly set environment variables (CLI flags > env vars > .ralphrc.devin)
     [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
     [[ -n "$_env_DEVIN_TIMEOUT_MINUTES" ]] && DEVIN_TIMEOUT_MINUTES="$_env_DEVIN_TIMEOUT_MINUTES"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
-    [[ -n "$_env_DEVIN_MAX_ACU" ]] && DEVIN_MAX_ACU="$_env_DEVIN_MAX_ACU"
+    [[ -n "$_env_DEVIN_MODEL" ]] && DEVIN_MODEL="$_env_DEVIN_MODEL"
+    [[ -n "$_env_DEVIN_PERMISSION_MODE" ]] && DEVIN_PERMISSION_MODE="$_env_DEVIN_PERMISSION_MODE"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
@@ -479,11 +482,11 @@ execute_devin_session() {
     fi
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
 
-    log_status "LOOP" "Executing Devin Session (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    log_status "LOOP" "Executing Devin CLI (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     local timeout_seconds=$((DEVIN_TIMEOUT_MINUTES * 60))
-    log_status "INFO" "Starting Devin session... (timeout: ${DEVIN_TIMEOUT_MINUTES}m)"
+    log_status "INFO" "Starting Devin execution... (timeout: ${DEVIN_TIMEOUT_MINUTES}m)"
 
-    # Build prompt with loop context
+    # Build loop context for session continuity
     local loop_context=""
     if [[ "$DEVIN_USE_CONTINUE" == "true" ]]; then
         loop_context=$(build_loop_context "$loop_count")
@@ -492,91 +495,88 @@ execute_devin_session() {
         fi
     fi
 
-    # Read prompt file
-    if [[ ! -f "$PROMPT_FILE" ]]; then
-        log_status "ERROR" "Prompt file not found: $PROMPT_FILE"
+    # Initialize or resume session
+    local session_id=""
+    if [[ "$DEVIN_USE_CONTINUE" == "true" ]]; then
+        session_id=$(devin_load_session)
+        if [[ -n "$session_id" ]]; then
+            log_status "INFO" "Resuming Devin session: ${session_id:0:20}..."
+        fi
+    fi
+
+    # Build the Devin CLI command (mirrors Claude's build_claude_command approach)
+    if ! build_devin_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+        log_status "ERROR" "Failed to build Devin command"
         return 1
     fi
 
-    local prompt_content
-    prompt_content=$(cat "$PROMPT_FILE")
-
-    # Append loop context to prompt
-    if [[ -n "$loop_context" ]]; then
-        prompt_content="$prompt_content
-
----
-RALPH LOOP CONTEXT: $loop_context
-
-IMPORTANT: When you finish working, include a RALPH_STATUS block in your output:
-\`\`\`
-RALPH_STATUS
-STATUS: <COMPLETE|IN_PROGRESS|BLOCKED>
-EXIT_SIGNAL: <true|false>
-SUMMARY: <brief description of work done>
-\`\`\`
-"
-    fi
+    log_status "INFO" "Using Devin CLI (model: ${DEVIN_MODEL:-default}, permissions: ${DEVIN_PERMISSION_MODE:-auto})"
 
     # Initialize live.log for this execution
     echo -e "\n\n=== Devin Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
 
+    # Execute Devin CLI (local agent, blocks until done — same as Claude Code)
     local exit_code=0
-    local existing_session=""
 
-    # Check for existing session to continue
-    if [[ "$DEVIN_USE_CONTINUE" == "true" ]]; then
-        existing_session=$(devin_load_session)
-    fi
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+        log_status "INFO" "Live output mode enabled - showing Devin output..."
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Output ━━━━━━━━━━━━━━━━${NC}"
 
-    if [[ -n "$existing_session" && "$DEVIN_USE_CONTINUE" == "true" ]]; then
-        # Continue existing session by sending a message
-        log_status "INFO" "Continuing Devin session: ${existing_session:0:20}..."
+        # Execute with output to both terminal and file
+        # stdin redirected from /dev/null to prevent blocking on input
+        portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}" \
+            < /dev/null 2>&1 | tee "$output_file" | tee "$LIVE_LOG_FILE"
+        exit_code=${PIPESTATUS[0]}
 
-        if devin_send_message "$prompt_content" "$existing_session"; then
-            log_status "INFO" "Message sent to existing session, polling for completion..."
+        echo ""
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
+    else
+        # Background mode with progress monitoring
+        portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}" \
+            < /dev/null > "$output_file" 2>&1 &
 
-            devin_poll_session "$existing_session" "$output_file" "$timeout_seconds" "$LIVE_LOG_FILE"
-            exit_code=$?
-        else
-            log_status "WARN" "Failed to continue session, creating new one..."
-            devin_clear_session
-            existing_session=""
-        fi
-    fi
+        local devin_pid=$!
+        local progress_counter=0
 
-    if [[ -z "$existing_session" || "$DEVIN_USE_CONTINUE" == "false" ]]; then
-        # Create new session
-        log_status "INFO" "Creating new Devin session..."
+        # Show progress while Devin is running
+        while kill -0 $devin_pid 2>/dev/null; do
+            progress_counter=$((progress_counter + 1))
+            case $((progress_counter % 4)) in
+                1) progress_indicator="⠋" ;;
+                2) progress_indicator="⠙" ;;
+                3) progress_indicator="⠹" ;;
+                0) progress_indicator="⠸" ;;
+            esac
 
-        local session_title="Ralph Loop #${loop_count} - $(basename "$(pwd)")"
-        local session_id
+            local last_line=""
+            if [[ -f "$output_file" && -s "$output_file" ]]; then
+                last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
+                cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null
+            fi
 
-        session_id=$(devin_create_session "$prompt_content" "$session_title" "" "$DEVIN_MAX_ACU")
-        local create_exit=$?
+            cat > "$PROGRESS_FILE" << EOF
+{
+    "status": "executing",
+    "indicator": "$progress_indicator",
+    "elapsed_seconds": $((progress_counter * 10)),
+    "last_output": "$last_line",
+    "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
+}
+EOF
 
-        if [[ $create_exit -ne 0 || -z "$session_id" ]]; then
-            log_status "ERROR" "Failed to create Devin session"
-            echo '{"error": "session_creation_failed"}' > "$output_file"
-            return 1
-        fi
+            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+                if [[ -n "$last_line" ]]; then
+                    log_status "INFO" "$progress_indicator Devin: $last_line... (${progress_counter}0s)"
+                else
+                    log_status "INFO" "$progress_indicator Devin working... (${progress_counter}0s elapsed)"
+                fi
+            fi
 
-        log_status "SUCCESS" "Devin session created: ${session_id:0:20}..."
-        devin_save_session "$session_id"
+            sleep 10
+        done
 
-        # Poll for completion
-        if [[ "$LIVE_OUTPUT" == "true" ]]; then
-            log_status "INFO" "Live output mode enabled - streaming Devin output..."
-            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Output ━━━━━━━━━━━━━━━━${NC}"
-        fi
-
-        devin_poll_session "$session_id" "$output_file" "$timeout_seconds" "$LIVE_LOG_FILE"
+        wait $devin_pid
         exit_code=$?
-
-        if [[ "$LIVE_OUTPUT" == "true" ]]; then
-            echo ""
-            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
-        fi
     fi
 
     # Process results
@@ -584,22 +584,24 @@ SUMMARY: <brief description of work done>
         echo "$calls_made" > "$CALL_COUNT_FILE"
         echo '{"status": "completed", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
 
-        log_status "SUCCESS" "Devin session completed successfully"
+        log_status "SUCCESS" "Devin execution completed successfully"
+
+        # Save session ID from output for future continuation
+        if [[ "$DEVIN_USE_CONTINUE" == "true" ]]; then
+            devin_save_session "$output_file"
+        fi
 
         # Analyze the response
         log_status "INFO" "Analyzing Devin response..."
 
-        # Parse Devin-specific output for RALPH_STATUS
         local devin_analysis
         devin_analysis=$(devin_parse_output "$output_file")
 
-        # Write analysis in format compatible with shared response_analyzer
         local devin_exit_signal
         devin_exit_signal=$(echo "$devin_analysis" | jq -r '.exit_signal' 2>/dev/null || echo "false")
         local devin_summary
         devin_summary=$(echo "$devin_analysis" | jq -r '.work_summary' 2>/dev/null || echo "")
 
-        # Create response analysis file compatible with exit detection
         jq -n \
             --arg exit_signal "$devin_exit_signal" \
             --arg work_summary "$devin_summary" \
@@ -649,7 +651,8 @@ SUMMARY: <brief description of work done>
 
         local has_errors="false"
         if [[ -f "$output_file" ]]; then
-            if grep -qiE '(error|failed|exception|fatal)' "$output_file" 2>/dev/null; then
+            if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+               grep -qE '(^Error:|^ERROR:|^error:|\]: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
                 has_errors="true"
                 log_status "WARN" "Errors detected in output, check: $output_file"
             fi
@@ -667,19 +670,9 @@ SUMMARY: <brief description of work done>
         fi
 
         return 0
-    elif [[ $exit_code -eq 2 ]]; then
-        # Timeout
-        echo '{"status": "timeout", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
-        log_status "WARN" "Devin session timed out after ${DEVIN_TIMEOUT_MINUTES}m"
-        return 1
-    elif [[ $exit_code -eq 3 ]]; then
-        # Blocked
-        echo '{"status": "blocked", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
-        log_status "WARN" "Devin session is blocked - may need user intervention"
-        return 1
     else
         echo '{"status": "failed", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
-        log_status "ERROR" "Devin session failed, check: $output_file"
+        log_status "ERROR" "Devin execution failed (exit code: $exit_code), check: $output_file"
         return 1
     fi
 }
@@ -690,13 +683,6 @@ SUMMARY: <brief description of work done>
 
 cleanup() {
     log_status "INFO" "Ralph Devin loop interrupted. Cleaning up..."
-
-    # Terminate active Devin session
-    if [[ -n "$DEVIN_SESSION_ID" ]]; then
-        log_status "INFO" "Terminating Devin session: ${DEVIN_SESSION_ID:0:20}..."
-        devin_terminate_session "$DEVIN_SESSION_ID" 2>/dev/null || true
-    fi
-
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
@@ -714,7 +700,7 @@ loop_count=0
 main() {
     if load_ralphrc; then
         if [[ "$RALPHRC_LOADED" == "true" ]]; then
-            log_status "INFO" "Loaded configuration from .ralphrc"
+            log_status "INFO" "Loaded configuration from .ralphrc.devin"
         fi
     fi
 
@@ -842,7 +828,8 @@ Options:
     -v, --verbose           Show detailed progress updates during execution
     -l, --live              Show Devin output in real-time
     -t, --timeout MIN       Set Devin session timeout in minutes (default: $DEVIN_TIMEOUT_MINUTES)
-    --max-acu NUM           Set maximum ACU limit for Devin sessions
+    --model MODEL           Set Devin model: opus, sonnet, swe, gpt
+    --permission-mode MODE  Set permission mode: auto or dangerous (default: auto)
     --no-continue           Disable session continuity across loops
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
@@ -854,8 +841,9 @@ Examples:
     $0 --calls 50 --timeout 30
     $0 --monitor
     $0 --live --verbose
-    $0 --max-acu 100
+    $0 --model opus
     $0 --max-loops 5
+    $0 --permission-mode dangerous
 
 HELPEOF
 }
@@ -908,8 +896,17 @@ while [[ $# -gt 0 ]]; do
             fi
             shift 2
             ;;
-        --max-acu)
-            DEVIN_MAX_ACU="$2"
+        --model)
+            DEVIN_MODEL="$2"
+            shift 2
+            ;;
+        --permission-mode)
+            if [[ "$2" == "auto" || "$2" == "dangerous" ]]; then
+                DEVIN_PERMISSION_MODE="$2"
+            else
+                echo "Error: --permission-mode must be 'auto' or 'dangerous'"
+                exit 1
+            fi
             shift 2
             ;;
         --max-loops)
