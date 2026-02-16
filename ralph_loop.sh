@@ -16,6 +16,7 @@ source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+source "$SCRIPT_DIR/lib/task_sources.sh"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -1545,6 +1546,14 @@ main() {
             break
         fi
         
+        # Beads pre-sync: pull new open beads into fix_plan.md
+        if beads_sync_available; then
+            log_status "INFO" "Syncing open beads into fix_plan.md..."
+            beads_pre_sync "$RALPH_DIR/fix_plan.md" 2>&1 | while IFS= read -r sync_msg; do
+                log_status "INFO" "$sync_msg"
+            done
+        fi
+
         # Update status
         local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
@@ -1554,6 +1563,14 @@ main() {
         local exec_result=$?
         
         if [ $exec_result -eq 0 ]; then
+            # Beads post-sync: close completed beads
+            if beads_sync_available; then
+                log_status "INFO" "Syncing completed tasks back to beads..."
+                beads_post_sync "$RALPH_DIR/fix_plan.md" "$loop_count" "Ralph Claude" 2>&1 | while IFS= read -r sync_msg; do
+                    log_status "INFO" "$sync_msg"
+                done
+            fi
+
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
 
             # Brief pause between successful executions
