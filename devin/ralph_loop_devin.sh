@@ -24,6 +24,7 @@ source "$RALPH_ROOT/lib/date_utils.sh"
 source "$RALPH_ROOT/lib/timeout_utils.sh"
 source "$RALPH_ROOT/lib/response_analyzer.sh"
 source "$RALPH_ROOT/lib/circuit_breaker.sh"
+source "$RALPH_ROOT/lib/task_sources.sh"
 source "$SCRIPT_DIR/lib/devin_adapter.sh"
 source "$SCRIPT_DIR/lib/worktree_manager.sh"
 
