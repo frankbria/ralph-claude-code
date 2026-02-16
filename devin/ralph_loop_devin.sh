@@ -504,8 +504,15 @@ execute_devin_session() {
         fi
     fi
 
-    # Build the Devin CLI command (mirrors Claude's build_claude_command approach)
-    if ! build_devin_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+    # Build the Devin CLI command
+    # --live mode: interactive (no -p), user sees Devin's TUI directly
+    # background mode: non-interactive (-p), output captured to file
+    local print_mode="true"
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+        print_mode="false"
+    fi
+
+    if ! build_devin_command "$PROMPT_FILE" "$loop_context" "$session_id" "$print_mode"; then
         log_status "ERROR" "Failed to build Devin command"
         return 1
     fi
@@ -517,22 +524,37 @@ execute_devin_session() {
     echo -e "\n\n=== Devin Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
     echo "Command: ${DEVIN_CMD_ARGS[*]}" >> "$LIVE_LOG_FILE"
 
-    # Execute Devin CLI (local agent, blocks until done — same as Claude Code)
+    # Execute Devin CLI
     local exit_code=0
 
     if [[ "$LIVE_OUTPUT" == "true" ]]; then
-        log_status "INFO" "Live output mode enabled - showing Devin output..."
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Output ━━━━━━━━━━━━━━━━${NC}"
+        log_status "INFO" "Live output mode - Devin running interactively..."
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session ━━━━━━━━━━━━━━━━${NC}"
 
-        # Execute with output to both terminal and file
-        portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}" \
-            2>&1 | tee "$output_file" | tee -a "$LIVE_LOG_FILE"
-        exit_code=${PIPESTATUS[0]}
+        # Run Devin directly on the terminal (interactive TUI needs real TTY)
+        # Use script to capture a copy of the output while keeping TTY intact
+        # Note: portable_timeout is a bash function, not an executable.
+        # script spawns a subprocess that can't see functions, so resolve to actual binary.
+        local resolved_timeout_cmd
+        resolved_timeout_cmd=$(detect_timeout_command 2>/dev/null)
 
+        if command -v script &>/dev/null && [[ -n "$resolved_timeout_cmd" ]]; then
+            script -q "$output_file" "$resolved_timeout_cmd" ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}"
+            exit_code=$?
+        elif [[ -n "$resolved_timeout_cmd" ]]; then
+            "$resolved_timeout_cmd" ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}"
+            exit_code=$?
+        else
+            # No timeout command available, run without timeout
+            "${DEVIN_CMD_ARGS[@]}"
+            exit_code=$?
+        fi
+
+        cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null || true
         echo ""
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
     else
-        # Background mode with progress monitoring
+        # Background mode: non-interactive (-p flag), output to file
         portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}" \
             < /dev/null > "$output_file" 2>&1 &
 

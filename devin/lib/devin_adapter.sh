@@ -76,6 +76,7 @@ build_devin_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
+    local print_mode="${4:-false}"  # true = non-interactive (-p), false = interactive
 
     # Reset global array
     DEVIN_CMD_ARGS=("$DEVIN_CMD")
@@ -86,8 +87,10 @@ build_devin_command() {
         return 1
     fi
 
-    # Non-interactive mode (print response and exit)
-    DEVIN_CMD_ARGS+=("-p")
+    # Non-interactive print mode for background execution
+    if [[ "$print_mode" == "true" ]]; then
+        DEVIN_CMD_ARGS+=("-p")
+    fi
 
     # Add model selection
     if [[ -n "$DEVIN_MODEL" ]]; then

@@ -45,9 +45,11 @@ _env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
+_env_MAX_LOOPS="${MAX_LOOPS:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
+MAX_LOOPS="${MAX_LOOPS:-0}"  # 0 = unlimited
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
 
@@ -151,6 +153,7 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
+    [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
 
     RALPHRC_LOADED=true
     return 0
@@ -1477,6 +1480,14 @@ main() {
         init_call_tracking
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
+
+        # Check max loops limit
+        if [[ "$MAX_LOOPS" -gt 0 && "$loop_count" -gt "$MAX_LOOPS" ]]; then
+            log_status "SUCCESS" "Max loops reached ($MAX_LOOPS). Stopping."
+            reset_session "max_loops_reached"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "max_loops" "completed" "max_loops_reached"
+            break
+        fi
         
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
@@ -1788,6 +1799,15 @@ while [[ $# -gt 0 ]]; do
         --auto-reset-circuit)
             CB_AUTO_RESET=true
             shift
+            ;;
+        --max-loops)
+            if [[ "$2" =~ ^[0-9]+$ ]]; then
+                MAX_LOOPS="$2"
+            else
+                echo "Error: --max-loops must be a non-negative integer"
+                exit 1
+            fi
+            shift 2
             ;;
         *)
             echo "Unknown option: $1"
