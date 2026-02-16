@@ -527,8 +527,8 @@ execute_devin_session() {
     # Build the Devin CLI command
     # --live mode: interactive (no -p), user sees Devin's TUI directly
     # background mode: non-interactive (-p), output captured to file
-    # WORKTREE MODE: Force non-interactive (-p) so Devin auto-exits after task,
-    # allowing script to continue to merge prompt and cleanup
+    # WORKTREE MODE: Always use background mode (-p) so Devin auto-exits,
+    # but show live output via tail -f if LIVE_OUTPUT is enabled
     local print_mode="true"
     if [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
         print_mode="false"
@@ -593,6 +593,16 @@ execute_devin_session() {
         local devin_pid=$!
         local progress_counter=0
 
+        # If LIVE_OUTPUT is enabled (even in background mode), tail the output file
+        local tail_pid=""
+        if [[ "$LIVE_OUTPUT" == "true" ]]; then
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session (Live Output) ━━━━━━━━━━━━━━━━${NC}"
+            # Wait a moment for output file to be created
+            sleep 1
+            tail -f "$output_file" 2>/dev/null &
+            tail_pid=$!
+        fi
+
         # Show progress while Devin is running
         while kill -0 $devin_pid 2>/dev/null; do
             progress_counter=$((progress_counter + 1))
@@ -619,7 +629,7 @@ execute_devin_session() {
 }
 EOF
 
-            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            if [[ "$VERBOSE_PROGRESS" == "true" && "$LIVE_OUTPUT" != "true" ]]; then
                 if [[ -n "$last_line" ]]; then
                     log_status "INFO" "$progress_indicator Devin: $last_line... (${progress_counter}0s)"
                 else
@@ -632,6 +642,14 @@ EOF
 
         wait $devin_pid
         exit_code=$?
+
+        # Stop tail if it was started
+        if [[ -n "$tail_pid" ]]; then
+            kill $tail_pid 2>/dev/null || true
+            wait $tail_pid 2>/dev/null || true
+            echo ""
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
+        fi
     fi
 
     # Process results
