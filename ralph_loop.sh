@@ -1290,6 +1290,26 @@ EOF
     fi
 
     if [ $exit_code -eq 0 ]; then
+        # Check for API errors hidden inside a successful exit code (e.g., rate limits)
+        # Claude Code returns exit 0 but sets "is_error":true in JSON output
+        if [[ -f "$output_file" && -s "$output_file" ]]; then
+            local api_error=""
+            api_error=$(jq -r 'select(.is_error == true) | .result // empty' "$output_file" 2>/dev/null | head -1)
+
+            if [[ -n "$api_error" ]]; then
+                log_status "ERROR" "Claude API error: $api_error"
+                echo -e "\n${RED}━━━ Claude API Error ━━━${NC}"
+                echo -e "${YELLOW}$api_error${NC}"
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+
+                # Check if it's a rate limit error specifically
+                if echo "$api_error" | grep -qiE '(rate.limit|hit your limit|resets|quota|too many)'; then
+                    return 2  # API limit exit code
+                fi
+                return 1
+            fi
+        fi
+
         # Only increment counter on successful execution
         echo "$calls_made" > "$CALL_COUNT_FILE"
 

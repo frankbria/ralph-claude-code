@@ -604,6 +604,24 @@ EOF
 
     # Process results
     if [[ $exit_code -eq 0 ]]; then
+        # Check for API errors hidden inside a successful exit code (e.g., rate limits)
+        if [[ -f "$output_file" && -s "$output_file" ]]; then
+            local api_error=""
+            api_error=$(jq -r 'select(.is_error == true) | .result // empty' "$output_file" 2>/dev/null | head -1)
+
+            if [[ -n "$api_error" ]]; then
+                log_status "ERROR" "API error: $api_error"
+                echo -e "\n${RED}━━━ API Error ━━━${NC}"
+                echo -e "${YELLOW}$api_error${NC}"
+                echo -e "${RED}━━━━━━━━━━━━━━━━━${NC}\n"
+
+                if echo "$api_error" | grep -qiE '(rate.limit|hit your limit|resets|quota|too many)'; then
+                    return 2
+                fi
+                return 1
+            fi
+        fi
+
         echo "$calls_made" > "$CALL_COUNT_FILE"
         echo '{"status": "completed", "timestamp": "'"$(date '+%Y-%m-%d %H:%M:%S')"'"}' > "$PROGRESS_FILE"
 
