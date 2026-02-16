@@ -296,8 +296,8 @@ worktree_run_quality_gates() {
         echo "QUALITY_GATE[$total]: $cmd" >&2
 
         local gate_output
-        gate_output=$(cd "$workdir" && eval "$cmd" 2>&1) || true
-        local gate_exit=$?
+        local gate_exit=0
+        gate_output=$(cd "$workdir" && eval "$cmd" 2>&1) || gate_exit=$?
 
         if [[ $gate_exit -eq 0 ]]; then
             passed=$((passed + 1))
