@@ -28,7 +28,7 @@ DEVIN_SESSION_HISTORY_FILE="${RALPH_DIR:-.ralph}/.devin_session_history"
 
 # Devin-specific configuration (can be overridden from .ralphrc.devin)
 DEVIN_MODEL="${DEVIN_MODEL:-}"                         # opus, sonnet, swe, gpt (empty = default)
-DEVIN_PERMISSION_MODE="${DEVIN_PERMISSION_MODE:-auto}" # auto or dangerous
+DEVIN_PERMISSION_MODE="${DEVIN_PERMISSION_MODE:-dangerous}" # auto or dangerous
 
 # =============================================================================
 # DEPENDENCY CHECKS
