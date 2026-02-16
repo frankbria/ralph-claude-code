@@ -527,8 +527,10 @@ execute_devin_session() {
     # Build the Devin CLI command
     # --live mode: interactive (no -p), user sees Devin's TUI directly
     # background mode: non-interactive (-p), output captured to file
+    # WORKTREE MODE: Force non-interactive (-p) so Devin auto-exits after task,
+    # allowing script to continue to merge prompt and cleanup
     local print_mode="true"
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+    if [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
         print_mode="false"
     fi
 
