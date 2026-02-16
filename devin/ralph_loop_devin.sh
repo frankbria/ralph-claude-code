@@ -904,7 +904,7 @@ main() {
         local exec_result=$?
 
         if [[ $exec_result -eq 0 ]]; then
-            # Worktree: quality gates + merge + cleanup
+            # Worktree: quality gates + interactive merge prompt + cleanup
             if [[ "$WORKTREE_ENABLED" == "true" ]] && worktree_is_active; then
                 log_status "INFO" "Running quality gates in worktree..."
                 local gate_output
@@ -913,17 +913,29 @@ main() {
                 while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$gate_output"
 
                 if [[ $gate_result -eq 0 ]]; then
-                    log_status "SUCCESS" "Quality gates passed. Merging..."
-                    local merge_output
-                    merge_output=$(worktree_merge 2>&1)
-                    local merge_result=$?
-                    while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$merge_output"
+                    log_status "SUCCESS" "Quality gates passed."
+                    echo ""
+                    echo -e "${GREEN}Quality gates passed for branch: ${CYAN}$(worktree_get_branch)${NC}"
+                    echo -e "Merge into ${CYAN}$(worktree_get_main_branch)${NC}? (yes/no)"
+                    local merge_answer=""
+                    read -r merge_answer < /dev/tty 2>/dev/null || merge_answer="no"
 
-                    if [[ $merge_result -eq 0 ]]; then
-                        log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
-                        worktree_cleanup "true"
+                    if [[ "$merge_answer" == "yes" ]]; then
+                        log_status "INFO" "User approved merge. Merging..."
+                        local merge_output
+                        merge_output=$(worktree_merge 2>&1)
+                        local merge_result=$?
+                        while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$merge_output"
+
+                        if [[ $merge_result -eq 0 ]]; then
+                            log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
+                            worktree_cleanup "true"
+                        else
+                            log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
+                            worktree_cleanup "false"
+                        fi
                     else
-                        log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
+                        log_status "INFO" "Merge skipped by user. Branch preserved: $(worktree_get_branch)"
                         worktree_cleanup "false"
                     fi
                 else
