@@ -77,8 +77,8 @@ worktree_init() {
         _WT_MAIN_BRANCH=$(git config init.defaultBranch 2>/dev/null || echo "main")
     fi
 
-    # Worktree base: <project_root>/<project_name>-worktrees/
-    _WT_BASE_DIR="${_WT_MAIN_DIR}/${_WT_PROJECT_NAME}-worktrees"
+    # Worktree base: ../<project_name>-worktrees/ (sibling to the project directory)
+    _WT_BASE_DIR="$(cd "${_WT_MAIN_DIR}/.." && pwd)/${_WT_PROJECT_NAME}-worktrees"
     mkdir -p "$_WT_BASE_DIR"
 
     # Ensure the worktrees directory is gitignored
@@ -131,7 +131,7 @@ worktree_create() {
     git worktree prune 2>/dev/null || true
 
     # Create worktree with new branch off HEAD
-    if ! git worktree add -b "$_WT_CURRENT_BRANCH" "$_WT_CURRENT_PATH" HEAD 2>/dev/null; then
+    if ! git worktree add -b "$_WT_CURRENT_BRANCH" "$_WT_CURRENT_PATH" HEAD >/dev/null 2>&1; then
         echo "ERROR: Failed to create worktree at $_WT_CURRENT_PATH" >&2
         _WT_CURRENT_PATH=""
         _WT_CURRENT_BRANCH=""
