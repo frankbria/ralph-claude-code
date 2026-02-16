@@ -530,10 +530,13 @@ execute_devin_session() {
     # Build the Devin CLI command
     # --live mode: interactive (no -p), user sees Devin's TUI directly
     # background mode: non-interactive (-p), output captured to file
-    # WORKTREE MODE: Always use background mode (-p) so Devin auto-exits,
-    # but show live output via tail -f if LIVE_OUTPUT is enabled
+    # DEVIN_AUTO_EXIT controls -p flag: true = auto-exit, false = interactive
     local print_mode="true"
-    if [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
+    if [[ "$DEVIN_AUTO_EXIT" == "false" ]]; then
+        # Interactive mode - no -p flag, Devin waits for user input
+        print_mode="false"
+    elif [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
+        # Legacy behavior: live output without worktree = interactive
         print_mode="false"
     fi
 
@@ -563,9 +566,9 @@ execute_devin_session() {
     # Execute Devin CLI
     local exit_code=0
 
-    # Use interactive mode ONLY if LIVE_OUTPUT=true AND worktree is disabled
-    # Otherwise use background mode (which supports live streaming for worktree)
-    if [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
+    # Use interactive mode if print_mode is false (DEVIN_AUTO_EXIT=false or legacy live mode)
+    # Otherwise use background mode (which supports live streaming)
+    if [[ "$print_mode" == "false" ]]; then
         log_status "INFO" "Live output mode - Devin running interactively..."
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Devin Session ━━━━━━━━━━━━━━━━${NC}"
 
@@ -590,6 +593,30 @@ execute_devin_session() {
         cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null || true
         echo ""
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
+
+        # If DEVIN_AUTO_EXIT=false and worktree is enabled, inject cleanup prompt
+        if [[ "$DEVIN_AUTO_EXIT" == "false" && "$WORKTREE_ENABLED" == "true" && "$exit_code" -eq 0 ]]; then
+            log_status "INFO" "Injecting worktree cleanup prompt to Devin..."
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Worktree Cleanup Phase ━━━━━━━━━━━━━━━━${NC}"
+            
+            # Create cleanup prompt
+            local cleanup_prompt="Task complete. Now perform git worktree cleanup:
+
+1. Review all changes in the current worktree
+2. If there are uncommitted changes, commit them with a descriptive message
+3. Run quality checks: \`npm test\` and \`npm run lint\` (or equivalent for this project)
+4. If all checks pass, merge this worktree branch into the main branch using the squash strategy
+5. After successful merge, delete this worktree
+6. Clean up any other stale worktrees that have no uncommitted changes
+
+After completing these steps, type 'exit' to end the session."
+
+            # Inject cleanup prompt into Devin
+            echo "$cleanup_prompt" | (cd "$work_dir" && "${DEVIN_CMD_ARGS[@]}")
+            echo ""
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Cleanup Complete ━━━━━━━━━━━━━━━━━━━${NC}"
+        fi
     else
         # Background mode: non-interactive (-p flag), output to file
         (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${DEVIN_CMD_ARGS[@]}") \
@@ -1044,6 +1071,8 @@ Options:
     --no-worktree           Disable git worktree isolation
     --merge-strategy STR    Merge strategy: squash, merge, rebase (default: squash)
     --quality-gates GATES   Quality gates: auto, none, or "cmd1;cmd2" (default: auto)
+    --devin-auto-exit       Force Devin to auto-exit with -p flag (default: true)
+    --no-devin-auto-exit    Disable auto-exit, inject cleanup prompt after work
 
 Examples:
     $0 --calls 50 --timeout 30
@@ -1159,6 +1188,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-worktree)
             WORKTREE_ENABLED=false
+            shift
+            ;;
+        --devin-auto-exit)
+            DEVIN_AUTO_EXIT=true
+            shift
+            ;;
+        --no-devin-auto-exit)
+            DEVIN_AUTO_EXIT=false
             shift
             ;;
         --merge-strategy)
