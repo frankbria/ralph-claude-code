@@ -108,8 +108,10 @@ create_install_dirs() {
 install_scripts() {
     log "INFO" "Installing Ralph scripts..."
     
-    # Copy templates to Ralph home
+    # Copy templates to Ralph home (dotglob needed for dotfiles like .gitignore)
+    shopt -s dotglob
     cp -r "$SCRIPT_DIR/templates/"* "$RALPH_HOME/templates/"
+    shopt -u dotglob
 
     # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh)
     cp -r "$SCRIPT_DIR/lib/"* "$RALPH_HOME/lib/"
