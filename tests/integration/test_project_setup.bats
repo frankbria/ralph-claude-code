@@ -611,3 +611,18 @@ EOF
     # .gitignore should not exist since template was missing
     [[ ! -f "test-project/.gitignore" ]]
 }
+
+@test "setup.sh preserves existing .gitignore on rerun" {
+    echo ".ralph/.call_count" > templates/.gitignore
+
+    # First run creates the project with .gitignore
+    bash "$SETUP_SCRIPT" test-project
+
+    # User customizes the .gitignore
+    echo "my-custom-pattern" >> test-project/.gitignore
+
+    # Second run (rerun in existing directory) should not overwrite
+    bash "$SETUP_SCRIPT" test-project
+
+    grep -q "my-custom-pattern" test-project/.gitignore
+}

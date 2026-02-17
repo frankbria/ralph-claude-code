@@ -47,8 +47,8 @@ cp "$TEMPLATES_DIR/fix_plan.md" .ralph/fix_plan.md
 cp "$TEMPLATES_DIR/AGENT.md" .ralph/AGENT.md
 cp -r "$TEMPLATES_DIR/specs"/* .ralph/specs/ 2>/dev/null || true
 
-# Copy .gitignore template to project root (if available)
-if [[ -f "$TEMPLATES_DIR/.gitignore" ]]; then
+# Copy .gitignore template to project root (skip if one already exists)
+if [[ -f "$TEMPLATES_DIR/.gitignore" ]] && [[ ! -f ".gitignore" ]]; then
     cp "$TEMPLATES_DIR/.gitignore" .gitignore
 fi
 
