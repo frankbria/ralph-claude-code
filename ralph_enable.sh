@@ -500,7 +500,9 @@ phase_verification() {
     if [[ -f ".ralphrc" ]]; then
         print_success ".ralphrc"
     else
-        print_warning ".ralphrc - MISSING (optional)"
+        print_error ".ralphrc - MISSING (CRITICAL - required for file protection)"
+        print_error ".ralphrc controls tool permissions that prevent accidental file deletion"
+        all_good=false
     fi
 
     if [[ -d ".ralph/specs" ]]; then
