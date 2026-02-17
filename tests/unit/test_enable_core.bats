@@ -395,6 +395,8 @@ EOF
 
 # =============================================================================
 # PROTECTED FILES SECTION (Issue #149) (2 tests)
+# Verify generate_prompt_md includes "Protected Files" warning before "Testing Guidelines"
+# so Claude sees protection rules early in the prompt.
 # =============================================================================
 
 @test "generate_prompt_md output contains Protected Files section" {

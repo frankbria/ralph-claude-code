@@ -20,6 +20,7 @@ RALPH_MISSING_FILES=()
 # Sets RALPH_MISSING_FILES with the list of missing items
 # Returns: 0 if all required paths exist, 1 if any are missing
 validate_ralph_integrity() {
+    local path
     RALPH_MISSING_FILES=()
 
     for path in "${RALPH_REQUIRED_PATHS[@]}"; do

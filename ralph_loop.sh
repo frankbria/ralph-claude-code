@@ -256,7 +256,8 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
     fi
     # Forward --allowed-tools if non-default
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)" ]]; then
+    # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
+    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
         ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
@@ -1504,6 +1505,8 @@ main() {
         
         # Verify Ralph's critical files still exist (Issue #149)
         if ! validate_ralph_integrity; then
+            # Ensure log directory exists for logging even if .ralph/ was deleted
+            mkdir -p "$LOG_DIR" 2>/dev/null || true
             log_status "ERROR" "Ralph integrity check failed - critical files missing"
             echo ""
             echo "$(get_integrity_report)"

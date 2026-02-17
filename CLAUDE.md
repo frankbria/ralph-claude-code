@@ -216,7 +216,7 @@ Ralph uses modern Claude Code CLI flags for structured communication:
 **Configuration Variables:**
 ```bash
 CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
-CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"  # Allowed tool permissions
+CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),...,Bash(npm *),Bash(pytest)"  # Allowed tool permissions (see File Protection)
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 ```
@@ -484,6 +484,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 - Recovery: `ralph-enable --force` restores missing files
 
 **Required vs Optional Files:**
+
 | Required (validation fails) | Optional (no validation) |
 |---|---|
 | `.ralph/` directory | `.ralph/logs/` |
