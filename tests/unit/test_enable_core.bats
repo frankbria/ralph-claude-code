@@ -7,11 +7,16 @@ load '../helpers/fixtures'
 
 # Path to enable_core.sh
 ENABLE_CORE="${BATS_TEST_DIRNAME}/../../lib/enable_core.sh"
+ORIGINAL_HOME="$HOME"
 
 setup() {
     # Create temporary test directory
     TEST_DIR="$(mktemp -d)"
     cd "$TEST_DIR"
+
+    # Isolate HOME so tests that write to ~/.ralph don't leak to real home dir
+    export HOME="$TEST_DIR/home"
+    mkdir -p "$HOME"
 
     # Source the library (disable set -e for testing)
     set +e
@@ -20,6 +25,7 @@ setup() {
 }
 
 teardown() {
+    export HOME="$ORIGINAL_HOME"
     if [[ -n "$TEST_DIR" ]] && [[ -d "$TEST_DIR" ]]; then
         cd /
         rm -rf "$TEST_DIR"
@@ -388,14 +394,13 @@ EOF
 }
 
 # =============================================================================
-# .GITIGNORE CREATION (Issue #174) (3 tests)
+# .GITIGNORE CREATION (Issue #174) (4 tests)
 # =============================================================================
 
 @test "enable_ralph_in_directory creates .gitignore when template exists" {
-    # Create templates directory with .gitignore
-    local tpl_dir="$HOME/.ralph/templates"
-    mkdir -p "$tpl_dir"
-    cat > "$tpl_dir/.gitignore" << 'EOF'
+    # HOME is already isolated to TEST_DIR/home by setup()
+    mkdir -p "$HOME/.ralph/templates"
+    cat > "$HOME/.ralph/templates/.gitignore" << 'EOF'
 .ralph/.call_count
 .ralph/.last_reset
 .ralph/status.json
@@ -413,10 +418,8 @@ EOF
 }
 
 @test "enable_ralph_in_directory skips .gitignore when one exists and no force" {
-    # Create templates directory with .gitignore
-    local tpl_dir="$HOME/.ralph/templates"
-    mkdir -p "$tpl_dir"
-    echo ".ralph/.call_count" > "$tpl_dir/.gitignore"
+    mkdir -p "$HOME/.ralph/templates"
+    echo ".ralph/.call_count" > "$HOME/.ralph/templates/.gitignore"
 
     # Pre-existing .gitignore
     echo "my-custom-ignore" > .gitignore
@@ -433,10 +436,8 @@ EOF
 }
 
 @test "enable_ralph_in_directory overwrites .gitignore with force" {
-    # Create templates directory with .gitignore
-    local tpl_dir="$HOME/.ralph/templates"
-    mkdir -p "$tpl_dir"
-    echo ".ralph/.call_count" > "$tpl_dir/.gitignore"
+    mkdir -p "$HOME/.ralph/templates"
+    echo ".ralph/.call_count" > "$HOME/.ralph/templates/.gitignore"
 
     # Pre-existing .gitignore with different content
     echo "my-custom-ignore" > .gitignore
@@ -451,4 +452,19 @@ EOF
     # Should have template content, not old content
     grep -q ".ralph/.call_count" .gitignore
     ! grep -q "my-custom-ignore" .gitignore
+}
+
+@test "enable_ralph_in_directory succeeds when templates dir exists but .gitignore is missing" {
+    # Templates dir exists but no .gitignore template inside
+    mkdir -p "$HOME/.ralph/templates"
+
+    export ENABLE_FORCE="false"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    # .gitignore should not be created
+    [[ ! -f ".gitignore" ]]
 }
