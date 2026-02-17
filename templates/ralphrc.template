@@ -24,6 +24,7 @@ PROJECT_TYPE="${PROJECT_TYPE:-unknown}"
 MAX_CALLS_PER_HOUR=100
 
 # Timeout for each Claude Code invocation (in minutes)
+# When timeout is reached, the loop logs the event and continues to the next iteration
 CLAUDE_TIMEOUT_MINUTES=15
 
 # Output format: json (structured) or text (legacy)

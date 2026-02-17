@@ -169,7 +169,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (490 tests)
+# Run all tests (499 tests)
 npm test
 
 # Run specific test suites
@@ -377,6 +377,20 @@ fi
 
 **Conflict Resolution:** When `STATUS: COMPLETE` but `EXIT_SIGNAL: false` in RALPH_STATUS, the explicit EXIT_SIGNAL takes precedence. This allows Claude to mark a phase complete while indicating more phases remain.
 
+### Timeout Handling (Issue #175)
+
+When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` terminates the process with exit code **124**. The loop handles this differently depending on the execution mode:
+
+**Live mode** (`--live`/`--monitor`): The streaming pipeline uses `set -o pipefail` to capture per-command exit codes via `PIPESTATUS`. Because `set -e` would cause the script to exit silently on the non-zero pipeline status, `set -e` is temporarily disabled (`set +e`) around the pipeline and re-enabled after `PIPESTATUS` is captured. Timeout events are logged as a WARN:
+
+```
+[timestamp] [WARN] Claude Code execution timed out after 15 minutes
+```
+
+**Background mode** (default): The Claude process runs in a background subshell (`&`), so its exit code does not trigger `set -e`. The exit code is captured via `wait $claude_pid`.
+
+In both modes, a timeout results in `exit_code=124`, which flows into the standard error handling path (logged, circuit breaker updated, loop continues to next iteration).
+
 ### Circuit Breaker Thresholds
 - `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
 - `CB_SAME_ERROR_THRESHOLD=5` - Open circuit after 5 loops with repeated errors
@@ -445,13 +459,13 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (490 tests total)
+### Test Files (499 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 39 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) |
+| `test_cli_modern.bats` | 44 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format |
 | `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 53 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection |
