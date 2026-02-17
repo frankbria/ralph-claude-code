@@ -169,7 +169,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (509 tests)
+# Run all tests (510 tests)
 npm test
 
 # Run specific test suites
@@ -459,7 +459,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (509 tests total)
+### Test Files (510 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -472,7 +472,7 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_rate_limiting.bats` | 15 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 25 | Edge case handling |
-| `test_installation.bats` | 14 | Global installation/uninstall workflows |
+| `test_installation.bats` | 15 | Global installation/uninstall workflows + dotfile template copying (#174) |
 | `test_project_setup.bats` | 50 | Project setup (setup.sh) validation + .ralphrc permissions + .gitignore (#174) |
 | `test_prd_import.bats` | 33 | PRD import (ralph_import.sh) workflows + modern CLI tests |
 | `test_enable_core.bats` | 36 | Enable core library (idempotency, project detection, template generation, .gitignore #174) |
