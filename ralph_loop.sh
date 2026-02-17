@@ -16,6 +16,7 @@ source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
+source "$SCRIPT_DIR/lib/file_protection.sh"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -52,7 +53,8 @@ CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
 
 # Modern Claude CLI configuration (Phase 1.1)
 CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
-CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}"
+# Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
+CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
@@ -254,7 +256,8 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
     fi
     # Forward --allowed-tools if non-default
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)" ]]; then
+    # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
+    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
         ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
@@ -1475,11 +1478,20 @@ main() {
         exit 1
     fi
 
+    # Verify Ralph file integrity on startup (Issue #149)
+    if ! validate_ralph_integrity; then
+        log_status "ERROR" "Ralph integrity check failed - critical files missing"
+        echo ""
+        echo "$(get_integrity_report)"
+        echo ""
+        exit 1
+    fi
+
     # Initialize session tracking before entering the loop
     init_session_tracking
 
     log_status "INFO" "Starting main loop..."
-    
+
     while true; do
         loop_count=$((loop_count + 1))
 
@@ -1491,6 +1503,19 @@ main() {
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
         
+        # Verify Ralph's critical files still exist (Issue #149)
+        if ! validate_ralph_integrity; then
+            # Ensure log directory exists for logging even if .ralph/ was deleted
+            mkdir -p "$LOG_DIR" 2>/dev/null || true
+            log_status "ERROR" "Ralph integrity check failed - critical files missing"
+            echo ""
+            echo "$(get_integrity_report)"
+            echo ""
+            reset_session "integrity_failure"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)" "integrity_failure" "halted" "files_deleted"
+            break
+        fi
+
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
             reset_session "circuit_breaker_open"

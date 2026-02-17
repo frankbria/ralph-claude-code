@@ -85,6 +85,12 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - PRD extraction: `extract_prd_tasks()`, supports checkbox and numbered list formats
    - Task normalization: `normalize_tasks()`, `prioritize_tasks()`, `import_tasks_from_sources()`
 
+8. **lib/file_protection.sh** - File integrity validation for Ralph projects (Issue #149)
+   - `RALPH_REQUIRED_PATHS` array: critical files needed for the loop to function
+   - `validate_ralph_integrity()`: checks all required paths exist, sets `RALPH_MISSING_FILES`
+   - `get_integrity_report()`: human-readable report with missing files and recovery instructions
+   - Lightweight validation that runs every loop iteration
+
 ## Key Commands
 
 ### Installation
@@ -169,7 +175,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (510 tests)
+# Run all tests (548 tests)
 npm test
 
 # Run specific test suites
@@ -184,6 +190,8 @@ bats tests/unit/test_enable_core.bats
 bats tests/unit/test_task_sources.bats
 bats tests/unit/test_ralph_enable.bats
 bats tests/unit/test_circuit_breaker_recovery.bats
+bats tests/unit/test_file_protection.bats
+bats tests/unit/test_integrity_check.bats
 ```
 
 ## Ralph Loop Configuration
@@ -208,7 +216,7 @@ Ralph uses modern Claude Code CLI flags for structured communication:
 **Configuration Variables:**
 ```bash
 CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
-CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"  # Allowed tool permissions
+CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),...,Bash(npm *),Bash(pytest)"  # Allowed tool permissions (see File Protection)
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 ```
@@ -319,7 +327,7 @@ Ralph installs to:
 - **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci)
 - **Templates**: `~/.ralph/templates/`
 - **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh, file_protection.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
@@ -457,15 +465,43 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 - Uses literal fixed-string matching (`grep -qF`) to avoid regex edge cases
 - Prevents false negatives when multiple distinct errors occur simultaneously
 
+### File Protection (Issue #149)
+
+Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting its own configuration files:
+
+**Layer 1: ALLOWED_TOOLS Restriction**
+- The default `CLAUDE_ALLOWED_TOOLS` uses granular `Bash(git add *)`, `Bash(git commit *)` etc. instead of `Bash(git *)`, preventing `git clean`, `git rm`, and other destructive git commands
+- Users can override in `.ralphrc` but the defaults are safe
+
+**Layer 2: PROMPT.md Warning**
+- The PROMPT.md template includes a "Protected Files (DO NOT MODIFY)" section listing `.ralph/` and `.ralphrc`
+- This instructs Claude to never delete, move, rename, or overwrite these files
+
+**Layer 3: Pre-Loop Integrity Check**
+- `validate_ralph_integrity()` from `lib/file_protection.sh` runs at startup and before every loop iteration
+- Checks for required paths: `.ralph/`, `.ralph/PROMPT.md`, `.ralph/fix_plan.md`, `.ralph/AGENT.md`, `.ralphrc`
+- On failure: logs error, displays recovery report, resets session, and halts the loop
+- Recovery: `ralph-enable --force` restores missing files
+
+**Required vs Optional Files:**
+
+| Required (validation fails) | Optional (no validation) |
+|---|---|
+| `.ralph/` directory | `.ralph/logs/` |
+| `.ralph/PROMPT.md` | `.ralph/status.json` |
+| `.ralph/fix_plan.md` | `.ralph/.call_count` |
+| `.ralph/AGENT.md` | `.ralph/.exit_signals` |
+| `.ralphrc` | `.ralph/.circuit_breaker_state` |
+
 ## Test Suite
 
-### Test Files (510 tests total)
+### Test Files (548 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 44 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) |
+| `test_cli_modern.bats` | 48 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format |
 | `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 53 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection |
@@ -475,10 +511,12 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 | `test_installation.bats` | 15 | Global installation/uninstall workflows + dotfile template copying (#174) |
 | `test_project_setup.bats` | 50 | Project setup (setup.sh) validation + .ralphrc permissions + .gitignore (#174) |
 | `test_prd_import.bats` | 33 | PRD import (ralph_import.sh) workflows + modern CLI tests |
-| `test_enable_core.bats` | 36 | Enable core library (idempotency, project detection, template generation, .gitignore #174) |
+| `test_enable_core.bats` | 38 | Enable core library (idempotency, project detection, template generation, .gitignore #174) |
 | `test_task_sources.bats` | 23 | Task sources (beads, GitHub, PRD extraction, normalization) |
-| `test_ralph_enable.bats` | 22 | Ralph enable integration tests (wizard, CI version, JSON output) |
+| `test_ralph_enable.bats` | 24 | Ralph enable integration tests (wizard, CI version, JSON output, .ralphrc validation #149) |
 | `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
+| `test_file_protection.bats` | 22 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
+| `test_integrity_check.bats` | 12 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
 
 ### Running Tests
 ```bash

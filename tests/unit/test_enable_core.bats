@@ -394,6 +394,35 @@ EOF
 }
 
 # =============================================================================
+# PROTECTED FILES SECTION (Issue #149) (2 tests)
+# Verify generate_prompt_md includes "Protected Files" warning before "Testing Guidelines"
+# so Claude sees protection rules early in the prompt.
+# =============================================================================
+
+@test "generate_prompt_md output contains Protected Files section" {
+    output=$(generate_prompt_md "my-project" "typescript")
+
+    [[ "$output" =~ "Protected Files" ]]
+    [[ "$output" =~ ".ralph/" ]]
+    [[ "$output" =~ ".ralphrc" ]]
+    [[ "$output" =~ "NEVER delete" ]]
+}
+
+@test "generate_prompt_md Protected Files section appears before Testing Guidelines" {
+    output=$(generate_prompt_md "my-project" "typescript")
+
+    # Find position of Protected Files and Testing Guidelines
+    local protected_pos testing_pos
+    protected_pos=$(echo "$output" | grep -n "Protected Files" | head -1 | cut -d: -f1)
+    testing_pos=$(echo "$output" | grep -n "Testing Guidelines" | head -1 | cut -d: -f1)
+
+    # Protected Files should come before Testing Guidelines
+    [[ -n "$protected_pos" ]]
+    [[ -n "$testing_pos" ]]
+    [[ "$protected_pos" -lt "$testing_pos" ]]
+}
+
+# =============================================================================
 # .GITIGNORE CREATION (Issue #174) (4 tests)
 # =============================================================================
 
