@@ -386,3 +386,69 @@ EOF
     content=$(cat test_file.txt)
     [[ "$content" == "original content" ]]
 }
+
+# =============================================================================
+# .GITIGNORE CREATION (Issue #174) (3 tests)
+# =============================================================================
+
+@test "enable_ralph_in_directory creates .gitignore when template exists" {
+    # Create templates directory with .gitignore
+    local tpl_dir="$HOME/.ralph/templates"
+    mkdir -p "$tpl_dir"
+    cat > "$tpl_dir/.gitignore" << 'EOF'
+.ralph/.call_count
+.ralph/.last_reset
+.ralph/status.json
+EOF
+
+    export ENABLE_FORCE="false"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    [[ -f ".gitignore" ]]
+    grep -q ".ralph/.call_count" .gitignore
+}
+
+@test "enable_ralph_in_directory skips .gitignore when one exists and no force" {
+    # Create templates directory with .gitignore
+    local tpl_dir="$HOME/.ralph/templates"
+    mkdir -p "$tpl_dir"
+    echo ".ralph/.call_count" > "$tpl_dir/.gitignore"
+
+    # Pre-existing .gitignore
+    echo "my-custom-ignore" > .gitignore
+
+    export ENABLE_FORCE="false"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    # Should preserve existing .gitignore content
+    grep -q "my-custom-ignore" .gitignore
+}
+
+@test "enable_ralph_in_directory overwrites .gitignore with force" {
+    # Create templates directory with .gitignore
+    local tpl_dir="$HOME/.ralph/templates"
+    mkdir -p "$tpl_dir"
+    echo ".ralph/.call_count" > "$tpl_dir/.gitignore"
+
+    # Pre-existing .gitignore with different content
+    echo "my-custom-ignore" > .gitignore
+
+    export ENABLE_FORCE="true"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    # Should have template content, not old content
+    grep -q ".ralph/.call_count" .gitignore
+    ! grep -q "my-custom-ignore" .gitignore
+}

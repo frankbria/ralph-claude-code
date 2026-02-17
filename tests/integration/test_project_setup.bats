@@ -543,3 +543,71 @@ teardown() {
     # .ralphrc should reference the project name
     grep -q "my-custom-project" my-custom-project/.ralphrc
 }
+
+# =============================================================================
+# Test: .gitignore Generation (Issue #174)
+# =============================================================================
+
+@test "setup.sh creates .gitignore file" {
+    # Create .gitignore template
+    cat > templates/.gitignore << 'EOF'
+# Ralph generated files
+.ralph/.call_count
+.ralph/.last_reset
+.ralph/status.json
+EOF
+
+    run bash "$SETUP_SCRIPT" test-project
+
+    assert_success
+    assert_file_exists "test-project/.gitignore"
+}
+
+@test "setup.sh .gitignore contains Ralph runtime patterns" {
+    cat > templates/.gitignore << 'EOF'
+.ralph/.call_count
+.ralph/.last_reset
+.ralph/status.json
+.ralph/.circuit_breaker_state
+EOF
+
+    bash "$SETUP_SCRIPT" test-project
+
+    grep -q ".ralph/.call_count" test-project/.gitignore
+    grep -q ".ralph/.circuit_breaker_state" test-project/.gitignore
+}
+
+@test "setup.sh .gitignore is committed in initial git commit" {
+    cat > templates/.gitignore << 'EOF'
+.ralph/.call_count
+EOF
+
+    bash "$SETUP_SCRIPT" test-project
+
+    cd test-project
+    run command git ls-files .gitignore
+
+    assert_success
+    assert_equal "$output" ".gitignore"
+}
+
+@test "setup.sh .gitignore content matches template" {
+    cat > templates/.gitignore << 'EOF'
+# Ralph generated files
+.ralph/.call_count
+.ralph/.last_reset
+EOF
+
+    bash "$SETUP_SCRIPT" test-project
+
+    diff templates/.gitignore test-project/.gitignore
+}
+
+@test "setup.sh succeeds when .gitignore template is missing" {
+    # Do NOT create templates/.gitignore — should still succeed
+    run bash "$SETUP_SCRIPT" test-project
+
+    assert_success
+    # .gitignore should not exist since template was missing
+    [[ ! -f "test-project/.gitignore" ]]
+}

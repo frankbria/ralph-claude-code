@@ -777,6 +777,17 @@ enable_ralph_in_directory() {
     fix_plan_content=$(generate_fix_plan_md "$task_content")
     safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
 
+    # Copy .gitignore template to project root (if available)
+    local templates_dir
+    templates_dir=$(get_templates_dir 2>/dev/null) || true
+    if [[ -n "$templates_dir" ]] && [[ -f "$templates_dir/.gitignore" ]]; then
+        local gitignore_content
+        gitignore_content=$(<"$templates_dir/.gitignore")
+        safe_create_file ".gitignore" "$gitignore_content"
+    else
+        enable_log "WARN" ".gitignore template not found, skipping"
+    fi
+
     # Detect task sources for .ralphrc
     detect_task_sources
     local task_sources="local"

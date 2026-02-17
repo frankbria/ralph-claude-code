@@ -47,6 +47,11 @@ cp "$TEMPLATES_DIR/fix_plan.md" .ralph/fix_plan.md
 cp "$TEMPLATES_DIR/AGENT.md" .ralph/AGENT.md
 cp -r "$TEMPLATES_DIR/specs"/* .ralph/specs/ 2>/dev/null || true
 
+# Copy .gitignore template to project root (if available)
+if [[ -f "$TEMPLATES_DIR/.gitignore" ]]; then
+    cp "$TEMPLATES_DIR/.gitignore" .gitignore
+fi
+
 # Generate .ralphrc configuration file
 # Source enable_core.sh if available for generate_ralphrc(), otherwise create inline
 if [[ -f "$LIB_DIR/enable_core.sh" ]]; then
