@@ -828,3 +828,71 @@ EOF
     # Should find 0 matches (the gate has been removed)
     [[ "$output" == "0" ]]
 }
+
+# =============================================================================
+# LIVE MODE PIPELINE ERREXIT PROTECTION TESTS (Issue #175)
+# set -e + set -o pipefail caused silent script death when Claude timed out.
+# The fix disables errexit around the pipeline so PIPESTATUS can be captured.
+# =============================================================================
+
+@test "live mode pipeline has set +e before set -o pipefail" {
+    # Verify that errexit is disabled BEFORE pipefail is enabled.
+    # Without this, timeout exit code 124 silently kills the script.
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # set +e must appear before set -o pipefail in the live mode section
+    local plus_e_line=$(grep -n 'set +e' "$script" | grep -v '#' | head -1 | cut -d: -f1)
+    local pipefail_line=$(grep -n 'set -o pipefail' "$script" | head -1 | cut -d: -f1)
+
+    [[ -n "$plus_e_line" ]]
+    [[ -n "$pipefail_line" ]]
+    [[ $plus_e_line -lt $pipefail_line ]]
+}
+
+@test "live mode pipeline re-enables set -e after PIPESTATUS capture" {
+    # Verify that errexit is re-enabled after the pipeline exit codes are captured.
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # set -e (re-enable) must appear after set +o pipefail
+    local pipefail_off_line=$(grep -n 'set +o pipefail' "$script" | head -1 | cut -d: -f1)
+    # Find a line starting with whitespace + "set -e" that's AFTER pipefail disable
+    # (not the global one at line 6). The line may have a trailing comment.
+    local re_enable_line=$(grep -n '^\s*set -e' "$script" | awk -F: -v threshold="$pipefail_off_line" '$1 > threshold {print $1; exit}')
+
+    [[ -n "$pipefail_off_line" ]]
+    [[ -n "$re_enable_line" ]]
+    [[ $re_enable_line -gt $pipefail_off_line ]]
+}
+
+@test "live mode pipeline has errexit guard comment referencing Issue #175" {
+    # Verify the fix is documented with context about why errexit is disabled
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -c 'Issue #175' "$script"
+    assert_success
+    # At least one reference to the issue
+    [[ "${output}" -ge 1 ]]
+}
+
+@test "live mode pipeline logs timeout events with exit code 124" {
+    # Verify that timeout events (exit code 124) produce a log message
+    # so timeouts are no longer silent
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep 'exit_code -eq 124' "$script"
+    assert_success
+
+    run grep 'timed out after' "$script"
+    assert_success
+}
+
+@test "background mode does not need errexit guard" {
+    # Verify background mode uses backgrounding (&) which naturally avoids
+    # the set -e issue. The timeout runs in a subprocess, so its exit code
+    # doesn't trigger errexit on the parent script.
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Background mode lines should have & at end (backgrounding)
+    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*&' "$script"
+    assert_success
+}

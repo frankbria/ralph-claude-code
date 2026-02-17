@@ -1154,6 +1154,9 @@ execute_claude_code() {
         # Capture all pipeline exit codes for proper error handling
         # stdin must be redirected from /dev/null because newer Claude CLI versions
         # read from stdin even in -p (print) mode, causing the process to hang
+        # Disable errexit for pipeline - timeout returns non-zero exit code 124
+        # which would cause set -e to silently kill the entire script (Issue #175)
+        set +e
         set -o pipefail
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
             < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
@@ -1161,9 +1164,15 @@ execute_claude_code() {
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
         set +o pipefail
+        set -e  # Re-enable errexit now that exit codes are captured
 
         # Primary exit code is from Claude/timeout (first command in pipeline)
         exit_code=${pipe_status[0]}
+
+        # Log timeout events explicitly (exit code 124 from portable_timeout)
+        if [[ $exit_code -eq 124 ]]; then
+            log_status "WARN" "Claude Code execution timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes"
+        fi
 
         # Check for tee failures (second command) - could break logging/session
         if [[ ${pipe_status[1]} -ne 0 ]]; then
