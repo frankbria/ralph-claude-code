@@ -988,3 +988,69 @@ EOF
     run grep 'user_choice.*==.*"2".*||.*-z.*user_choice' "$script"
     assert_failure
 }
+
+# --- Behavioral Tests: API Limit Detection Against Fixture Data (Issue #183) ---
+# These tests exercise the actual detection logic against fixture files,
+# complementing the grep-based structural tests above.
+
+# Helper: runs the three-layer detection logic from ralph_loop.sh against a
+# given output file and exit code. Returns the same codes as execute_claude_code:
+#   1 = generic error (not API limit)
+#   2 = API limit detected
+_detect_api_limit() {
+    local exit_code="$1"
+    local output_file="$2"
+
+    # Layer 1: Timeout guard
+    if [[ $exit_code -eq 124 ]]; then
+        return 1
+    fi
+
+    # Layer 2: Structural JSON detection
+    if grep -q '"rate_limit_event"' "$output_file" 2>/dev/null; then
+        local last_rate_event
+        last_rate_event=$(grep '"rate_limit_event"' "$output_file" | tail -1)
+        if echo "$last_rate_event" | grep -qE '"status"\s*:\s*"rejected"'; then
+            return 2
+        fi
+    fi
+
+    # Layer 3: Filtered text fallback
+    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+        return 2
+    fi
+
+    return 1
+}
+
+@test "behavioral: timeout (exit 124) with echoed 5-hour-limit text returns 1, not 2" {
+    # Scenario: Claude timed out, output contains "5-hour limit" in echoed file content
+    local output_file="$TEST_DIR/claude_output_timeout.log"
+    create_sample_stream_json_with_prompt_echo "$output_file"
+
+    # exit_code=124 (timeout) — should return 1 regardless of file content
+    run _detect_api_limit 124 "$output_file"
+    assert_failure  # return code 1 (not 0)
+    [[ "$status" -eq 1 ]]
+}
+
+@test "behavioral: real rate_limit_event status:rejected returns 2" {
+    # Scenario: Claude hit the actual API limit (rate_limit_event rejected)
+    local output_file="$TEST_DIR/claude_output_rejected.log"
+    create_sample_stream_json_rate_limit_rejected "$output_file"
+
+    # exit_code=1 (non-timeout failure) — should detect real API limit
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 2 ]]
+}
+
+@test "behavioral: rate_limit_event status:allowed with prompt echo returns 1" {
+    # Scenario: No API limit, but output contains "5-hour limit" from echoed files
+    # The type:user filter should prevent false positive
+    local output_file="$TEST_DIR/claude_output_echo.log"
+    create_sample_stream_json_with_prompt_echo "$output_file"
+
+    # exit_code=1 (non-timeout failure) — should NOT detect API limit
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 1 ]]
+}
