@@ -533,6 +533,17 @@ ${objectives_section}
 - Update fix_plan.md with your learnings
 - Commit working changes with descriptive messages
 
+## Protected Files (DO NOT MODIFY)
+The following files and directories are part of Ralph's infrastructure.
+NEVER delete, move, rename, or overwrite these under any circumstances:
+- .ralph/ (entire directory and all contents)
+- .ralphrc (project configuration)
+
+When performing cleanup, refactoring, or restructuring tasks:
+- These files are NOT part of your project code
+- They are Ralph's internal control files that keep the development loop running
+- Deleting them will break Ralph and halt all autonomous development
+
 ## Testing Guidelines
 - LIMIT testing to ~20% of your total effort per loop
 - PRIORITIZE: Implementation > Documentation > Tests
@@ -686,7 +697,8 @@ CLAUDE_OUTPUT_FORMAT="json"
 
 # Tool permissions
 # Comma-separated list of allowed tools
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+# Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)"
 
 # Session management
 SESSION_CONTINUITY=true
@@ -776,6 +788,17 @@ enable_ralph_in_directory() {
     local fix_plan_content
     fix_plan_content=$(generate_fix_plan_md "$task_content")
     safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
+
+    # Copy .gitignore template to project root (if available)
+    local templates_dir
+    templates_dir=$(get_templates_dir 2>/dev/null) || true
+    if [[ -n "$templates_dir" ]] && [[ -f "$templates_dir/.gitignore" ]]; then
+        local gitignore_content
+        gitignore_content=$(<"$templates_dir/.gitignore")
+        safe_create_file ".gitignore" "$gitignore_content"
+    else
+        enable_log "WARN" ".gitignore template not found, skipping"
+    fi
 
     # Detect task sources for .ralphrc
     detect_task_sources

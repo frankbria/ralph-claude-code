@@ -47,6 +47,11 @@ cp "$TEMPLATES_DIR/fix_plan.md" .ralph/fix_plan.md
 cp "$TEMPLATES_DIR/AGENT.md" .ralph/AGENT.md
 cp -r "$TEMPLATES_DIR/specs"/* .ralph/specs/ 2>/dev/null || true
 
+# Copy .gitignore template to project root (skip if one already exists)
+if [[ -f "$TEMPLATES_DIR/.gitignore" ]] && [[ ! -f ".gitignore" ]]; then
+    cp "$TEMPLATES_DIR/.gitignore" .gitignore
+fi
+
 # Generate .ralphrc configuration file
 # Source enable_core.sh if available for generate_ralphrc(), otherwise create inline
 if [[ -f "$LIB_DIR/enable_core.sh" ]]; then
@@ -73,7 +78,8 @@ CLAUDE_OUTPUT_FORMAT="json"
 
 # Tool permissions
 # Comma-separated list of allowed tools
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+# Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)"
 
 # Session management
 SESSION_CONTINUITY=true
