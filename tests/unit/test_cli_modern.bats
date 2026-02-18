@@ -944,8 +944,8 @@ EOF
     run grep 'rate_limit_event' "$script"
     assert_success
 
-    # Verify it checks for status:rejected
-    run grep '"status":"rejected"' "$script"
+    # Verify it checks for status:rejected (whitespace-tolerant pattern)
+    run grep '"status".*"rejected"' "$script"
     assert_success
 }
 

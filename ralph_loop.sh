@@ -1412,7 +1412,7 @@ EOF
         if grep -q '"rate_limit_event"' "$output_file" 2>/dev/null; then
             local last_rate_event
             last_rate_event=$(grep '"rate_limit_event"' "$output_file" | tail -1)
-            if echo "$last_rate_event" | grep -q '"status":"rejected"'; then
+            if echo "$last_rate_event" | grep -qE '"status"\s*:\s*"rejected"'; then
                 log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
                 return 2  # Real API limit
             fi
