@@ -1420,7 +1420,7 @@ EOF
 
         # Layer 3: Filtered text fallback — only check tail, excluding tool result lines
         # Filters out type:user, tool_result, and tool_use_id lines which contain echoed file content
-        if tail -30 "$output_file" 2>/dev/null | grep -v '"type":"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
             log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
             return 2  # API limit detected via text fallback
         fi

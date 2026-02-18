@@ -954,8 +954,8 @@ EOF
     # to avoid matching "5-hour limit" text echoed from project files
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Verify filtering of tool result content
-    run grep 'grep -v.*"type":"user"' "$script"
+    # Verify filtering of tool result content (whitespace-tolerant pattern)
+    run grep 'grep -vE.*"type".*"user"' "$script"
     assert_success
 
     run grep 'grep -v.*"tool_result"' "$script"
