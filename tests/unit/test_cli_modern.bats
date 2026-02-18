@@ -912,3 +912,76 @@ EOF
     run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*&' "$script"
     assert_success
 }
+
+# --- API Limit False Positive Detection Tests (Issue #183) ---
+
+@test "API limit detection has timeout guard before rate limit grep" {
+    # Exit code 124 (timeout) must be checked BEFORE the API limit grep
+    # to prevent false positives when output file contains echoed "5-hour limit" text
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Get line numbers for both checks
+    local timeout_line=$(grep -n 'exit_code -eq 124' "$script" | grep -v 'timed out after' | head -1 | cut -d: -f1)
+    local rate_limit_grep_line=$(grep -n 'rate_limit_event' "$script" | head -1 | cut -d: -f1)
+    local text_fallback_line=$(grep -n '5.*hour.*limit' "$script" | head -1 | cut -d: -f1)
+
+    # Timeout guard must appear before both rate limit checks
+    [[ -n "$timeout_line" ]]
+    [[ -n "$rate_limit_grep_line" ]]
+    [[ -n "$text_fallback_line" ]]
+    [[ "$timeout_line" -lt "$rate_limit_grep_line" ]]
+    [[ "$timeout_line" -lt "$text_fallback_line" ]]
+}
+
+@test "API limit detection checks rate_limit_event JSON as primary signal" {
+    # The primary detection method should parse rate_limit_event for status:"rejected"
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify rate_limit_event grep exists
+    run grep 'rate_limit_event' "$script"
+    assert_success
+
+    # Verify it checks for status:rejected
+    run grep '"status":"rejected"' "$script"
+    assert_success
+}
+
+@test "API limit detection filters tool result content in fallback" {
+    # The text fallback must filter out type:user and tool_result lines
+    # to avoid matching "5-hour limit" text echoed from project files
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify filtering of tool result content
+    run grep 'grep -v.*"type":"user"' "$script"
+    assert_success
+
+    run grep 'grep -v.*"tool_result"' "$script"
+    assert_success
+
+    run grep 'grep -v.*"tool_use_id"' "$script"
+    assert_success
+}
+
+@test "API limit detection uses tail not full file in fallback" {
+    # The text fallback should use tail (not grep the whole file)
+    # to limit the search scope and reduce false positives
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The fallback line should use tail before grep
+    run grep 'tail -30.*output_file.*grep -v.*grep -qi.*5.*hour.*limit' "$script"
+    assert_success
+}
+
+@test "API limit prompt defaults to wait in unattended mode" {
+    # When the read prompt times out (empty user_choice), Ralph should
+    # auto-wait instead of exiting — supports unattended operation
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The exit condition should ONLY trigger on explicit "2", not on empty/timeout
+    run grep 'user_choice.*==.*"2"' "$script"
+    assert_success
+
+    # Should NOT have the old pattern that exits on empty choice
+    run grep 'user_choice.*==.*"2".*||.*-z.*user_choice' "$script"
+    assert_failure
+}

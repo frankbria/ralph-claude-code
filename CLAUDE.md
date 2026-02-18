@@ -391,6 +391,21 @@ When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` terminates
 
 In both modes, a timeout results in `exit_code=124`, which flows into the standard error handling path (logged, circuit breaker updated, loop continues to next iteration).
 
+### API Limit Detection (Issue #183)
+
+The API 5-hour limit detection uses a three-layer approach to avoid false positives. In stream-json mode, output files contain echoed file content from tool results (`"type":"user"` lines). If project files mention "5-hour limit", naive grep patterns match those echoed strings, incorrectly triggering the API limit recovery flow.
+
+**Layer 1 — Timeout guard:**
+Exit code 124 (timeout) is checked first. Timeouts return code 1 (generic error), never code 2 (API limit).
+
+**Layer 2 — Structural JSON detection (primary):**
+Parses `rate_limit_event` JSON in the output for `"status":"rejected"`. This is the definitive signal from the Claude CLI.
+
+**Layer 3 — Filtered text fallback:**
+Only searches `tail -30` of the output file, filtering out `"type":"user"`, `"tool_result"`, and `"tool_use_id"` lines before matching text patterns.
+
+**Unattended mode:** When the API limit prompt times out (no user response within 30s), Ralph auto-waits instead of exiting, supporting unattended operation.
+
 ### Circuit Breaker Thresholds
 - `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
 - `CB_SAME_ERROR_THRESHOLD=5` - Open circuit after 5 loops with repeated errors
@@ -459,13 +474,13 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 
 ## Test Suite
 
-### Test Files (499 tests total)
+### Test Files (504 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 44 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) |
+| `test_cli_modern.bats` | 49 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + API limit false positive detection (#183) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format |
 | `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 53 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection |
