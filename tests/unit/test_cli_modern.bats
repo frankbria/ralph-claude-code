@@ -920,15 +920,18 @@ EOF
     # to prevent false positives when output file contains echoed "5-hour limit" text
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Get line numbers for both checks
-    local timeout_line=$(grep -n 'exit_code -eq 124' "$script" | grep -v 'timed out after' | head -1 | cut -d: -f1)
+    # Find the Layer 1 guard specifically (in the failure path, marked by comment)
+    local layer1_line=$(grep -n 'Layer 1.*Timeout guard' "$script" | head -1 | cut -d: -f1)
+    local timeout_line=$(awk -F: -v s="$layer1_line" 'NR >= s && /exit_code -eq 124/ { print NR; exit }' "$script")
     local rate_limit_grep_line=$(grep -n 'rate_limit_event' "$script" | head -1 | cut -d: -f1)
     local text_fallback_line=$(grep -n '5.*hour.*limit' "$script" | head -1 | cut -d: -f1)
 
-    # Timeout guard must appear before both rate limit checks
+    # Layer 1 guard must exist in the failure path
+    [[ -n "$layer1_line" ]]
     [[ -n "$timeout_line" ]]
     [[ -n "$rate_limit_grep_line" ]]
     [[ -n "$text_fallback_line" ]]
+    # Timeout guard must appear before both rate limit checks
     [[ "$timeout_line" -lt "$rate_limit_grep_line" ]]
     [[ "$timeout_line" -lt "$text_fallback_line" ]]
 }
