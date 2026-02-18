@@ -835,49 +835,37 @@ EOF
 # The fix disables errexit around the pipeline so PIPESTATUS can be captured.
 # =============================================================================
 
-@test "live mode pipeline has set +e before set -o pipefail" {
-    # Verify that errexit is disabled BEFORE pipefail is enabled.
-    # Without this, timeout exit code 124 silently kills the script.
-    # Scoped to the live-mode block to avoid false positives from other sections.
+@test "live mode pipeline runs in subshell to isolate errexit (Issue #175)" {
+    # The live-mode pipeline runs in a backgrounded subshell so that
+    # timeout's exit code 124 never triggers set -e in the parent.
+    # This also enables Ctrl+C cleanup via CLAUDE_CHILD_PID.
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # Extract only the live-mode section (from "Live output mode enabled" to "End of Output")
     local live_block
     live_block=$(sed -n '/Live output mode enabled/,/End of Output/p' "$script")
 
-    # set +e must appear before set -o pipefail within the live-mode block
-    echo "$live_block" | grep -q 'set +e'
-    echo "$live_block" | grep -q 'set -o pipefail'
+    # Pipeline must be inside a subshell (parentheses) that is backgrounded
+    echo "$live_block" | grep -q '^\s*('
+    echo "$live_block" | grep -q ') &'
 
-    # Verify ordering: set +e comes first
-    local plus_e_line=$(echo "$live_block" | grep -n 'set +e' | head -1 | cut -d: -f1)
-    local pipefail_line=$(echo "$live_block" | grep -n 'set -o pipefail' | head -1 | cut -d: -f1)
-
-    [[ -n "$plus_e_line" ]]
-    [[ -n "$pipefail_line" ]]
-    [[ $plus_e_line -lt $pipefail_line ]]
+    # CLAUDE_CHILD_PID must be captured for cleanup
+    echo "$live_block" | grep -q 'CLAUDE_CHILD_PID=\$!'
 }
 
-@test "live mode pipeline re-enables set -e after PIPESTATUS capture" {
-    # Verify that errexit is re-enabled after the pipeline exit codes are captured.
-    # Scoped to the live-mode block to avoid matching the global set -e at line 6.
+@test "live mode pipeline captures exit code via wait" {
+    # After the backgrounded subshell, exit code is captured via wait
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Extract only the live-mode section
     local live_block
     live_block=$(sed -n '/Live output mode enabled/,/End of Output/p' "$script")
 
-    # set +o pipefail and set -e must both exist in the live block
-    echo "$live_block" | grep -q 'set +o pipefail'
-    echo "$live_block" | grep -q 'set -e'
+    # wait and exit_code capture must exist
+    echo "$live_block" | grep -q 'wait \$CLAUDE_CHILD_PID'
+    echo "$live_block" | grep -q 'exit_code=\$?'
 
-    # Verify ordering: set -e comes after set +o pipefail
-    local pipefail_off_line=$(echo "$live_block" | grep -n 'set +o pipefail' | head -1 | cut -d: -f1)
-    local re_enable_line=$(echo "$live_block" | grep -n '^\s*set -e' | awk -F: -v threshold="$pipefail_off_line" '$1 > threshold {print $1; exit}')
-
-    [[ -n "$pipefail_off_line" ]]
-    [[ -n "$re_enable_line" ]]
-    [[ $re_enable_line -gt $pipefail_off_line ]]
+    # CLAUDE_CHILD_PID must be cleared after wait
+    echo "$live_block" | grep -q 'CLAUDE_CHILD_PID=""'
 }
 
 @test "live mode pipeline has errexit guard comment referencing Issue #175" {

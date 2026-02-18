@@ -45,6 +45,21 @@ _env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
+_env_RALPH_TMUX_ENV="${RALPH_TMUX_ENV:-}"
+
+# Azure Foundry / Anthropic API configuration
+# Set CLAUDE_CODE_USE_FOUNDRY=true in .ralphrc to use Azure Foundry for this project
+_env_CLAUDE_CODE_USE_FOUNDRY="${CLAUDE_CODE_USE_FOUNDRY:-}"
+_env_ANTHROPIC_FOUNDRY_RESOURCE="${ANTHROPIC_FOUNDRY_RESOURCE:-}"
+_env_ANTHROPIC_FOUNDRY_API_KEY="${ANTHROPIC_FOUNDRY_API_KEY:-}"
+_env_ANTHROPIC_DEFAULT_SONNET_MODEL="${ANTHROPIC_DEFAULT_SONNET_MODEL:-}"
+_env_ANTHROPIC_DEFAULT_HAIKU_MODEL="${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}"
+_env_ANTHROPIC_DEFAULT_OPUS_MODEL="${ANTHROPIC_DEFAULT_OPUS_MODEL:-}"
+_env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
+_env_CLAUDE_CHROME="${CLAUDE_CHROME:-}"
+
+# Default: don't use Foundry (use personal account)
+CLAUDE_CODE_USE_FOUNDRY="${CLAUDE_CODE_USE_FOUNDRY:-0}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -56,6 +71,8 @@ CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
 # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
 CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
+CLAUDE_MODEL="${CLAUDE_MODEL:-}"                    # Override model (e.g., claude-opus-4-6)
+CLAUDE_CHROME="${CLAUDE_CHROME:-false}"              # Enable Chrome browser integration (--chrome)
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
@@ -66,6 +83,11 @@ RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"  # Session transi
 # Session expiration: 24 hours default balances project continuity with fresh context
 # Too short = frequent context loss; Too long = stale context causes unpredictable behavior
 CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}
+
+# Tmux environment forwarding configuration
+# Space-separated list of env var names or prefixes (with trailing *) to forward into tmux sessions
+# Example: "CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_* AWS_*"
+RALPH_TMUX_ENV="${RALPH_TMUX_ENV:-CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_*}"
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
@@ -115,6 +137,7 @@ RALPHRC_LOADED=false
 #   - CB_NO_PROGRESS_THRESHOLD
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
+#   - RALPH_TMUX_ENV (env var names/prefixes to forward into tmux sessions)
 #   - RALPH_VERBOSE
 #
 load_ralphrc() {
@@ -152,6 +175,15 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
+    [[ -n "$_env_RALPH_TMUX_ENV" ]] && RALPH_TMUX_ENV="$_env_RALPH_TMUX_ENV"
+    [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
+    [[ -n "$_env_CLAUDE_CHROME" ]] && CLAUDE_CHROME="$_env_CLAUDE_CHROME"
+    [[ -n "$_env_CLAUDE_CODE_USE_FOUNDRY" ]] && CLAUDE_CODE_USE_FOUNDRY="$_env_CLAUDE_CODE_USE_FOUNDRY"
+    [[ -n "$_env_ANTHROPIC_FOUNDRY_RESOURCE" ]] && ANTHROPIC_FOUNDRY_RESOURCE="$_env_ANTHROPIC_FOUNDRY_RESOURCE"
+    [[ -n "$_env_ANTHROPIC_FOUNDRY_API_KEY" ]] && ANTHROPIC_FOUNDRY_API_KEY="$_env_ANTHROPIC_FOUNDRY_API_KEY"
+    [[ -n "$_env_ANTHROPIC_DEFAULT_SONNET_MODEL" ]] && ANTHROPIC_DEFAULT_SONNET_MODEL="$_env_ANTHROPIC_DEFAULT_SONNET_MODEL"
+    [[ -n "$_env_ANTHROPIC_DEFAULT_HAIKU_MODEL" ]] && ANTHROPIC_DEFAULT_HAIKU_MODEL="$_env_ANTHROPIC_DEFAULT_HAIKU_MODEL"
+    [[ -n "$_env_ANTHROPIC_DEFAULT_OPUS_MODEL" ]] && ANTHROPIC_DEFAULT_OPUS_MODEL="$_env_ANTHROPIC_DEFAULT_OPUS_MODEL"
 
     RALPHRC_LOADED=true
     return 0
@@ -167,6 +199,50 @@ NC='\033[0m' # No Color
 
 # Initialize directories
 mkdir -p "$LOG_DIR" "$DOCS_DIR"
+
+# Forward environment variables into a tmux session
+# Uses RALPH_TMUX_ENV to determine which vars to forward
+# Supports exact names (e.g., "FOO") and prefix patterns (e.g., "ANTHROPIC_*")
+forward_tmux_env() {
+    local session_name="$1"
+    local patterns="$RALPH_TMUX_ENV"
+
+    [[ -z "$patterns" ]] && return 0
+
+    # Disable globbing so patterns like "ANTHROPIC_*" are not expanded
+    # against filenames in the current directory
+    set -f
+    for pattern in $patterns; do
+        if [[ "$pattern" == *'*' ]]; then
+            # Prefix pattern: match all env vars starting with the prefix
+            local prefix="${pattern%\*}"
+            while IFS= read -r line; do
+                local name="${line%%=*}"
+                local value="${line#*=}"
+                if [[ -n "$name" && -n "$value" ]]; then
+                    tmux set-environment -t "$session_name" "$name" "$value"
+                fi
+            done < <(env | grep "^${prefix}" || true)
+        else
+            # Exact match: forward if set in current environment
+            local value="${!pattern:-}"
+            if [[ -n "$value" ]]; then
+                tmux set-environment -t "$session_name" "$pattern" "$value"
+            fi
+        fi
+    done
+    set +f
+
+    # When Foundry is disabled, actively unset Foundry vars at session level
+    # to prevent leakage from tmux global environment (concurrent session isolation)
+    if [[ "${CLAUDE_CODE_USE_FOUNDRY:-0}" != "1" ]]; then
+        tmux set-environment -t "$session_name" -u ANTHROPIC_FOUNDRY_RESOURCE 2>/dev/null || true
+        tmux set-environment -t "$session_name" -u ANTHROPIC_FOUNDRY_API_KEY 2>/dev/null || true
+        tmux set-environment -t "$session_name" -u ANTHROPIC_DEFAULT_SONNET_MODEL 2>/dev/null || true
+        tmux set-environment -t "$session_name" -u ANTHROPIC_DEFAULT_HAIKU_MODEL 2>/dev/null || true
+        tmux set-environment -t "$session_name" -u ANTHROPIC_DEFAULT_OPUS_MODEL 2>/dev/null || true
+    fi
+}
 
 # Check if tmux is available
 check_tmux_available() {
@@ -206,6 +282,9 @@ setup_tmux_session() {
 
     # Create new tmux session detached (left pane - Ralph loop)
     tmux new-session -d -s "$session_name" -c "$project_dir"
+
+    # Forward configured environment variables into the tmux session
+    forward_tmux_env "$session_name"
 
     # Split window vertically (right side)
     tmux split-window -h -t "$session_name" -c "$project_dir"
@@ -268,17 +347,19 @@ setup_tmux_session() {
     if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
         ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
     fi
+    # Forward --chrome if enabled
+    if [[ "$CLAUDE_CHROME" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --chrome"
+    fi
     # Forward --auto-reset-circuit if enabled
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
     fi
 
-    # Chain tmux kill-session after the loop command so the entire tmux
-    # session is torn down when the Ralph loop exits (graceful completion,
-    # circuit breaker, error, or manual interrupt). Without this, the
-    # tail -f and ralph_monitor.sh panes keep the session alive forever.
-    # Issue: https://github.com/frankbria/ralph-claude-code/issues/176
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
+    # Loop ralph with a cooldown so it auto-restarts after exit (rate limit,
+    # circuit breaker, completion, etc.). Ctrl+C in the pane stops the loop.
+    # The sleep gives the user a window to detach or kill the session.
+    tmux send-keys -t "$session_name:${base_win}.0" "while true; do $ralph_cmd; echo '=== Ralph exited. Restarting in 60s (Ctrl+C to stop) ==='; sleep 60; done" Enter
 
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:${base_win}.0"
@@ -428,6 +509,42 @@ wait_for_reset() {
     echo "0" > "$CALL_COUNT_FILE"
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     log_status "SUCCESS" "Rate limit reset! Ready for new calls."
+}
+
+# Wait for circuit breaker cooldown recovery instead of exiting
+wait_for_circuit_recovery() {
+    local loop_count=$1
+    local check_interval=60  # Check every 60 seconds
+
+    log_status "WARN" "Circuit breaker OPEN - waiting for cooldown recovery (${CB_COOLDOWN_MINUTES}m)..."
+    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "waiting_for_recovery" "paused" "circuit_breaker_cooldown"
+
+    while true; do
+        sleep "$check_interval"
+
+        # Re-init circuit breaker (handles OPEN→HALF_OPEN/CLOSED transitions)
+        init_circuit_breaker
+
+        local state
+        state=$(get_circuit_state)
+        if [[ "$state" != "$CB_STATE_OPEN" ]]; then
+            log_status "SUCCESS" "Circuit breaker recovered to $state - resuming loop"
+            return 0
+        fi
+
+        # Show remaining cooldown time
+        local opened_at
+        opened_at=$(jq -r '.opened_at // .last_change // ""' "$CB_STATE_FILE" 2>/dev/null)
+        if [[ -n "$opened_at" && "$opened_at" != "null" ]]; then
+            local opened_epoch elapsed_minutes remaining
+            opened_epoch=$(parse_iso_to_epoch "$opened_at")
+            elapsed_minutes=$(( ($(date +%s) - opened_epoch) / 60 ))
+            remaining=$((CB_COOLDOWN_MINUTES - elapsed_minutes))
+            if [[ $remaining -gt 0 ]]; then
+                log_status "INFO" "Cooldown: ${elapsed_minutes}m elapsed, ~${remaining}m remaining"
+            fi
+        fi
+    done
 }
 
 # Check if we should gracefully exit
@@ -982,6 +1099,16 @@ build_claude_command() {
         CLAUDE_CMD_ARGS+=("--output-format" "json")
     fi
 
+    # Add model override if configured
+    if [[ -n "$CLAUDE_MODEL" ]]; then
+        CLAUDE_CMD_ARGS+=("--model" "$CLAUDE_MODEL")
+    fi
+
+    # Add Chrome browser integration if enabled
+    if [[ "$CLAUDE_CHROME" == "true" ]]; then
+        CLAUDE_CMD_ARGS+=("--chrome")
+    fi
+
     # Add allowed tools (each tool as separate array element)
     if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
         CLAUDE_CMD_ARGS+=("--allowedTools")
@@ -1028,6 +1155,9 @@ execute_claude_code() {
     local loop_count=$1
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
+    # Write call count immediately so monitor shows current value during execution
+    echo "$calls_made" > "$CALL_COUNT_FILE"
+    update_status "$loop_count" "$calls_made" "executing" "running"
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
     # Store in file for access by progress detection after Claude execution
@@ -1040,6 +1170,9 @@ execute_claude_code() {
     log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
+    if [[ "$CLAUDE_CHROME" == "true" ]]; then
+        log_status "INFO" "🌐 Chrome browser integration enabled"
+    fi
 
     # Build loop context for session continuity
     local loop_context=""
@@ -1074,6 +1207,45 @@ execute_claude_code() {
             log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
             LIVE_OUTPUT=false
         fi
+    fi
+
+    # Export Azure Foundry credentials if enabled for this project
+    # Only exports when CLAUDE_CODE_USE_FOUNDRY=1 in .ralphrc
+    if [[ "${CLAUDE_CODE_USE_FOUNDRY:-0}" == "1" ]]; then
+        log_status "INFO" "🔐 Configured Authentication: Azure Foundry (API base)"
+        if [[ -n "${ANTHROPIC_FOUNDRY_RESOURCE:-}" ]]; then
+            export ANTHROPIC_FOUNDRY_RESOURCE
+            log_status "INFO" "   Resource: $ANTHROPIC_FOUNDRY_RESOURCE"
+        fi
+        if [[ -n "${ANTHROPIC_FOUNDRY_API_KEY:-}" ]]; then
+            export ANTHROPIC_FOUNDRY_API_KEY
+            log_status "INFO" "   API Key: ${ANTHROPIC_FOUNDRY_API_KEY:0:10}..."
+        fi
+        if [[ -n "${ANTHROPIC_DEFAULT_SONNET_MODEL:-}" ]]; then
+            export ANTHROPIC_DEFAULT_SONNET_MODEL
+            log_status "INFO" "   Model: $ANTHROPIC_DEFAULT_SONNET_MODEL"
+        fi
+        if [[ -n "${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" ]]; then
+            export ANTHROPIC_DEFAULT_HAIKU_MODEL
+        fi
+        if [[ -n "${ANTHROPIC_DEFAULT_OPUS_MODEL:-}" ]]; then
+            export ANTHROPIC_DEFAULT_OPUS_MODEL
+        fi
+        export CLAUDE_CODE_USE_FOUNDRY=1
+        if [[ -n "${CLAUDE_MODEL:-}" ]]; then
+            log_status "INFO" "   Model Override: $CLAUDE_MODEL"
+        fi
+    else
+        log_status "INFO" "🔐 Configured Authentication: Personal Account (Auth-based)"
+        if [[ -n "${CLAUDE_MODEL:-}" ]]; then
+            log_status "INFO" "   Model Override: $CLAUDE_MODEL"
+        fi
+        # Explicitly unset Foundry vars to prevent leakage from tmux global environment
+        unset ANTHROPIC_FOUNDRY_RESOURCE
+        unset ANTHROPIC_FOUNDRY_API_KEY
+        unset ANTHROPIC_DEFAULT_SONNET_MODEL
+        unset ANTHROPIC_DEFAULT_HAIKU_MODEL
+        unset ANTHROPIC_DEFAULT_OPUS_MODEL
     fi
 
     # Execute Claude Code
@@ -1157,34 +1329,24 @@ execute_claude_code() {
         # Capture all pipeline exit codes for proper error handling
         # stdin must be redirected from /dev/null because newer Claude CLI versions
         # read from stdin even in -p (print) mode, causing the process to hang
-        # Disable errexit for pipeline - timeout returns non-zero exit code 124
-        # which would cause set -e to silently kill the entire script (Issue #175)
-        set +e
-        set -o pipefail
-        portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
-
-        # Capture exit codes from pipeline
-        local -a pipe_status=("${PIPESTATUS[@]}")
-        set +o pipefail
-        set -e  # Re-enable errexit now that exit codes are captured
-
-        # Primary exit code is from Claude/timeout (first command in pipeline)
-        exit_code=${pipe_status[0]}
+        #
+        # Run in a subshell so cleanup() can kill the entire pipeline
+        # (timeout + stdbuf + claude + tee + jq) with a single process group
+        # kill on Ctrl+C. The subshell also avoids the errexit issue (Issue #175)
+        # where timeout's exit code 124 would silently kill the script under set -e.
+        (
+            set -o pipefail
+            portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
+                < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+        ) &
+        CLAUDE_CHILD_PID=$!
+        wait $CLAUDE_CHILD_PID
+        exit_code=$?
+        CLAUDE_CHILD_PID=""
 
         # Log timeout events explicitly (exit code 124 from portable_timeout)
         if [[ $exit_code -eq 124 ]]; then
             log_status "WARN" "Claude Code execution timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes"
-        fi
-
-        # Check for tee failures (second command) - could break logging/session
-        if [[ ${pipe_status[1]} -ne 0 ]]; then
-            log_status "WARN" "Failed to write stream output to log file (exit code ${pipe_status[1]})"
-        fi
-
-        # Check for jq failures (third command) - warn but don't fail
-        if [[ ${pipe_status[2]} -ne 0 ]]; then
-            log_status "WARN" "jq filter had issues parsing some stream events (exit code ${pipe_status[2]})"
         fi
 
         echo ""
@@ -1252,8 +1414,9 @@ execute_claude_code() {
             fi
         fi
 
-        # Get PID and monitor progress
+        # Get PID and monitor progress (also track globally for cleanup)
         local claude_pid=$!
+        CLAUDE_CHILD_PID=$claude_pid
         local progress_counter=0
 
         # Show progress while Claude Code is running
@@ -1300,16 +1463,28 @@ EOF
         # Wait for the process to finish and get exit code
         wait $claude_pid
         exit_code=$?
+        CLAUDE_CHILD_PID=""
     fi
 
     if [ $exit_code -eq 0 ]; then
-        # Only increment counter on successful execution
+        # Ensure call count is persisted (also written at start of execution for monitor)
         echo "$calls_made" > "$CALL_COUNT_FILE"
 
         # Clear progress file
         echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
         log_status "SUCCESS" "✅ Claude Code execution completed successfully"
+
+        # Verify actual authentication method used by checking response metadata
+        if [[ -f "$output_file" ]]; then
+            # Check for usage/billing fields (indicates personal account)
+            if grep -q '"usage"\|"billing"\|"credits_remaining"' "$output_file" 2>/dev/null; then
+                log_status "INFO" "🔍 Detected: Personal Account (usage/billing info in response)"
+            elif [[ "${CLAUDE_CODE_USE_FOUNDRY:-0}" == "1" ]]; then
+                # Foundry responses typically don't have usage fields
+                log_status "INFO" "🔍 Detected: Azure Foundry (no usage info in response)"
+            fi
+        fi
 
         # Save session ID from JSON output (Phase 1.1)
         if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
@@ -1412,9 +1587,31 @@ EOF
     fi
 }
 
+# PID of the currently running Claude process (or pipeline subshell)
+# Used by cleanup() to kill child processes on Ctrl+C
+CLAUDE_CHILD_PID=""
+
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+
+    # Kill the Claude process tree to prevent orphaned processes.
+    # We use pkill -P (kill by parent PID) instead of kill -- -PGID because
+    # backgrounded subshells in non-interactive scripts inherit the parent's
+    # process group, so kill -- -PID would either ESRCH or kill ourselves.
+    if [[ -n "$CLAUDE_CHILD_PID" ]]; then
+        # Kill all children of the subshell (timeout, stdbuf, claude, tee, jq)
+        pkill -P "$CLAUDE_CHILD_PID" 2>/dev/null || true
+        # Kill the subshell itself
+        kill "$CLAUDE_CHILD_PID" 2>/dev/null || true
+        # Wait briefly to let processes terminate
+        sleep 0.5
+        # Force kill any survivors
+        pkill -9 -P "$CLAUDE_CHILD_PID" 2>/dev/null || true
+        kill -9 "$CLAUDE_CHILD_PID" 2>/dev/null || true
+        CLAUDE_CHILD_PID=""
+    fi
+
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
@@ -1520,8 +1717,9 @@ main() {
         if should_halt_execution; then
             reset_session "circuit_breaker_open"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
-            log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
-            break
+            log_status "WARN" "Circuit breaker OPEN - entering recovery wait..."
+            wait_for_circuit_recovery "$loop_count"
+            continue
         fi
 
         # Check rate limits
@@ -1584,11 +1782,7 @@ main() {
             break
         fi
         
-        # Update status
-        local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-        update_status "$loop_count" "$calls_made" "executing" "running"
-        
-        # Execute Claude Code
+        # Execute Claude Code (updates status.json with current call count internally)
         execute_claude_code "$loop_count"
         local exec_result=$?
         
@@ -1601,9 +1795,9 @@ main() {
             # Circuit breaker opened
             reset_session "circuit_breaker_trip"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
-            log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
-            log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
-            break
+            log_status "WARN" "Circuit breaker tripped - entering recovery wait..."
+            wait_for_circuit_recovery "$loop_count"
+            continue
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
@@ -1681,6 +1875,7 @@ Modern CLI Options (Phase 1.1):
     --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
     --no-continue           Disable session continuity across loops
     --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
+    --chrome                Enable Chrome browser integration for web testing and automation
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -1809,6 +2004,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --auto-reset-circuit)
             CB_AUTO_RESET=true
+            shift
+            ;;
+        --chrome)
+            CLAUDE_CHROME=true
             shift
             ;;
         *)
