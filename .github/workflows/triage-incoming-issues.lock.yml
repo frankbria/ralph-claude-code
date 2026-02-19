@@ -22,7 +22,7 @@
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"689146b88764a88bf6ec6ab4f221237c8f33b8288fbc0947fec938cb981bd8c6","compiler_version":"v0.46.5"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"45531fb9046359a8792951aff226686a15ff0ddcb3e17f1859a6ac6cec4dbdae","compiler_version":"v0.46.5"}
 
 name: "Issue Triage Assistant"
 "on":
@@ -367,10 +367,34 @@ jobs:
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
           cat > /opt/gh-aw/safeoutputs/config.json << 'GH_AW_SAFE_OUTPUTS_CONFIG_EOF'
-          {"add_comment":{"max":2},"missing_data":{},"missing_tool":{},"noop":{"max":1}}
+          {"add_comment":{"max":2},"add_labels":{"allowed":["bug","enhancement","needs-info","documentation"],"max":3},"assign_to_user":{"allowed":["frankbria"],"max":1},"close_issue":{"max":1,"target":"triggering"},"missing_data":{},"missing_tool":{},"noop":{"max":1}}
           GH_AW_SAFE_OUTPUTS_CONFIG_EOF
           cat > /opt/gh-aw/safeoutputs/tools.json << 'GH_AW_SAFE_OUTPUTS_TOOLS_EOF'
           [
+            {
+              "description": "Close a GitHub issue with a closing comment. You can and should always add a comment when closing an issue to explain the action or provide context. This tool is ONLY for closing issues - use update_issue if you need to change the title, body, labels, or other metadata without closing. Use close_issue when work is complete, the issue is no longer relevant, or it's a duplicate. The closing comment should explain the resolution or reason for closing. If the issue is already closed, a comment will still be posted. CONSTRAINTS: Maximum 1 issue(s) can be closed. Target: triggering.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "description": "Closing comment explaining why the issue is being closed and summarizing any resolution, workaround, or conclusion.",
+                    "type": "string"
+                  },
+                  "issue_number": {
+                    "description": "Issue number to close. This is the numeric ID from the GitHub URL (e.g., 901 in github.com/owner/repo/issues/901). If omitted, closes the issue that triggered this workflow (requires an issue event trigger).",
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "type": "object"
+              },
+              "name": "close_issue"
+            },
             {
               "description": "Add a comment to an existing GitHub issue, pull request, or discussion. Use this to provide feedback, answer questions, or add information to an existing conversation. For creating new items, use create_issue, create_discussion, or create_pull_request instead. IMPORTANT: Comments are subject to validation constraints enforced by the MCP server - maximum 65536 characters for the complete comment (including footer which is added automatically), 10 mentions (@username), and 50 links. Exceeding these limits will result in an immediate error with specific guidance. NOTE: By default, this tool requires discussions:write permission. If your GitHub App lacks Discussions permission, set 'discussions: false' in the workflow's safe-outputs.add-comment configuration to exclude this permission. CONSTRAINTS: Maximum 2 comment(s) can be added.",
               "inputSchema": {
@@ -391,6 +415,58 @@ jobs:
                 "type": "object"
               },
               "name": "add_comment"
+            },
+            {
+              "description": "Add labels to an existing GitHub issue or pull request for categorization and filtering. Labels must already exist in the repository. For creating new issues with labels, use create_issue with the labels property instead. CONSTRAINTS: Only these labels are allowed: [bug enhancement needs-info documentation].",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "item_number": {
+                    "description": "Issue or PR number to add labels to. This is the numeric ID from the GitHub URL (e.g., 456 in github.com/owner/repo/issues/456). If omitted, adds labels to the item that triggered this workflow.",
+                    "type": "number"
+                  },
+                  "labels": {
+                    "description": "Label names to add (e.g., ['bug', 'priority-high']). Labels must exist in the repository.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "name": "add_labels"
+            },
+            {
+              "description": "Assign one or more GitHub users to an issue. Use this to delegate work to specific team members. Users must have access to the repository.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "assignee": {
+                    "description": "Single GitHub username to assign. Use 'assignees' array for multiple users.",
+                    "type": "string"
+                  },
+                  "assignees": {
+                    "description": "GitHub usernames to assign to the issue (e.g., ['octocat', 'mona']). Users must have access to the repository.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "issue_number": {
+                    "description": "Issue number to assign users to. This is the numeric ID from the GitHub URL (e.g., 543 in github.com/owner/repo/issues/543). If omitted, assigns to the issue that triggered this workflow.",
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  }
+                },
+                "required": [
+                  "issue_number"
+                ],
+                "type": "object"
+              },
+              "name": "assign_to_user"
             },
             {
               "description": "Report that a tool or capability needed to complete the task is not available, or share any information you deem important about missing functionality or limitations. Use this when you cannot accomplish what was requested because the required functionality is missing or access is restricted.",
@@ -476,6 +552,53 @@ jobs:
                 },
                 "item_number": {
                   "issueOrPRNumber": true
+                }
+              }
+            },
+            "add_labels": {
+              "defaultMax": 5,
+              "fields": {
+                "item_number": {
+                  "issueOrPRNumber": true
+                },
+                "labels": {
+                  "required": true,
+                  "type": "array",
+                  "itemType": "string",
+                  "itemSanitize": true,
+                  "itemMaxLength": 128
+                }
+              }
+            },
+            "assign_to_user": {
+              "defaultMax": 1,
+              "fields": {
+                "assignee": {
+                  "type": "string",
+                  "sanitize": true,
+                  "maxLength": 39
+                },
+                "assignees": {
+                  "type": "[]string",
+                  "sanitize": true,
+                  "maxLength": 39
+                },
+                "issue_number": {
+                  "issueOrPRNumber": true
+                }
+              }
+            },
+            "close_issue": {
+              "defaultMax": 1,
+              "fields": {
+                "body": {
+                  "required": true,
+                  "type": "string",
+                  "sanitize": true,
+                  "maxLength": 65000
+                },
+                "issue_number": {
+                  "optionalPositiveInteger": true
                 }
               }
             },
@@ -790,6 +913,7 @@ jobs:
       contents: read
       discussions: write
       issues: write
+      pull-requests: write
     outputs:
       noop_message: ${{ steps.noop.outputs.noop_message }}
       tools_reported: ${{ steps.missing_tool.outputs.tools_reported }}
@@ -1005,12 +1129,14 @@ jobs:
       contents: read
       discussions: write
       issues: write
+      pull-requests: write
     timeout-minutes: 15
     env:
       GH_AW_ENGINE_ID: "copilot"
       GH_AW_WORKFLOW_ID: "triage-incoming-issues"
       GH_AW_WORKFLOW_NAME: "Issue Triage Assistant"
     outputs:
+      assign_to_user_assigned: ${{ steps.process_safe_outputs.outputs.assigned }}
       create_discussion_error_count: ${{ steps.process_safe_outputs.outputs.create_discussion_error_count }}
       create_discussion_errors: ${{ steps.process_safe_outputs.outputs.create_discussion_errors }}
       process_safe_outputs_processed_count: ${{ steps.process_safe_outputs.outputs.processed_count }}
@@ -1036,7 +1162,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           GH_AW_AGENT_OUTPUT: ${{ env.GH_AW_AGENT_OUTPUT }}
-          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"max\":2},\"missing_data\":{},\"missing_tool\":{}}"
+          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"max\":2},\"add_labels\":{\"allowed\":[\"bug\",\"enhancement\",\"needs-info\",\"documentation\"]},\"assign_to_user\":{\"allowed\":[\"frankbria\"],\"max\":1},\"close_issue\":{\"max\":1,\"target\":\"triggering\"},\"missing_data\":{},\"missing_tool\":{}}"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
