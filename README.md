@@ -18,7 +18,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 **Version**: v0.11.5 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 556 tests, 100% pass rate
+**Test Coverage**: 566 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -47,7 +47,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Three-layer API limit detection: timeout guard → structural JSON (`rate_limit_event`) → filtered text fallback
 - Unattended mode: API limit prompt now auto-waits on timeout instead of exiting
 - Fixed bash 3.x compatibility: `${,,}` lowercase substitution replaced with POSIX `tr` (#187)
-- Added 8 new tests for API limit detection (548 → 556 tests)
+- Added 8 new tests for API limit detection (548 → 566 tests)
 
 **v0.11.4 - Bug Fixes & Compatibility**
 - Fixed progress detection: Git commits within a loop now count as progress (#141)
@@ -400,6 +400,10 @@ Each Ralph project can have a `.ralphrc` configuration file:
 PROJECT_NAME="my-project"
 PROJECT_TYPE="typescript"
 
+# Claude Code CLI command (auto-detected, override if needed)
+CLAUDE_CODE_CMD="claude"
+# CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"  # Alternative: use npx
+
 # Loop settings
 MAX_CALLS_PER_HOUR=100
 CLAUDE_TIMEOUT_MINUTES=15
@@ -613,7 +617,7 @@ my-project/
 ## System Requirements
 
 - **Bash 4.0+** - For script execution
-- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code`
+- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code` (or use npx — set `CLAUDE_CODE_CMD` in `.ralphrc`)
 - **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
@@ -632,7 +636,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (556 tests)
+# Run all tests (566 tests)
 npm test
 
 # Run specific test suites
@@ -658,7 +662,7 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **556 tests** across 18 test files
+- **566 tests** across 18 test files
 - **100% pass rate** (556/556 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
@@ -728,6 +732,7 @@ tail -f .ralph/logs/ralph.log
 
 ### Common Issues
 
+- **Ralph exits silently on first loop** - Claude Code CLI may not be installed or not in PATH. Ralph validates the command at startup and shows installation instructions. If using npx, add `CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"` to `.ralphrc`
 - **Rate Limits** - Ralph automatically waits and displays countdown
 - **5-Hour API Limit** - Ralph detects and prompts for user action (wait or exit)
 - **Stuck Loops** - Check `fix_plan.md` for unclear or conflicting tasks
@@ -765,7 +770,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 556 tests must pass
+npm test  # All 566 tests must pass
 ```
 
 ### Priority Contribution Areas
