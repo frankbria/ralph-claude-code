@@ -912,3 +912,145 @@ EOF
     run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*&' "$script"
     assert_success
 }
+
+# --- API Limit False Positive Detection Tests (Issue #183) ---
+
+@test "API limit detection has timeout guard before rate limit grep" {
+    # Exit code 124 (timeout) must be checked BEFORE the API limit grep
+    # to prevent false positives when output file contains echoed "5-hour limit" text
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Find the Layer 1 guard specifically (in the failure path, marked by comment)
+    local layer1_line=$(grep -n 'Layer 1.*Timeout guard' "$script" | head -1 | cut -d: -f1)
+    local timeout_line=$(awk -F: -v s="$layer1_line" 'NR >= s && /exit_code -eq 124/ { print NR; exit }' "$script")
+    local rate_limit_grep_line=$(grep -n 'rate_limit_event' "$script" | head -1 | cut -d: -f1)
+    local text_fallback_line=$(grep -n '5.*hour.*limit' "$script" | head -1 | cut -d: -f1)
+
+    # Layer 1 guard must exist in the failure path
+    [[ -n "$layer1_line" ]]
+    [[ -n "$timeout_line" ]]
+    [[ -n "$rate_limit_grep_line" ]]
+    [[ -n "$text_fallback_line" ]]
+    # Timeout guard must appear before both rate limit checks
+    [[ "$timeout_line" -lt "$rate_limit_grep_line" ]]
+    [[ "$timeout_line" -lt "$text_fallback_line" ]]
+}
+
+@test "API limit detection checks rate_limit_event JSON as primary signal" {
+    # The primary detection method should parse rate_limit_event for status:"rejected"
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify rate_limit_event grep exists
+    run grep 'rate_limit_event' "$script"
+    assert_success
+
+    # Verify it checks for status:rejected (whitespace-tolerant pattern)
+    run grep '"status".*"rejected"' "$script"
+    assert_success
+}
+
+@test "API limit detection filters tool result content in fallback" {
+    # The text fallback must filter out type:user and tool_result lines
+    # to avoid matching "5-hour limit" text echoed from project files
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify filtering of tool result content (whitespace-tolerant pattern)
+    run grep 'grep -vE.*"type".*"user"' "$script"
+    assert_success
+
+    run grep 'grep -v.*"tool_result"' "$script"
+    assert_success
+
+    run grep 'grep -v.*"tool_use_id"' "$script"
+    assert_success
+}
+
+@test "API limit detection uses tail not full file in fallback" {
+    # The text fallback should use tail (not grep the whole file)
+    # to limit the search scope and reduce false positives
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The fallback line should use tail before grep
+    run grep 'tail -30.*output_file.*grep -v.*grep -qi.*5.*hour.*limit' "$script"
+    assert_success
+}
+
+@test "API limit prompt defaults to wait in unattended mode" {
+    # When the read prompt times out (empty user_choice), Ralph should
+    # auto-wait instead of exiting — supports unattended operation
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The exit condition should ONLY trigger on explicit "2", not on empty/timeout
+    run grep 'user_choice.*==.*"2"' "$script"
+    assert_success
+
+    # Should NOT have the old pattern that exits on empty choice
+    run grep 'user_choice.*==.*"2".*||.*-z.*user_choice' "$script"
+    assert_failure
+}
+
+# --- Behavioral Tests: API Limit Detection Against Fixture Data (Issue #183) ---
+# These tests exercise the actual detection logic against fixture files,
+# complementing the grep-based structural tests above.
+
+# Helper: runs the three-layer detection logic from ralph_loop.sh against a
+# given output file and exit code. Returns the same codes as execute_claude_code:
+#   1 = generic error (not API limit)
+#   2 = API limit detected
+_detect_api_limit() {
+    local exit_code="$1"
+    local output_file="$2"
+
+    # Layer 1: Timeout guard
+    if [[ $exit_code -eq 124 ]]; then
+        return 1
+    fi
+
+    # Layer 2: Structural JSON detection
+    if grep -q '"rate_limit_event"' "$output_file" 2>/dev/null; then
+        local last_rate_event
+        last_rate_event=$(grep '"rate_limit_event"' "$output_file" | tail -1)
+        if echo "$last_rate_event" | grep -qE '"status"\s*:\s*"rejected"'; then
+            return 2
+        fi
+    fi
+
+    # Layer 3: Filtered text fallback
+    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+        return 2
+    fi
+
+    return 1
+}
+
+@test "behavioral: timeout (exit 124) with echoed 5-hour-limit text returns 1, not 2" {
+    # Scenario: Claude timed out, output contains "5-hour limit" in echoed file content
+    local output_file="$TEST_DIR/claude_output_timeout.log"
+    create_sample_stream_json_with_prompt_echo "$output_file"
+
+    # exit_code=124 (timeout) — should return 1 regardless of file content
+    run _detect_api_limit 124 "$output_file"
+    assert_failure  # return code 1 (not 0)
+    [[ "$status" -eq 1 ]]
+}
+
+@test "behavioral: real rate_limit_event status:rejected returns 2" {
+    # Scenario: Claude hit the actual API limit (rate_limit_event rejected)
+    local output_file="$TEST_DIR/claude_output_rejected.log"
+    create_sample_stream_json_rate_limit_rejected "$output_file"
+
+    # exit_code=1 (non-timeout failure) — should detect real API limit
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 2 ]]
+}
+
+@test "behavioral: rate_limit_event status:allowed with prompt echo returns 1" {
+    # Scenario: No API limit, but output contains "5-hour limit" from echoed files
+    # The type:user filter should prevent false positive
+    local output_file="$TEST_DIR/claude_output_echo.log"
+    create_sample_stream_json_with_prompt_echo "$output_file"
+
+    # exit_code=1 (non-timeout failure) — should NOT detect API limit
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 1 ]]
+}

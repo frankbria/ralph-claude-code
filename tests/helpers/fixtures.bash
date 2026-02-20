@@ -375,3 +375,26 @@ create_test_project() {
 
     cd - > /dev/null || return 1
 }
+
+# Sample stream-json output with rate_limit_event status:rejected (real API limit)
+create_sample_stream_json_rate_limit_rejected() {
+    local file=${1:-"claude_output.log"}
+    cat > "$file" << 'EOF'
+{"type":"system","subtype":"init","session_id":"abc123","tools":["Read","Write","Edit","Bash"]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll analyze the code..."}]}}
+{"type":"result","subtype":"rate_limit_event","rate_limit_event":{"type":"rate_limit","status":"rejected","message":"You have exceeded your 5-hour usage limit. Please try again later."}}
+EOF
+}
+
+# Sample stream-json output with prompt echo containing "5-hour limit" text (false positive scenario)
+# rate_limit_event shows status:allowed, but type:user lines contain echoed file content
+create_sample_stream_json_with_prompt_echo() {
+    local file=${1:-"claude_output.log"}
+    cat > "$file" << 'EOF'
+{"type":"system","subtype":"init","session_id":"abc123","tools":["Read","Write","Edit","Bash"]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Let me read the prompt file..."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_abc","content":"# Ralph Instructions\n\nNote: Be aware of the 5-hour usage limit for Claude API.\nIf the limit is reached, try again back later.\nUsage limit reached means you should wait."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I see the instructions. Working on the task now..."}]}}
+{"type":"result","subtype":"rate_limit_event","rate_limit_event":{"type":"rate_limit","status":"allowed","remaining":42}}
+EOF
+}
