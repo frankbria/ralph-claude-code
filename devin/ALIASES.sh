@@ -5,56 +5,56 @@
 # Then run: source ~/.bashrc (or equivalent)
 
 # Basic execution
-alias rpd='ralph-loop-devin'
-alias rpd.live='ralph-loop-devin --live'
-alias rpd.monitor='ralph-loop-devin --monitor'
-alias rpd.verbose='ralph-loop-devin --verbose'
-alias rpd.hitl='ralph-loop-devin --live --monitor'
+alias rpd='ralph-devin'
+alias rpd.live='ralph-devin --live'
+alias rpd.monitor='ralph-devin --monitor'
+alias rpd.verbose='ralph-devin --verbose'
+alias rpd.hitl='ralph-devin --live --monitor'
 
 # Session management
-alias rpd.continue='ralph-loop-devin --continue'
-alias rpd.reset='ralph-loop-devin --reset-session'
-alias rpd.status='ralph-loop-devin --status'
+alias rpd.continue='ralph-devin --continue'
+alias rpd.reset='ralph-devin --reset-session'
+alias rpd.status='ralph-devin --status'
 
 # Circuit breaker
-alias rpd.cb.reset='ralph-loop-devin --reset-circuit'
-alias rpd.cb.status='ralph-loop-devin --circuit-status'
-alias rpd.cb.auto='ralph-loop-devin --auto-reset-circuit'
+alias rpd.cb.reset='ralph-devin --reset-circuit'
+alias rpd.cb.status='ralph-devin --circuit-status'
+alias rpd.cb.auto='ralph-devin --auto-reset-circuit'
 
 # Configuration variants
-alias rpd.fast='ralph-loop-devin --calls 200'
-alias rpd.slow='ralph-loop-devin --calls 50'
-alias rpd.test='ralph-loop-devin --max-loops 1'
-alias rpd.5='ralph-loop-devin --max-loops 5'
-alias rpd.10='ralph-loop-devin --max-loops 10'
+alias rpd.fast='ralph-devin --calls 200'
+alias rpd.slow='ralph-devin --calls 50'
+alias rpd.test='ralph-devin --max-loops 1'
+alias rpd.5='ralph-devin --max-loops 5'
+alias rpd.10='ralph-devin --max-loops 10'
 
 # Model selection
-alias rpd.opus='ralph-loop-devin --model opus'
-alias rpd.sonnet='ralph-loop-devin --model sonnet'
-alias rpd.swe='ralph-loop-devin --model swe'
-alias rpd.gpt='ralph-loop-devin --model gpt'
+alias rpd.opus='ralph-devin --model opus'
+alias rpd.sonnet='ralph-devin --model sonnet'
+alias rpd.swe='ralph-devin --model swe'
+alias rpd.gpt='ralph-devin --model gpt'
 
 # Permission modes
-alias rpd.safe='ralph-loop-devin --permission-mode auto'
-alias rpd.danger='ralph-loop-devin --permission-mode dangerous'
+alias rpd.safe='ralph-devin --permission-mode auto'
+alias rpd.danger='ralph-devin --permission-mode dangerous'
 
 # Worktree management
-alias rpd.nowt='ralph-loop-devin --no-worktree'
-alias rpd.wt.squash='ralph-loop-devin --merge-strategy squash'
-alias rpd.wt.merge='ralph-loop-devin --merge-strategy merge'
-alias rpd.wt.rebase='ralph-loop-devin --merge-strategy rebase'
-alias rpd.wt.nogate='ralph-loop-devin --quality-gates none'
+alias rpd.nowt='ralph-devin --no-worktree'
+alias rpd.wt.squash='ralph-devin --merge-strategy squash'
+alias rpd.wt.merge='ralph-devin --merge-strategy merge'
+alias rpd.wt.rebase='ralph-devin --merge-strategy rebase'
+alias rpd.wt.nogate='ralph-devin --quality-gates none'
 
 # Auto-exit control
-alias rpd.autoexit='ralph-loop-devin --devin-auto-exit'
-alias rpd.int='ralph-loop-devin --no-devin-auto-exit'
+alias rpd.autoexit='ralph-devin --devin-auto-exit'
+alias rpd.int='ralph-devin --no-devin-auto-exit'
 
 # Combined common workflows
-alias rpd.dev='ralph-loop-devin --live --monitor --verbose'
-alias rpd.prod='ralph-loop-devin --calls 50 --auto-reset-circuit --permission-mode dangerous'
-alias rpd.debug='ralph-loop-devin --live --verbose --max-loops 1'
-alias rpd.wt.full='ralph-loop-devin --live --monitor --merge-strategy squash --quality-gates auto'
-alias rpd.wt.int='ralph-loop-devin --no-devin-auto-exit --live --monitor'
+alias rpd.dev='ralph-devin --live --monitor --verbose'
+alias rpd.prod='ralph-devin --calls 50 --auto-reset-circuit --permission-mode dangerous'
+alias rpd.debug='ralph-devin --live --verbose --max-loops 1'
+alias rpd.wt.full='ralph-devin --live --monitor --merge-strategy squash --quality-gates auto'
+alias rpd.wt.int='ralph-devin --no-devin-auto-exit --live --monitor'
 
 # Setup & Management
 alias rpd.monitor='ralph-monitor-devin'
