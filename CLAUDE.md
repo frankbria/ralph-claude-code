@@ -78,6 +78,7 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - User prompts: `confirm()`, `prompt_text()`, `prompt_number()`
    - Selection utilities: `select_option()`, `select_multiple()`, `select_with_default()`
    - Output formatting: `print_header()`, `print_bullet()`, `print_success/warning/error/info()`
+   - POSIX-compatible: Uses `tr '[:upper:]' '[:lower:]'` instead of `${,,}` for bash 3.x support (Issue #187)
 
 7. **lib/task_sources.sh** - Task import from external sources
    - Beads integration: `check_beads_available()`, `fetch_beads_tasks()`, `get_beads_count()`
@@ -175,7 +176,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (548 tests)
+# Run all tests (556 tests)
 npm test
 
 # Run specific test suites
