@@ -58,8 +58,8 @@ alias rpd.wt.int='ralph-devin --no-devin-auto-exit --live --monitor'
 
 # Setup & Management
 alias rpd.monitor='ralph-monitor-devin'
-alias rpd.install='cd ~/Projects/Tools-Utilities/ai-ralph/devin && ./install_devin.sh'
-alias rpd.uninstall='cd ~/Projects/Tools-Utilities/ai-ralph/devin && ./uninstall_devin.sh'
+alias rpd.install='(cd ~/Projects/Tools-Utilities/ai-ralph/devin && ./install_devin.sh)'
+alias rpd.uninstall='(cd ~/Projects/Tools-Utilities/ai-ralph/devin && ./uninstall_devin.sh)'
 
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'

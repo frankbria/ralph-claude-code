@@ -1047,7 +1047,7 @@ show_help() {
     cat << HELPEOF
 Ralph Loop for Codex CLI
 
-Usage: $0 [OPTIONS]
+Usage: ralph-codex [OPTIONS]
 
 IMPORTANT: This command must be run from a Ralph project directory.
 
@@ -1075,14 +1075,14 @@ Options:
     --no-codex-auto-exit    Disable auto-exit, inject cleanup prompt after work
 
 Examples:
-    $0 --calls 50 --timeout 30
-    $0 --monitor
-    $0 --live --verbose
-    $0 --model gpt-4
-    $0 --max-loops 5
-    $0 --permission-mode dangerous
-    $0 --no-worktree
-    $0 --merge-strategy merge --quality-gates "npm test;npm run lint"
+    ralph-codex --calls 50 --timeout 30
+    ralph-codex --monitor
+    ralph-codex --live --verbose
+    ralph-codex --model gpt-4
+    ralph-codex --max-loops 5
+    ralph-codex --permission-mode dangerous
+    ralph-codex --no-worktree
+    ralph-codex --merge-strategy merge --quality-gates "npm test;npm run lint"
 
 Bash Aliases (rpx):
     Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/codex/ALIASES.sh

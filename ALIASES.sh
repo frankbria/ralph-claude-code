@@ -43,8 +43,8 @@ alias rpc.debug='ralph --live --verbose --max-loops 1'
 
 # Setup & Management
 alias rpc.monitor='ralph-monitor'
-alias rpc.install='cd ~/Projects/Tools-Utilities/ai-ralph && ./install.sh'
-alias rpc.uninstall='cd ~/Projects/Tools-Utilities/ai-ralph && ./uninstall.sh'
+alias rpc.install='(cd ~/Projects/Tools-Utilities/ai-ralph && ./install.sh)'
+alias rpc.uninstall='(cd ~/Projects/Tools-Utilities/ai-ralph && ./uninstall.sh)'
 
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'

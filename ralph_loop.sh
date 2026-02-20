@@ -1715,7 +1715,7 @@ show_help() {
     cat << HELPEOF
 Ralph Loop for Claude Code
 
-Usage: $0 [OPTIONS]
+Usage: ralph [OPTIONS]
 
 IMPORTANT: This command must be run from a Ralph project directory.
            Use 'ralph-setup project-name' to create a new project first.
@@ -1753,18 +1753,18 @@ Files created:
 Example workflow:
     ralph-setup my-project     # Create project
     cd my-project             # Enter project directory
-    $0 --monitor             # Start Ralph with monitoring
+    ralph --monitor            # Start Ralph with monitoring
 
 Examples:
-    $0 --calls 50 --prompt my_prompt.md
-    $0 --monitor             # Start with integrated tmux monitoring
-    $0 --live                # Show Claude Code output in real-time (streaming)
-    $0 --live --verbose      # Live streaming + verbose logging
-    $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
-    $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
-    $0 --output-format text     # Use legacy text output format
-    $0 --no-continue            # Disable session continuity
-    $0 --session-expiry 48      # 48-hour session expiration
+    ralph --calls 50 --prompt my_prompt.md
+    ralph --monitor             # Start with integrated tmux monitoring
+    ralph --live                # Show Claude Code output in real-time (streaming)
+    ralph --live --verbose      # Live streaming + verbose logging
+    ralph --monitor --timeout 30   # 30-minute timeout for complex tasks
+    ralph --verbose --timeout 5    # 5-minute timeout with detailed progress
+    ralph --output-format text     # Use legacy text output format
+    ralph --no-continue            # Disable session continuity
+    ralph --session-expiry 48      # 48-hour session expiration
 
 Bash Aliases (rpc):
     Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/ALIASES.sh

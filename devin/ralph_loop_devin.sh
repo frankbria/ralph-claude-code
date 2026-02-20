@@ -1047,7 +1047,7 @@ show_help() {
     cat << HELPEOF
 Ralph Loop for Devin CLI
 
-Usage: $0 [OPTIONS]
+Usage: ralph-devin [OPTIONS]
 
 IMPORTANT: This command must be run from a Ralph project directory.
 
@@ -1075,14 +1075,14 @@ Options:
     --no-devin-auto-exit    Disable auto-exit, inject cleanup prompt after work
 
 Examples:
-    $0 --calls 50 --timeout 30
-    $0 --monitor
-    $0 --live --verbose
-    $0 --model opus
-    $0 --max-loops 5
-    $0 --permission-mode dangerous
-    $0 --no-worktree
-    $0 --merge-strategy merge --quality-gates "npm test;npm run lint"
+    ralph-devin --calls 50 --timeout 30
+    ralph-devin --monitor
+    ralph-devin --live --verbose
+    ralph-devin --model opus
+    ralph-devin --max-loops 5
+    ralph-devin --permission-mode dangerous
+    ralph-devin --no-worktree
+    ralph-devin --merge-strategy merge --quality-gates "npm test;npm run lint"
 
 Bash Aliases (rpd):
     Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/devin/ALIASES.sh

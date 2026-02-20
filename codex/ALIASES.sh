@@ -46,19 +46,19 @@ alias rpx.wt.nogate='ralph-codex --quality-gates none'
 
 # Auto-exit control
 alias rpx.autoexit='ralph-codex --codex-auto-exit'
-alias rpx.interactive='ralph-codex --no-codex-auto-exit'
+alias rpx.int='ralph-codex --no-codex-auto-exit'
 
 # Combined common workflows
 alias rpx.dev='ralph-codex --live --monitor --verbose'
 alias rpx.prod='ralph-codex --calls 50 --auto-reset-circuit --permission-mode dangerous'
 alias rpx.debug='ralph-codex --live --verbose --max-loops 1'
 alias rpx.wt.full='ralph-codex --live --monitor --merge-strategy squash --quality-gates auto'
-alias rpx.wt.interactive='ralph-codex --no-codex-auto-exit --live --monitor'
+alias rpx.wt.int='ralph-codex --no-codex-auto-exit --live --monitor'
 
 # Setup & Management
 alias rpx.monitor='ralph-monitor-codex'
-alias rpx.install='cd ~/Projects/Tools-Utilities/ai-ralph/codex && ./install_codex.sh'
-alias rpx.uninstall='cd ~/Projects/Tools-Utilities/ai-ralph/codex && ./uninstall_codex.sh'
+alias rpx.install='(cd ~/Projects/Tools-Utilities/ai-ralph/codex && ./install_codex.sh)'
+alias rpx.uninstall='(cd ~/Projects/Tools-Utilities/ai-ralph/codex && ./uninstall_codex.sh)'
 
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'
