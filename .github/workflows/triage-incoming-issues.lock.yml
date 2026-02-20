@@ -22,13 +22,14 @@
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"45531fb9046359a8792951aff226686a15ff0ddcb3e17f1859a6ac6cec4dbdae","compiler_version":"v0.46.5"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"e456b525fd0c5c325d489757a9bd4302970c7d43335ef4b36bf79eee877b5273","compiler_version":"v0.46.5"}
 
 name: "Issue Triage Assistant"
 "on":
   issues:
     types:
     - opened
+  # roles: all # Roles processed as role check in pre-activation job
 
 permissions: {}
 
@@ -39,8 +40,6 @@ run-name: "Issue Triage Assistant"
 
 jobs:
   activation:
-    needs: pre_activation
-    if: needs.pre_activation.outputs.activated == 'true'
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -1096,28 +1095,6 @@ jobs:
           name: threat-detection.log
           path: /tmp/gh-aw/threat-detection/detection.log
           if-no-files-found: ignore
-
-  pre_activation:
-    runs-on: ubuntu-slim
-    outputs:
-      activated: ${{ steps.check_membership.outputs.is_team_member == 'true' }}
-    steps:
-      - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@5a79466d65414632d47c7869b27170ade5b9404e # v0.46.5
-        with:
-          destination: /opt/gh-aw/actions
-      - name: Check team membership for workflow
-        id: check_membership
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        env:
-          GH_AW_REQUIRED_ROLES: admin,maintainer,write
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { setupGlobals } = require('/opt/gh-aw/actions/setup_globals.cjs');
-            setupGlobals(core, github, context, exec, io);
-            const { main } = require('/opt/gh-aw/actions/check_membership.cjs');
-            await main();
 
   safe_outputs:
     needs:
