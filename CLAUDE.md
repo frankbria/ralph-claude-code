@@ -176,7 +176,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (556 tests)
+# Run all tests (566 tests)
 npm test
 
 # Run specific test suites
@@ -216,11 +216,19 @@ Ralph uses modern Claude Code CLI flags for structured communication:
 
 **Configuration Variables:**
 ```bash
+CLAUDE_CODE_CMD="claude"              # Claude Code CLI command (configurable via .ralphrc, Issue #97)
 CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
 CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),...,Bash(npm *),Bash(pytest)"  # Allowed tool permissions (see File Protection)
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 ```
+
+**Claude Code CLI Command (Issue #97):**
+- `CLAUDE_CODE_CMD` defaults to `"claude"` (global install)
+- Configurable via `.ralphrc` for alternative installations (e.g., `"npx @anthropic-ai/claude-code"`)
+- Auto-detected during `ralph-enable` and `ralph-setup` (prefers `claude` if available, falls back to npx)
+- Validated at startup with `validate_claude_command()` — displays clear error with installation instructions if not found
+- Environment variable `CLAUDE_CODE_CMD` takes precedence over `.ralphrc`
 
 **CLI Options:**
 - `--output-format json|text` - Set Claude output format (default: json). Note: `--live` mode requires JSON and will auto-switch from text to json.
@@ -511,13 +519,13 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (556 tests total)
+### Test Files (566 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 56 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) |
+| `test_cli_modern.bats` | 66 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format |
 | `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 53 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection |

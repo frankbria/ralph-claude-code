@@ -81,8 +81,14 @@ check_dependencies() {
         fi
     fi
 
-    # Claude Code CLI will be downloaded automatically when first used
-    log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
+    # Check Claude Code CLI availability
+    if command -v claude &>/dev/null; then
+        log "INFO" "Claude Code CLI found: $(command -v claude)"
+    else
+        log "WARN" "Claude Code CLI ('claude') not found in PATH."
+        log "INFO" "  Install globally: npm install -g @anthropic-ai/claude-code"
+        log "INFO" "  Or use npx: set CLAUDE_CODE_CMD=\"npx @anthropic-ai/claude-code\" in .ralphrc"
+    fi
 
     # Check tmux (optional)
     if ! command -v tmux &> /dev/null; then

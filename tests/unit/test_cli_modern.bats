@@ -142,6 +142,41 @@ setup() {
             fi
         fi
     }
+
+    # validate_claude_command - Verify the Claude Code CLI is available (Issue #97)
+    validate_claude_command() {
+        local cmd="$CLAUDE_CODE_CMD"
+
+        if [[ "$cmd" == npx\ * ]] || [[ "$cmd" == "npx" ]]; then
+            if ! command -v npx &>/dev/null; then
+                echo "NPX NOT FOUND"
+                return 1
+            fi
+            return 0
+        fi
+
+        if ! command -v "$cmd" &>/dev/null; then
+            echo "CLAUDE CODE CLI NOT FOUND: $cmd"
+            return 1
+        fi
+
+        return 0
+    }
+
+    # load_ralphrc - minimal version for testing CLAUDE_CODE_CMD loading
+    RALPHRC_FILE=".ralphrc"
+    RALPHRC_LOADED=false
+    _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+
+    load_ralphrc() {
+        if [[ ! -f "$RALPHRC_FILE" ]]; then
+            return 0
+        fi
+        source "$RALPHRC_FILE"
+        [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+        RALPHRC_LOADED=true
+        return 0
+    }
 }
 
 teardown() {
@@ -1053,4 +1088,102 @@ _detect_api_limit() {
     # exit_code=1 (non-timeout failure) — should NOT detect API limit
     run _detect_api_limit 1 "$output_file"
     [[ "$status" -eq 1 ]]
+}
+
+# --- Claude Code Command Validation Tests (Issue #97) ---
+
+@test "validate_claude_command succeeds for command that exists" {
+    # 'bash' exists on all systems
+    CLAUDE_CODE_CMD="bash"
+    run validate_claude_command
+    assert_success
+}
+
+@test "validate_claude_command fails for missing command" {
+    CLAUDE_CODE_CMD="nonexistent_command_xyz_97"
+    run validate_claude_command
+    assert_failure
+    [[ "$output" == *"CLAUDE CODE CLI NOT FOUND"* ]]
+}
+
+@test "validate_claude_command succeeds for npx-based command when npx exists" {
+    # npx should be available in test environment (Node.js is a dependency)
+    if ! command -v npx &>/dev/null; then
+        skip "npx not available in test environment"
+    fi
+    CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"
+    run validate_claude_command
+    assert_success
+}
+
+@test "validate_claude_command checks npx availability for npx commands" {
+    # If npx doesn't exist, npx-based commands should fail
+    # We test by temporarily hiding npx from PATH
+    local original_path="$PATH"
+    PATH="/usr/bin:/bin"  # Minimal PATH unlikely to contain npx
+    if command -v npx &>/dev/null; then
+        PATH="$original_path"
+        skip "Cannot hide npx from PATH in this environment"
+    fi
+    CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"
+    run validate_claude_command
+    assert_failure
+    [[ "$output" == *"NPX NOT FOUND"* ]]
+    PATH="$original_path"
+}
+
+@test "validate_claude_command output includes current command name" {
+    CLAUDE_CODE_CMD="my_custom_claude_binary"
+    run validate_claude_command
+    assert_failure
+    [[ "$output" == *"my_custom_claude_binary"* ]]
+}
+
+@test "CLAUDE_CODE_CMD is loaded from .ralphrc" {
+    # Create a .ralphrc with custom CLAUDE_CODE_CMD
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"
+EOF
+    # Reset env override so .ralphrc value takes effect
+    _env_CLAUDE_CODE_CMD=""
+    CLAUDE_CODE_CMD="claude"
+
+    load_ralphrc
+    assert_equal "$CLAUDE_CODE_CMD" "npx @anthropic-ai/claude-code"
+}
+
+@test "CLAUDE_CODE_CMD env var takes precedence over .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"
+EOF
+    # Simulate env var set before script started
+    _env_CLAUDE_CODE_CMD="/custom/path/claude"
+    CLAUDE_CODE_CMD="/custom/path/claude"
+
+    load_ralphrc
+    assert_equal "$CLAUDE_CODE_CMD" "/custom/path/claude"
+}
+
+@test "validate_claude_command is called before loop in ralph_loop.sh" {
+    # Structural test: validate_claude_command must be called in main() before the loop
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    local validate_line=$(grep -n 'validate_claude_command' "$script" | grep -v '^#' | grep -v 'function\|#' | head -1 | cut -d: -f1)
+    local loop_start_line=$(grep -n 'while true; do' "$script" | head -1 | cut -d: -f1)
+
+    [[ -n "$validate_line" ]]
+    [[ -n "$loop_start_line" ]]
+    [[ "$validate_line" -lt "$loop_start_line" ]]
+}
+
+@test "generate_ralphrc includes CLAUDE_CODE_CMD field" {
+    local script="${BATS_TEST_DIRNAME}/../../lib/enable_core.sh"
+    run grep 'CLAUDE_CODE_CMD' "$script"
+    assert_success
+}
+
+@test "setup.sh ralphrc fallback includes CLAUDE_CODE_CMD field" {
+    local script="${BATS_TEST_DIRNAME}/../../setup.sh"
+    run grep 'CLAUDE_CODE_CMD' "$script"
+    assert_success
 }

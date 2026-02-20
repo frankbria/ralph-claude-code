@@ -6,6 +6,11 @@ set -e
 
 # Configuration
 CLAUDE_CODE_CMD="claude"
+# Load CLAUDE_CODE_CMD from .ralphrc if available
+if [[ -f ".ralphrc" ]]; then
+    _ralphrc_cmd=$(grep "^CLAUDE_CODE_CMD=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
+    [[ -n "$_ralphrc_cmd" ]] && CLAUDE_CODE_CMD="$_ralphrc_cmd"
+fi
 
 # Modern CLI Configuration (Phase 1.1)
 # These flags enable structured JSON output and controlled file operations

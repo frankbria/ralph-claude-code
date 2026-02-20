@@ -45,6 +45,7 @@ _env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
+_env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -116,6 +117,7 @@ RALPHRC_LOADED=false
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
 #   - RALPH_VERBOSE
+#   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -152,8 +154,66 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
+    [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
 
     RALPHRC_LOADED=true
+    return 0
+}
+
+# validate_claude_command - Verify the Claude Code CLI is available
+#
+# Checks that CLAUDE_CODE_CMD resolves to an executable command.
+# For npx-based commands, validates that npx is available.
+# Returns 0 if valid, 1 if not found (with helpful error message).
+#
+validate_claude_command() {
+    local cmd="$CLAUDE_CODE_CMD"
+
+    # For npx-based commands, check that npx itself is available
+    if [[ "$cmd" == npx\ * ]] || [[ "$cmd" == "npx" ]]; then
+        if ! command -v npx &>/dev/null; then
+            echo ""
+            echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${RED}║  NPX NOT FOUND                                            ║${NC}"
+            echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            echo -e "${YELLOW}CLAUDE_CODE_CMD is set to use npx, but npx is not installed.${NC}"
+            echo ""
+            echo -e "${YELLOW}To fix this:${NC}"
+            echo "  1. Install Node.js (includes npx): https://nodejs.org"
+            echo "  2. Or install Claude Code globally:"
+            echo "     npm install -g @anthropic-ai/claude-code"
+            echo "     Then set in .ralphrc: CLAUDE_CODE_CMD=\"claude\""
+            echo ""
+            return 1
+        fi
+        return 0
+    fi
+
+    # For direct commands, check that the command exists
+    if ! command -v "$cmd" &>/dev/null; then
+        echo ""
+        echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  CLAUDE CODE CLI NOT FOUND                                ║${NC}"
+        echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}The Claude Code CLI command '${cmd}' is not available.${NC}"
+        echo ""
+        echo -e "${YELLOW}Installation options:${NC}"
+        echo "  1. Install globally (recommended):"
+        echo "     npm install -g @anthropic-ai/claude-code"
+        echo ""
+        echo "  2. Use npx (no global install needed):"
+        echo "     Add to .ralphrc: CLAUDE_CODE_CMD=\"npx @anthropic-ai/claude-code\""
+        echo ""
+        echo -e "${YELLOW}Current configuration:${NC} CLAUDE_CODE_CMD=\"${cmd}\""
+        echo ""
+        echo -e "${YELLOW}After installation or configuration:${NC}"
+        echo "  ralph --monitor  # Restart Ralph"
+        echo ""
+        return 1
+    fi
+
     return 0
 }
 
@@ -1256,6 +1316,35 @@ execute_claude_code() {
         local claude_pid=$!
         local progress_counter=0
 
+        # Early failure detection: if the command doesn't exist or fails immediately,
+        # the backgrounded process dies before the monitoring loop starts (Issue #97)
+        sleep 1
+        if ! kill -0 $claude_pid 2>/dev/null; then
+            wait $claude_pid 2>/dev/null
+            local early_exit=$?
+            local early_output=""
+            if [[ -f "$output_file" && -s "$output_file" ]]; then
+                early_output=$(tail -5 "$output_file" 2>/dev/null)
+            fi
+            log_status "ERROR" "❌ Claude Code process exited immediately (exit code: $early_exit)"
+            if [[ -n "$early_output" ]]; then
+                log_status "ERROR" "Output: $early_output"
+            fi
+            echo ""
+            echo -e "${RED}Claude Code failed to start.${NC}"
+            echo ""
+            echo -e "${YELLOW}Possible causes:${NC}"
+            echo "  - '${CLAUDE_CODE_CMD}' command not found or not executable"
+            echo "  - Claude Code CLI not installed"
+            echo "  - Authentication or configuration issue"
+            echo ""
+            echo -e "${YELLOW}To fix:${NC}"
+            echo "  1. Verify Claude Code works: ${CLAUDE_CODE_CMD} --version"
+            echo "  2. Or set a different command in .ralphrc: CLAUDE_CODE_CMD=\"npx @anthropic-ai/claude-code\""
+            echo ""
+            return 1
+        fi
+
         # Show progress while Claude Code is running
         while kill -0 $claude_pid 2>/dev/null; do
             progress_counter=$((progress_counter + 1))
@@ -1451,6 +1540,12 @@ main() {
         if [[ "$RALPHRC_LOADED" == "true" ]]; then
             log_status "INFO" "Loaded configuration from .ralphrc"
         fi
+    fi
+
+    # Validate Claude Code CLI is available before starting
+    if ! validate_claude_command; then
+        log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
+        exit 1
     fi
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
