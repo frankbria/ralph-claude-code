@@ -1078,11 +1078,24 @@ Examples:
     $0 --calls 50 --timeout 30
     $0 --monitor
     $0 --live --verbose
-    $0 --model opus
+    $0 --model gpt-4
     $0 --max-loops 5
     $0 --permission-mode dangerous
     $0 --no-worktree
     $0 --merge-strategy merge --quality-gates "npm test;npm run lint"
+
+Bash Aliases (rpx):
+    Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/codex/ALIASES.sh
+    
+    rpx              # Start loop
+    rpx.hitl         # Live + monitor
+    rpx.gpt4         # Use GPT-4 model
+    rpx.claude       # Use Claude model
+    rpx.wt.full      # Full worktree mode
+    rpx.interactive  # Interactive with cleanup prompt
+    rpx.install      # Install Ralph for Codex
+    
+    See codex/ALIASES.sh for complete list of 65+ aliases
 
 HELPEOF
 }

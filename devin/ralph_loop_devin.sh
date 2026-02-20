@@ -1084,6 +1084,18 @@ Examples:
     $0 --no-worktree
     $0 --merge-strategy merge --quality-gates "npm test;npm run lint"
 
+Bash Aliases (rpd):
+    Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/devin/ALIASES.sh
+    
+    rpd              # Start loop
+    rpd.hitl         # Live + monitor
+    rpd.opus         # Use Opus model
+    rpd.wt.full      # Full worktree mode
+    rpd.int          # Interactive with cleanup prompt
+    rpd.install      # Install Ralph for Devin
+    
+    See devin/ALIASES.sh for complete list of 60+ aliases
+
 HELPEOF
 }
 

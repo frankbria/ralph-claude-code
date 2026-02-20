@@ -1766,6 +1766,18 @@ Examples:
     $0 --no-continue            # Disable session continuity
     $0 --session-expiry 48      # 48-hour session expiration
 
+Bash Aliases (rpc):
+    Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/ALIASES.sh
+    
+    rpc              # Start loop
+    rpc.hitl         # Live + monitor
+    rpc.opus         # Use Opus model
+    rpc.sonnet       # Use Sonnet model
+    rpc.dev          # Development mode (live + monitor + verbose)
+    rpc.install      # Install Ralph for Claude Code
+    
+    See ALIASES.sh for complete list of 50+ aliases
+
 HELPEOF
 }
 

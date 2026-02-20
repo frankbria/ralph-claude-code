@@ -56,6 +56,13 @@ alias rpx.wt.full='ralph-loop-codex --live --monitor --merge-strategy squash --q
 alias rpx.wt.interactive='ralph-loop-codex --no-codex-auto-exit --live --monitor'
 
 # Setup & Management
-alias ralphx.monitor='ralph-monitor-codex'
-alias ralphx.install='cd ~/.ralph/codex && ./install_codex.sh'
-alias ralphx.uninstall='cd ~/.ralph/codex && ./uninstall_codex.sh'
+alias rpx.monitor='ralph-monitor-codex'
+alias rpx.install='cd ~/.ralph/codex && ./install_codex.sh'
+alias rpx.uninstall='cd ~/.ralph/codex && ./uninstall_codex.sh'
+
+# Shared commands (work for all engines)
+alias ralph.setup='ralph-setup'
+alias ralph.enable='ralph-enable'
+alias ralph.enable.ci='ralph-enable-ci'
+alias ralph.migrate='ralph-migrate'
+alias ralph.import='ralph-import'
