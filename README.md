@@ -997,6 +997,96 @@ ralph-devin [OPTIONS]
 
 ---
 
+## Ralph for Codex
+
+Ralph now supports **Codex CLI** as a third AI engine option alongside Claude Code and Devin. All features from Devin are available for Codex.
+
+### Installation
+
+```bash
+# Base Ralph must be installed first (./install.sh)
+# Then install Codex support separately:
+cd ralph-claude-code
+./codex/install_codex.sh
+```
+
+### Codex Commands (Parallel to Claude and Devin)
+
+| Claude Code | Devin CLI | Codex CLI | Description |
+|---|---|---|---|
+| `ralph` | `ralph-devin` | `ralph-codex` | Main autonomous loop |
+| `ralph-monitor` | `ralph-devin-monitor` | `ralph-codex-monitor` | Live status dashboard |
+| `ralph-setup` | `ralph-devin-setup` | `ralph-codex-setup` | Create new project |
+| `ralph-enable` | `ralph-devin-enable` | `ralph-codex-enable` | Enable in existing project |
+| `ralph-import` | `ralph-devin-import` | `ralph-codex-import` | Convert PRD to project |
+
+### Quick Start with Codex
+
+```bash
+# Option A: New project
+ralph-codex-setup my-project
+cd my-project
+ralph-codex --monitor
+
+# Option B: Existing project
+cd my-existing-project
+ralph-codex-enable
+ralph-codex --monitor
+
+# Option C: Use aliases (rpx)
+rpx.hitl  # Live + monitor mode
+```
+
+### Codex-Specific Configuration (.ralphrc.codex)
+
+```bash
+# Engine selection
+RALPH_ENGINE="codex"
+
+# Codex settings
+CODEX_TIMEOUT_MINUTES=30
+CODEX_MODEL="gpt-4"              # gpt-4, gpt-3.5, claude
+CODEX_PERMISSION_MODE="dangerous" # auto or dangerous
+CODEX_USE_CONTINUE=true          # Session continuity
+CODEX_AUTO_EXIT=true             # Auto-exit with -p flag
+
+# Worktree isolation (same as Devin)
+WORKTREE_ENABLED=true
+WORKTREE_MERGE_STRATEGY=squash
+WORKTREE_QUALITY_GATES=auto
+```
+
+### Codex CLI Requirements
+
+- **Codex CLI**: See https://docs.codex.ai/ for installation
+- **Authentication**: Run `codex auth login`
+- **jq**: For JSON parsing (same as Claude/Devin)
+
+### Codex Bash Aliases (rpx)
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+source ~/.ralph/codex/ALIASES.sh
+
+# Then use:
+rpx              # Start loop
+rpx.hitl         # Live + monitor
+rpx.gpt4         # Use GPT-4
+rpx.claude       # Use Claude
+rpx.wt.full      # Full worktree mode
+```
+
+See `codex/README.md` and `codex/ALIASES.sh` for complete documentation.
+
+### Uninstalling Codex Support
+
+```bash
+./codex/uninstall_codex.sh    # Removes only Codex components
+                               # Claude Code and Devin Ralph are NOT affected
+```
+
+---
+
 ## Development Roadmap
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
