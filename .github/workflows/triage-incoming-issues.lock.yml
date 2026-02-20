@@ -22,7 +22,7 @@
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"e456b525fd0c5c325d489757a9bd4302970c7d43335ef4b36bf79eee877b5273","compiler_version":"v0.46.5"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"c7e235cf4c068f883028a5349032ef07900f017c551482bd4f9018354abd6395","compiler_version":"v0.46.5"}
 
 name: "Issue Triage Assistant"
 "on":
@@ -30,6 +30,7 @@ name: "Issue Triage Assistant"
     types:
     - opened
   # roles: all # Roles processed as role check in pre-activation job
+  workflow_dispatch:
 
 permissions: {}
 
