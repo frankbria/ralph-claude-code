@@ -1635,7 +1635,7 @@ main() {
             echo -e "\n${BLUE}Choose an option (1 or 2):${NC} "
             
             # Read user input with timeout
-            read -t 30 -n 1 user_choice
+            read -t 30 -n 1 user_choice || true
             echo  # New line after input
             
             if [[ "$user_choice" == "2" ]]; then
