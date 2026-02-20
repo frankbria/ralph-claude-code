@@ -1110,3 +1110,132 @@ EOF
     local has_denials=$(jq -r '.has_permission_denials' "$result_file")
     assert_equal "$has_denials" "true"
 }
+
+# =============================================================================
+# PROGRESS DETECTION WITH COMMITTED WORK TESTS
+# =============================================================================
+# When Claude commits work after each task, git diff shows 0 uncommitted changes.
+# Progress must be detected via recent commits and the embedded RALPH_STATUS block.
+
+@test "analyze_response detects progress from TASKS_COMPLETED_THIS_LOOP in embedded RALPH_STATUS" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    local ralph_status
+    ralph_status=$(printf '%s' \
+        'Implemented notifications context.\n\n' \
+        '---RALPH_STATUS---\n' \
+        'STATUS: IN_PROGRESS\n' \
+        'TASKS_COMPLETED_THIS_LOOP: 1\n' \
+        'FILES_MODIFIED: 2\n' \
+        'TESTS_STATUS: NOT_RUN\n' \
+        'WORK_TYPE: IMPLEMENTATION\n' \
+        'EXIT_SIGNAL: false\n' \
+        '---END_RALPH_STATUS---')
+
+    jq -n \
+        --arg result "$ralph_status" \
+        --arg session "session-tasks-completed" \
+        '{type: "result", subtype: "success", result: $result, session_id: $session, permission_denials: []}' \
+        > "$output_file"
+
+    # No uncommitted changes, no recent commits — progress must come from RALPH_STATUS block
+    analyze_response "$output_file" 1
+
+    local has_progress
+    has_progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    assert_equal "$has_progress" "true"
+}
+
+@test "analyze_response detects progress via recent git commit when git diff is zero" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    local ralph_status
+    ralph_status=$(printf '%s' \
+        'Module created and committed.\n\n' \
+        '---RALPH_STATUS---\n' \
+        'STATUS: IN_PROGRESS\n' \
+        'TASKS_COMPLETED_THIS_LOOP: 1\n' \
+        'FILES_MODIFIED: 1\n' \
+        'TESTS_STATUS: NOT_RUN\n' \
+        'WORK_TYPE: IMPLEMENTATION\n' \
+        'EXIT_SIGNAL: false\n' \
+        '---END_RALPH_STATUS---')
+
+    jq -n \
+        --arg result "$ralph_status" \
+        --arg session "session-committed" \
+        '{type: "result", subtype: "success", result: $result, session_id: $session, permission_denials: []}' \
+        > "$output_file"
+
+    # Commit a file so git log --since shows a recent commit but git diff shows nothing
+    echo "defmodule Foo do end" > foo.ex
+    git add foo.ex
+    git commit -m "feat: implement Foo context" > /dev/null 2>&1
+
+    analyze_response "$output_file" 1
+
+    local has_progress
+    has_progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    assert_equal "$has_progress" "true"
+}
+
+@test "analyze_response extracts FILES_MODIFIED from RALPH_STATUS when git diff is zero" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    local ralph_status
+    ralph_status=$(printf '%s' \
+        'Three files created.\n\n' \
+        '---RALPH_STATUS---\n' \
+        'STATUS: IN_PROGRESS\n' \
+        'TASKS_COMPLETED_THIS_LOOP: 1\n' \
+        'FILES_MODIFIED: 3\n' \
+        'TESTS_STATUS: NOT_RUN\n' \
+        'WORK_TYPE: IMPLEMENTATION\n' \
+        'EXIT_SIGNAL: false\n' \
+        '---END_RALPH_STATUS---')
+
+    jq -n \
+        --arg result "$ralph_status" \
+        --arg session "session-files-modified" \
+        '{type: "result", subtype: "success", result: $result, session_id: $session, permission_denials: []}' \
+        > "$output_file"
+
+    # Commit everything so git diff returns 0
+    echo "defmodule Bar do end" > bar.ex
+    git add bar.ex
+    git commit -m "feat: add Bar module" > /dev/null 2>&1
+
+    analyze_response "$output_file" 1
+
+    local files_modified
+    files_modified=$(jq -r '.analysis.files_modified' "$RALPH_DIR/.response_analysis")
+    [[ "$files_modified" -ge 1 ]]
+}
+
+@test "analyze_response does not flag progress when TASKS_COMPLETED_THIS_LOOP is zero" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    local ralph_status
+    ralph_status=$(printf '%s' \
+        'Reviewed code, no changes needed.\n\n' \
+        '---RALPH_STATUS---\n' \
+        'STATUS: IN_PROGRESS\n' \
+        'TASKS_COMPLETED_THIS_LOOP: 0\n' \
+        'FILES_MODIFIED: 0\n' \
+        'TESTS_STATUS: NOT_RUN\n' \
+        'WORK_TYPE: IMPLEMENTATION\n' \
+        'EXIT_SIGNAL: false\n' \
+        '---END_RALPH_STATUS---')
+
+    jq -n \
+        --arg result "$ralph_status" \
+        --arg session "session-no-progress" \
+        '{type: "result", subtype: "success", result: $result, session_id: $session, permission_denials: []}' \
+        > "$output_file"
+
+    analyze_response "$output_file" 1
+
+    local has_progress
+    has_progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    assert_equal "$has_progress" "false"
+}

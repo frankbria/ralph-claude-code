@@ -395,6 +395,32 @@ analyze_response() {
                     has_progress=true
                     files_modified=$git_files
                 fi
+                # Also detect progress via recent commits (Claude may commit after each task)
+                local recent_commits=$(git log --oneline -1 --since="20 minutes ago" 2>/dev/null | wc -l)
+                if [[ $recent_commits -gt 0 ]]; then
+                    has_progress=true
+                    if [[ $files_modified -eq 0 ]]; then
+                        files_modified=$(git diff HEAD~1 --name-only 2>/dev/null | wc -l)
+                    fi
+                fi
+            fi
+
+            # Check TASKS_COMPLETED_THIS_LOOP and FILES_MODIFIED from embedded RALPH_STATUS block
+            # The JSON path only extracts EXIT_SIGNAL from embedded RALPH_STATUS; this supplements it
+            # Convert literal \n sequences to real newlines so grep/cut work correctly in both
+            # production (jq decodes JSON escapes to real newlines) and test environments
+            # (printf '%s' with '\n' produces literal backslash-n characters).
+            local embedded_result=$(jq -r '.result // ""' "$output_file" 2>/dev/null | sed 's/\\n/\n/g')
+            if [[ -n "$embedded_result" ]] && echo "$embedded_result" | grep -q -- "---RALPH_STATUS---"; then
+                local embedded_tasks=$(echo "$embedded_result" | grep "TASKS_COMPLETED_THIS_LOOP:" | cut -d: -f2 | xargs)
+                local embedded_files=$(echo "$embedded_result" | grep "FILES_MODIFIED:" | cut -d: -f2 | xargs)
+                if [[ -n "$embedded_tasks" ]] && [[ "$embedded_tasks" =~ ^[0-9]+$ ]] && [[ $embedded_tasks -gt 0 ]]; then
+                    has_progress=true
+                    [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Progress from TASKS_COMPLETED_THIS_LOOP=$embedded_tasks" >&2
+                fi
+                if [[ -n "$embedded_files" ]] && [[ "$embedded_files" =~ ^[0-9]+$ ]] && [[ $files_modified -eq 0 ]]; then
+                    files_modified=$embedded_files
+                fi
             fi
 
             # Write analysis results for JSON path using jq for safe construction
