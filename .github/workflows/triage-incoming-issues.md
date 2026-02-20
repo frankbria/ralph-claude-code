@@ -11,7 +11,7 @@ safe-outputs:
   add-labels:
     allowed: [bug, enhancement, needs-info, documentation]
   add-comment:
-    max: 2
+    max: 10
   assign-to-user:
     allowed: [frankbria]
   close-issue:
