@@ -57,8 +57,8 @@ alias rpx.wt.interactive='ralph-loop-codex --no-codex-auto-exit --live --monitor
 
 # Setup & Management
 alias rpx.monitor='ralph-monitor-codex'
-alias rpx.install='cd ~/.ralph/codex && ./install_codex.sh'
-alias rpx.uninstall='cd ~/.ralph/codex && ./uninstall_codex.sh'
+alias rpx.install='cd ~/Projects/Tools-Utilities/ai-ralph/codex && ./install_codex.sh'
+alias rpx.uninstall='cd ~/Projects/Tools-Utilities/ai-ralph/codex && ./uninstall_codex.sh'
 
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'
