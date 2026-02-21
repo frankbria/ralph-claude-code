@@ -171,7 +171,7 @@ cd ralph-claude-code
 ./install.sh
 ```
 
-This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-migrate`, `ralph-enable`, and `ralph-enable-ci` commands to your PATH.
+This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-migrate`, `ralph-enable`, `ralph-enable-ci`, and `ralph-check-beads` commands to your PATH.
 
 > **Note**: You only need to do this once per system. After installation, you can delete the cloned repository if desired.
 
@@ -831,6 +831,7 @@ ralph --calls 50             # Limit to 50 API calls per hour
 ralph --reset-session        # Reset session state manually
 ralph --live                 # Enable live streaming output
 ralph-monitor                # Manual monitoring dashboard
+ralph-check-beads            # Verify beads integration (diagnostic)
 ```
 
 ### tmux Session Management
