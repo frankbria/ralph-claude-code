@@ -19,6 +19,7 @@ set -e
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
 source "$SCRIPT_DIR/lib/task_sources.sh"
+source "$SCRIPT_DIR/lib/timeout_utils.sh"
 
 # Configuration
 RALPH_DIR=".ralph"
@@ -708,27 +709,39 @@ run_ai_planning() {
         echo "Write directly to .ralph/fix_plan.md and .ralph/constitution.md."
     } > "$prompt_file"
 
-    local stderr_file="$RALPH_DIR/.plan_stderr"
     local output_file="$RALPH_DIR/.plan_output.json"
     local cli_exit_code=0
 
-    # Use file redirection (< file) instead of pipe to prevent interactive hangs
-    # Use bash array for --allowedTools (same pattern as ralph_import.sh)
-    # --print: Required for non-interactive piped input
-    # --strict-mcp-config: Skip loading user MCP servers (faster startup)
-    log "PLAN" "Invoking Claude CLI for AI planning..."
-    if $CLAUDE_CODE_CMD --print --strict-mcp-config --output-format json \
-        --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" \
-        < "$prompt_file" > "$output_file" 2> "$stderr_file"; then
-        cli_exit_code=0
+    # IMPORTANT: Do NOT redirect stderr - let Claude CLI progress/errors show in terminal
+    # Only stdout (JSON response) goes to file
+    local timeout_duration="300s"
+    log "PLAN" "Invoking Claude CLI (timeout: ${timeout_duration})..."
+    log "PLAN" "Prompt file: $prompt_file ($(wc -c < "$prompt_file" | tr -d ' ') bytes)"
+
+    if has_timeout_command; then
+        if portable_timeout "$timeout_duration" \
+            $CLAUDE_CODE_CMD --print --output-format json \
+            --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" \
+            < "$prompt_file" > "$output_file"; then
+            cli_exit_code=0
+        else
+            cli_exit_code=$?
+            if [[ $cli_exit_code -eq 124 ]]; then
+                log "ERROR" "Claude CLI timed out after ${timeout_duration}"
+            fi
+        fi
     else
-        cli_exit_code=$?
+        log "WARN" "No timeout command available, running without timeout"
+        if $CLAUDE_CODE_CMD --print --output-format json \
+            --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" \
+            < "$prompt_file" > "$output_file"; then
+            cli_exit_code=0
+        else
+            cli_exit_code=$?
+        fi
     fi
 
-    # Log stderr if present (for debugging)
-    if [[ -s "$stderr_file" ]]; then
-        log "WARN" "CLI stderr output detected (see $stderr_file)"
-    fi
+    log "PLAN" "Claude CLI exited with code: $cli_exit_code"
 
     # Clean up prompt input
     rm -f "$prompt_file"
@@ -736,12 +749,12 @@ run_ai_planning() {
     # Check if Claude wrote the files
     if [[ $cli_exit_code -eq 0 ]] && [[ -f "$FIX_PLAN_FILE" ]]; then
         log "SUCCESS" "AI planning completed - fix_plan.md updated"
-        rm -f "$output_file" "$stderr_file"
+        rm -f "$output_file"
         return 0
     fi
 
     log "WARN" "AI planning did not produce expected output (exit code: $cli_exit_code), falling back to basic scanning"
-    rm -f "$output_file" "$stderr_file"
+    rm -f "$output_file"
     return 1
 }
 
