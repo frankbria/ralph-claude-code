@@ -46,11 +46,8 @@ alias rpc.monitor='ralph-monitor'
 alias rpc.install='(cd ~/Projects/Tools-Utilities/ai-ralph && ./install.sh)'
 alias rpc.uninstall='(cd ~/Projects/Tools-Utilities/ai-ralph && ./uninstall.sh)'
 
-# Planning mode
+# Planning mode (AI-powered, always uses claude engine)
 alias rpc.plan='ralph-plan'
-alias rpc.plan.ai='ralph-plan --ai'
-alias rpc.plan.dry='ralph-plan --dry-run'
-alias rpc.plan.dir='ralph-plan --prd-dir'
 
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'

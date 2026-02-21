@@ -190,15 +190,15 @@ DEVIN_HOME="$RALPH_HOME/devin"
 exec "$DEVIN_HOME/ralph_enable_ci_devin.sh" "$@"
 EOF
 
-    # Create ralph-devin-plan command (Planning Mode - shared script)
+    # Create ralph-devin-plan command (Planning Mode - uses devin engine)
     cat > "$INSTALL_DIR/ralph-devin-plan" << 'EOF'
 #!/bin/bash
 # Ralph Devin Planning Mode - PRD-driven fix_plan.md builder
-# Uses shared ralph_plan.sh (planning is engine-agnostic)
+# Uses shared ralph_plan.sh with --engine devin
 
 RALPH_HOME="$HOME/.ralph"
 
-exec "$RALPH_HOME/ralph_plan.sh" "$@"
+exec "$RALPH_HOME/ralph_plan.sh" --engine devin "$@"
 EOF
 
     # Make all commands executable

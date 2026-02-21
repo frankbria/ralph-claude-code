@@ -190,15 +190,15 @@ CODEX_HOME="$RALPH_HOME/codex"
 exec "$CODEX_HOME/ralph_enable_ci_codex.sh" "$@"
 EOF
 
-    # Create ralph-codex-plan command (Planning Mode - shared script)
+    # Create ralph-codex-plan command (Planning Mode - uses codex engine)
     cat > "$INSTALL_DIR/ralph-codex-plan" << 'EOF'
 #!/bin/bash
 # Ralph Codex Planning Mode - PRD-driven fix_plan.md builder
-# Uses shared ralph_plan.sh (planning is engine-agnostic)
+# Uses shared ralph_plan.sh with --engine codex
 
 RALPH_HOME="$HOME/.ralph"
 
-exec "$RALPH_HOME/ralph_plan.sh" "$@"
+exec "$RALPH_HOME/ralph_plan.sh" --engine codex "$@"
 EOF
 
     # Make all commands executable
