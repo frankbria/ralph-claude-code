@@ -190,6 +190,17 @@ CODEX_HOME="$RALPH_HOME/codex"
 exec "$CODEX_HOME/ralph_enable_ci_codex.sh" "$@"
 EOF
 
+    # Create ralph-codex-plan command (Planning Mode - shared script)
+    cat > "$INSTALL_DIR/ralph-codex-plan" << 'EOF'
+#!/bin/bash
+# Ralph Codex Planning Mode - PRD-driven fix_plan.md builder
+# Uses shared ralph_plan.sh (planning is engine-agnostic)
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_plan.sh" "$@"
+EOF
+
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph-codex"
     chmod +x "$INSTALL_DIR/ralph-codex-monitor"
@@ -197,6 +208,7 @@ EOF
     chmod +x "$INSTALL_DIR/ralph-codex-import"
     chmod +x "$INSTALL_DIR/ralph-codex-enable"
     chmod +x "$INSTALL_DIR/ralph-codex-enable-ci"
+    chmod +x "$INSTALL_DIR/ralph-codex-plan"
 
     log "SUCCESS" "Ralph Codex scripts installed to $INSTALL_DIR"
 }
@@ -275,6 +287,7 @@ main() {
     echo "  ralph-codex-enable            # Enable Ralph+Codex in existing project"
     echo "  ralph-codex-enable-ci         # Non-interactive enable for CI/CD"
     echo "  ralph-codex-import prd.md     # Convert PRD to Ralph+Codex project"
+    echo "  ralph-codex-plan              # Planning mode - build fix_plan from PRDs & beads"
     echo "  ralph-codex-monitor           # Manual monitoring dashboard"
     echo ""
     echo "Quick start:"
@@ -308,6 +321,7 @@ case "${1:-install}" in
         rm -f "$INSTALL_DIR/ralph-codex-import"
         rm -f "$INSTALL_DIR/ralph-codex-enable"
         rm -f "$INSTALL_DIR/ralph-codex-enable-ci"
+        rm -f "$INSTALL_DIR/ralph-codex-plan"
         rm -rf "$CODEX_HOME"
         log "SUCCESS" "Ralph for Codex CLI uninstalled"
         ;;

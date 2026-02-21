@@ -46,6 +46,12 @@ alias rpc.monitor='ralph-monitor'
 alias rpc.install='(cd ~/Projects/Tools-Utilities/ai-ralph && ./install.sh)'
 alias rpc.uninstall='(cd ~/Projects/Tools-Utilities/ai-ralph && ./uninstall.sh)'
 
+# Planning mode
+alias rpc.plan='ralph-plan'
+alias rpc.plan.ai='ralph-plan --ai'
+alias rpc.plan.dry='ralph-plan --dry-run'
+alias rpc.plan.dir='ralph-plan --prd-dir'
+
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'
 alias ralph.enable='ralph-enable'
@@ -53,3 +59,4 @@ alias ralph.enable.ci='ralph-enable-ci'
 alias ralph.migrate='ralph-migrate'
 alias ralph.import='ralph-import'
 alias ralph.check.beads='ralph-check-beads'
+alias ralph.plan='ralph-plan'

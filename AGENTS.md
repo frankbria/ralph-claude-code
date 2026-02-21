@@ -30,6 +30,13 @@ The system consists of four main bash scripts and a modular library system:
    - Same functionality as interactive version with CLI flags
    - JSON output mode for machine parsing
    - Exit codes: 0 (success), 1 (error), 2 (already enabled)
+8. **ralph_plan.sh** - Planning Mode: PRD-driven fix_plan.md builder
+   - Scans PRD documents, beads, and JSON specs to build/update fix_plan.md
+   - Does NOT execute tasks - planning only (read-only mode)
+   - Interactive PRD directory selection with memory (stored in constitution.md)
+   - Supports `--ai` flag for Claude-assisted deep PRD analysis
+   - `--dry-run` for preview without writing
+   - Shared across all Ralph flavors (claude, codex, devin)
 
 ### Library Components (lib/)
 
@@ -129,6 +136,28 @@ ralph-enable-ci                              # Sensible defaults
 ralph-enable-ci --from github               # With task source
 ralph-enable-ci --project-type typescript   # Override detection
 ralph-enable-ci --json                      # Machine-readable output
+```
+
+### Planning Mode (PRD-driven fix_plan builder)
+```bash
+# Interactive - asks for PRD directory
+ralph-plan
+
+# Specify PRD directory directly
+ralph-plan --prd-dir ./docs/prds
+
+# AI-assisted deep PRD analysis
+ralph-plan --ai
+
+# Preview without writing files
+ralph-plan --dry-run
+
+# Combined: AI analysis on specific directory
+ralph-plan --prd-dir ./specs --ai
+
+# Skip specific sources
+ralph-plan --no-beads              # Skip beads scanning
+ralph-plan --no-json               # Skip JSON spec scanning
 ```
 
 ### Running the Ralph Loop

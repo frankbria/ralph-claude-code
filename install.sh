@@ -189,6 +189,17 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/ralph_enable_ci.sh" "$@"
 EOF
 
+    # Create ralph-plan command (Planning Mode)
+    cat > "$INSTALL_DIR/ralph-plan" << 'EOF'
+#!/bin/bash
+# Ralph Planning Mode - PRD-driven fix_plan.md builder
+# Scans PRDs, beads, and JSON specs to build/update fix_plan.md
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_plan.sh" "$@"
+EOF
+
     # Create ralph-check-beads command
     cat > "$INSTALL_DIR/ralph-check-beads" << 'EOF'
 #!/bin/bash
@@ -213,6 +224,9 @@ EOF
     cp "$SCRIPT_DIR/ralph_enable.sh" "$RALPH_HOME/"
     cp "$SCRIPT_DIR/ralph_enable_ci.sh" "$RALPH_HOME/"
     
+    # Copy planning mode script to Ralph home
+    cp "$SCRIPT_DIR/ralph_plan.sh" "$RALPH_HOME/"
+
     # Copy diagnostic script to Ralph home
     cp "$SCRIPT_DIR/ralph_check_beads.sh" "$RALPH_HOME/"
 
@@ -224,12 +238,14 @@ EOF
     chmod +x "$INSTALL_DIR/ralph-migrate"
     chmod +x "$INSTALL_DIR/ralph-enable"
     chmod +x "$INSTALL_DIR/ralph-enable-ci"
+    chmod +x "$INSTALL_DIR/ralph-plan"
     chmod +x "$INSTALL_DIR/ralph-check-beads"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
     chmod +x "$RALPH_HOME/migrate_to_ralph_folder.sh"
     chmod +x "$RALPH_HOME/ralph_enable.sh"
     chmod +x "$RALPH_HOME/ralph_enable_ci.sh"
+    chmod +x "$RALPH_HOME/ralph_plan.sh"
     chmod +x "$RALPH_HOME/ralph_check_beads.sh"
     chmod +x "$RALPH_HOME/lib/"*.sh
 
@@ -308,6 +324,7 @@ main() {
     echo "  ralph-import prd.md     # Convert PRD to Ralph project"
     echo "  ralph-migrate           # Migrate existing project to .ralph/ structure"
     echo "  ralph-monitor           # Manual monitoring dashboard"
+    echo "  ralph-plan              # Planning mode - build fix_plan from PRDs & beads"
     echo "  ralph-check-beads       # Verify beads integration (diagnostic)"
     echo ""
     echo "Quick start:"
@@ -329,7 +346,7 @@ case "${1:-install}" in
         ;;
     uninstall)
         log "INFO" "Uninstalling Ralph for Claude Code..."
-        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci" "$INSTALL_DIR/ralph-check-beads"
+        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci" "$INSTALL_DIR/ralph-plan" "$INSTALL_DIR/ralph-check-beads"
         rm -rf "$RALPH_HOME"
         log "SUCCESS" "Ralph for Claude Code uninstalled"
         ;;

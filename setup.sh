@@ -47,6 +47,10 @@ cp "$TEMPLATES_DIR/fix_plan.md" .ralph/fix_plan.md
 cp "$TEMPLATES_DIR/AGENT.md" .ralph/AGENT.md
 cp -r "$TEMPLATES_DIR/specs"/* .ralph/specs/ 2>/dev/null || true
 
+# Copy planning mode templates (optional - for ralph-plan support)
+[[ -f "$TEMPLATES_DIR/PROMPT_PLAN.md" ]] && cp "$TEMPLATES_DIR/PROMPT_PLAN.md" .ralph/
+[[ -f "$TEMPLATES_DIR/constitution.md" ]] && cp "$TEMPLATES_DIR/constitution.md" .ralph/
+
 # Generate .ralphrc configuration file
 # Source enable_core.sh if available for generate_ralphrc(), otherwise create inline
 if [[ -f "$LIB_DIR/enable_core.sh" ]]; then

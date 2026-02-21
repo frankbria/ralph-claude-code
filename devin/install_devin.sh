@@ -190,6 +190,17 @@ DEVIN_HOME="$RALPH_HOME/devin"
 exec "$DEVIN_HOME/ralph_enable_ci_devin.sh" "$@"
 EOF
 
+    # Create ralph-devin-plan command (Planning Mode - shared script)
+    cat > "$INSTALL_DIR/ralph-devin-plan" << 'EOF'
+#!/bin/bash
+# Ralph Devin Planning Mode - PRD-driven fix_plan.md builder
+# Uses shared ralph_plan.sh (planning is engine-agnostic)
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_plan.sh" "$@"
+EOF
+
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph-devin"
     chmod +x "$INSTALL_DIR/ralph-devin-monitor"
@@ -197,6 +208,7 @@ EOF
     chmod +x "$INSTALL_DIR/ralph-devin-import"
     chmod +x "$INSTALL_DIR/ralph-devin-enable"
     chmod +x "$INSTALL_DIR/ralph-devin-enable-ci"
+    chmod +x "$INSTALL_DIR/ralph-devin-plan"
 
     log "SUCCESS" "Ralph Devin scripts installed to $INSTALL_DIR"
 }
@@ -275,6 +287,7 @@ main() {
     echo "  ralph-devin-enable            # Enable Ralph+Devin in existing project"
     echo "  ralph-devin-enable-ci         # Non-interactive enable for CI/CD"
     echo "  ralph-devin-import prd.md     # Convert PRD to Ralph+Devin project"
+    echo "  ralph-devin-plan              # Planning mode - build fix_plan from PRDs & beads"
     echo "  ralph-devin-monitor           # Manual monitoring dashboard"
     echo ""
     echo "Quick start:"
@@ -308,6 +321,7 @@ case "${1:-install}" in
         rm -f "$INSTALL_DIR/ralph-devin-import"
         rm -f "$INSTALL_DIR/ralph-devin-enable"
         rm -f "$INSTALL_DIR/ralph-devin-enable-ci"
+        rm -f "$INSTALL_DIR/ralph-devin-plan"
         rm -rf "$DEVIN_HOME"
         log "SUCCESS" "Ralph for Devin CLI uninstalled"
         ;;
