@@ -16,7 +16,6 @@ set -e
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh"
-source "$SCRIPT_DIR/lib/timeout_utils.sh"
 
 # Configuration
 RALPH_DIR=".ralph"
@@ -358,82 +357,40 @@ run_ai_planning() {
         echo "Write directly to .ralph/fix_plan.md and .ralph/constitution.md."
     } > "$prompt_file"
 
-    local output_file="$RALPH_DIR/.plan_output.json"
     local cli_exit_code=0
-    local timeout_duration="300s"
+    local prompt_content
+    prompt_content=$(cat "$prompt_file")
 
-    log "PLAN" "Prompt file: $prompt_file ($(wc -c < "$prompt_file" | tr -d ' ') bytes)"
+    log "PLAN" "Prompt: $(wc -c < "$prompt_file" | tr -d ' ') bytes"
 
-    # Engine-specific invocation
-    # IMPORTANT: stderr is NOT redirected so user can see progress/errors
+    # Interactive invocation — no --print/-p, no stdout redirect
+    # AI runs in full TUI mode so user can watch it work
     case "$ENGINE" in
         claude)
-            # Claude CLI: --print reads from stdin, --output-format json
-            log "PLAN" "Invoking: $cli_cmd --print --output-format json --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
-            if has_timeout_command; then
-                if portable_timeout "$timeout_duration" \
-                    "$cli_cmd" --print --output-format json \
-                    --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" \
-                    < "$prompt_file" > "$output_file"; then
-                    cli_exit_code=0
-                else
-                    cli_exit_code=$?
-                fi
+            log "PLAN" "Launching: $cli_cmd (interactive) --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
+            if "$cli_cmd" --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" "$prompt_content"; then
+                cli_exit_code=0
             else
-                if "$cli_cmd" --print --output-format json \
-                    --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" \
-                    < "$prompt_file" > "$output_file"; then
-                    cli_exit_code=0
-                else
-                    cli_exit_code=$?
-                fi
+                cli_exit_code=$?
             fi
             ;;
         codex)
-            # Codex CLI: -p for non-interactive, reads prompt from stdin
-            log "PLAN" "Invoking: $cli_cmd -p < $prompt_file"
-            if has_timeout_command; then
-                if portable_timeout "$timeout_duration" \
-                    "$cli_cmd" -p \
-                    < "$prompt_file" > "$output_file"; then
-                    cli_exit_code=0
-                else
-                    cli_exit_code=$?
-                fi
+            log "PLAN" "Launching: $cli_cmd (interactive)"
+            if "$cli_cmd" "$prompt_content"; then
+                cli_exit_code=0
             else
-                if "$cli_cmd" -p \
-                    < "$prompt_file" > "$output_file"; then
-                    cli_exit_code=0
-                else
-                    cli_exit_code=$?
-                fi
+                cli_exit_code=$?
             fi
             ;;
         devin)
-            # Devin CLI: -p for non-interactive, --prompt-file for file input
-            log "PLAN" "Invoking: $cli_cmd -p --prompt-file $prompt_file"
-            if has_timeout_command; then
-                if portable_timeout "$timeout_duration" \
-                    "$cli_cmd" -p --prompt-file "$prompt_file" \
-                    > "$output_file"; then
-                    cli_exit_code=0
-                else
-                    cli_exit_code=$?
-                fi
+            log "PLAN" "Launching: $cli_cmd (interactive) --prompt-file $prompt_file"
+            if "$cli_cmd" --prompt-file "$prompt_file"; then
+                cli_exit_code=0
             else
-                if "$cli_cmd" -p --prompt-file "$prompt_file" \
-                    > "$output_file"; then
-                    cli_exit_code=0
-                else
-                    cli_exit_code=$?
-                fi
+                cli_exit_code=$?
             fi
             ;;
     esac
-
-    if [[ $cli_exit_code -eq 124 ]]; then
-        log "ERROR" "$ENGINE CLI timed out after ${timeout_duration}"
-    fi
 
     log "PLAN" "$ENGINE CLI exited with code: $cli_exit_code"
 
@@ -443,12 +400,10 @@ run_ai_planning() {
     # Check if the AI wrote fix_plan.md
     if [[ $cli_exit_code -eq 0 ]] && [[ -f "$FIX_PLAN_FILE" ]]; then
         log "SUCCESS" "AI planning completed - fix_plan.md updated"
-        rm -f "$output_file"
         return 0
     fi
 
     log "ERROR" "AI planning failed (exit code: $cli_exit_code). Check $ENGINE CLI output above."
-    rm -f "$output_file"
     return 1
 }
 
