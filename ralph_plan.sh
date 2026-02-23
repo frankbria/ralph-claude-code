@@ -363,28 +363,28 @@ run_ai_planning() {
 
     log "PLAN" "Prompt: $(wc -c < "$prompt_file" | tr -d ' ') bytes"
 
-    # Interactive invocation — no --print/-p, no stdout redirect
+    # Interactive invocation with bypass permissions — no --print/-p, no stdout redirect
     # AI runs in full TUI mode so user can watch it work
     case "$ENGINE" in
         claude)
-            log "PLAN" "Launching: $cli_cmd (interactive) --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
-            if "$cli_cmd" --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" "$prompt_content"; then
+            log "PLAN" "Launching: $cli_cmd (interactive) --permission-mode bypass --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
+            if "$cli_cmd" --permission-mode bypass --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" "$prompt_content"; then
                 cli_exit_code=0
             else
                 cli_exit_code=$?
             fi
             ;;
         codex)
-            log "PLAN" "Launching: $cli_cmd (interactive)"
-            if "$cli_cmd" "$prompt_content"; then
+            log "PLAN" "Launching: $cli_cmd (interactive) --permission-mode dangerous"
+            if "$cli_cmd" --permission-mode dangerous "$prompt_content"; then
                 cli_exit_code=0
             else
                 cli_exit_code=$?
             fi
             ;;
         devin)
-            log "PLAN" "Launching: $cli_cmd (interactive) --prompt-file $prompt_file"
-            if "$cli_cmd" --prompt-file "$prompt_file"; then
+            log "PLAN" "Launching: $cli_cmd (interactive) --permission-mode dangerous --prompt-file $prompt_file"
+            if "$cli_cmd" --permission-mode dangerous --prompt-file "$prompt_file"; then
                 cli_exit_code=0
             else
                 cli_exit_code=$?
