@@ -119,8 +119,13 @@ install_scripts() {
     cp -r "$SCRIPT_DIR/templates/"* "$RALPH_HOME/templates/"
     shopt -u dotglob
 
-    # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh)
+    # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh, account_rotation.sh, etc.)
     cp -r "$SCRIPT_DIR/lib/"* "$RALPH_HOME/lib/"
+
+    # Copy accounts.conf.example if it doesn't already exist (Issue #81)
+    if [[ ! -f "$RALPH_HOME/accounts.conf.example" ]] && [[ -f "$RALPH_HOME/templates/accounts.conf.example" ]]; then
+        cp "$RALPH_HOME/templates/accounts.conf.example" "$RALPH_HOME/accounts.conf.example"
+    fi
     
     # Create the main ralph command
     cat > "$INSTALL_DIR/ralph" << 'EOF'

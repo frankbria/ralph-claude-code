@@ -465,6 +465,105 @@ When Claude's 5-hour usage limit is reached, Ralph:
 3. **Unattended mode**: Auto-waits on prompt timeout (30s) instead of exiting
 4. Prevents false positives from echoed file content mentioning "5-hour limit"
 
+### Multi-Account Rotation (Issue #81)
+
+Instead of waiting 60 minutes when the API limit is hit, Ralph can automatically rotate to another configured Claude account. Rotation is opt-in and supports two switching mechanisms.
+
+#### Quick Start (OAuth/Subscription Accounts)
+
+Most users have Claude Pro, Max, or Team subscriptions. Here's how to set up rotation:
+
+**Step 1: Authenticate your additional account(s)**
+
+Your primary account (the one you're already logged into) works automatically. For each additional account, run:
+
+```bash
+# One-time setup per additional account
+CLAUDE_CONFIG_DIR=~/.claude-account2 claude auth login
+# → Opens browser, log in with your second account
+
+# Verify it worked
+CLAUDE_CONFIG_DIR=~/.claude-account2 claude auth status
+# → Should show the second account's email
+```
+
+**Step 2: Enable rotation in `.ralphrc`**
+
+```bash
+# Add to your project's .ralphrc
+ACCOUNT_ROTATION=true
+CLAUDE_CONFIG_DIRS=(
+    "$HOME/.claude"            # Your primary account (already logged in)
+    "$HOME/.claude-account2"   # Second account (from step 1)
+)
+```
+
+> **Note**: Both `$HOME` and `~` work in the array. Ralph resolves tilde automatically.
+
+**Step 3: Run Ralph normally**
+
+```bash
+ralph --monitor
+```
+
+When the first account hits the 5-hour limit, Ralph automatically switches to the second and keeps going.
+
+#### Quick Start (API Key Accounts)
+
+For pay-as-you-go API key accounts:
+
+**Step 1: Create the keys config file**
+
+```bash
+cp ~/.ralph/accounts.conf.example ~/.ralph/accounts.conf
+chmod 600 ~/.ralph/accounts.conf   # Restrict permissions — contains secrets
+```
+
+**Step 2: Add your API keys**
+
+```bash
+# Edit ~/.ralph/accounts.conf
+CLAUDE_ACCOUNT_KEYS=(
+    "sk-ant-api03-your-first-key"
+    "sk-ant-api03-your-second-key"
+)
+```
+
+> **Security**: `~/.ralph/accounts.conf` is outside your repo and should never be committed. The `chmod 600` ensures only your user can read it.
+
+**Step 3: Enable rotation in `.ralphrc`**
+
+```bash
+ACCOUNT_ROTATION=true
+```
+
+#### Verifying Your Setup
+
+```bash
+# Check your primary account
+claude auth status
+
+# Check additional accounts
+CLAUDE_CONFIG_DIR=~/.claude-account2 claude auth status
+
+# Clear any stale rate-limit state
+ralph --reset-accounts
+```
+
+#### How It Works
+
+When the 5-hour limit is hit, Ralph will:
+1. Mark the current account as rate-limited (60-minute cooldown)
+2. Switch to the next available account
+3. Retry the loop immediately with the new account
+4. Fall back to the existing wait/exit behavior only when ALL accounts are exhausted
+
+#### Management
+
+```bash
+ralph --reset-accounts   # Clear all account rate-limit cooldowns
+```
+
 ### Custom Prompts
 
 ```bash

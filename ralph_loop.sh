@@ -17,6 +17,7 @@ source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 source "$SCRIPT_DIR/lib/file_protection.sh"
+source "$SCRIPT_DIR/lib/account_rotation.sh"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -46,6 +47,7 @@ _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+_env_ACCOUNT_ROTATION="${ACCOUNT_ROTATION:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -155,6 +157,7 @@ load_ralphrc() {
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+    [[ -n "$_env_ACCOUNT_ROTATION" ]] && ACCOUNT_ROTATION="$_env_ACCOUNT_ROTATION"
 
     RALPHRC_LOADED=true
     return 0
@@ -1603,6 +1606,15 @@ main() {
     # Initialize session tracking before entering the loop
     init_session_tracking
 
+    # Initialize account rotation if configured (Issue #81)
+    if init_account_rotation; then
+        local total_accts
+        total_accts=$(get_total_accounts)
+        log_status "INFO" "Account rotation enabled with $total_accts account(s)"
+    elif [[ "${ACCOUNT_ROTATION:-}" == "true" ]]; then
+        log_status "WARN" "Account rotation requested (ACCOUNT_ROTATION=true) but could not be initialized — check account configuration"
+    fi
+
     log_status "INFO" "Starting main loop..."
 
     while true; do
@@ -1615,7 +1627,14 @@ main() {
         init_call_tracking
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
-        
+
+        # Log active account if rotation is enabled (Issue #81)
+        if [[ "$ACCOUNT_ROTATION" == "true" ]]; then
+            local active_info
+            active_info=$(get_active_account)
+            log_status "INFO" "Active account: $active_info"
+        fi
+
         # Verify Ralph's critical files still exist (Issue #149)
         if ! validate_ralph_integrity; then
             # Ensure log directory exists for logging even if .ralph/ was deleted
@@ -1718,42 +1737,56 @@ main() {
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
             break
         elif [ $exec_result -eq 2 ]; then
-            # API 5-hour limit reached - handle specially
+            # API 5-hour limit reached — try account rotation first (Issue #81)
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
             log_status "WARN" "🛑 Claude API 5-hour limit reached!"
-            
-            # Ask user whether to wait or exit
-            echo -e "\n${YELLOW}The Claude API 5-hour usage limit has been reached.${NC}"
-            echo -e "${YELLOW}You can either:${NC}"
-            echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
-            echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
-            echo -e "\n${BLUE}Choose an option (1 or 2):${NC} "
-            
-            # Read user input with timeout
-            read -t 30 -n 1 user_choice || true
-            echo  # New line after input
-            
-            if [[ "$user_choice" == "2" ]]; then
-                log_status "INFO" "User chose to exit. Exiting loop..."
-                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
-                break
+
+            # Attempt account rotation before falling back to wait/exit
+            if try_rotate_account; then
+                local active_info
+                active_info=$(get_active_account)
+                log_status "SUCCESS" "🔄 Rotated to next account (active: $active_info)"
+                log_status "INFO" "Retrying with new account..."
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "account_rotated" "running"
+                sleep 3
+                continue  # Skip "Completed Loop" log — no Claude execution occurred
             else
-                # Auto-wait on timeout (empty choice) or explicit "1" — supports unattended operation
-                log_status "INFO" "Waiting for API limit reset (auto-wait for unattended mode)..."
-                # Wait for longer period when API limit is hit
-                local wait_minutes=60
-                log_status "INFO" "Waiting $wait_minutes minutes before retrying..."
-                
-                # Countdown display
-                local wait_seconds=$((wait_minutes * 60))
-                while [[ $wait_seconds -gt 0 ]]; do
-                    local minutes=$((wait_seconds / 60))
-                    local seconds=$((wait_seconds % 60))
-                    printf "\r${YELLOW}Time until retry: %02d:%02d${NC}" $minutes $seconds
-                    sleep 1
-                    ((wait_seconds--))
-                done
-                printf "\n"
+                # No accounts available — fall back to existing wait/exit behavior
+                echo -e "\n${YELLOW}The Claude API 5-hour usage limit has been reached.${NC}"
+                if [[ "$ACCOUNT_ROTATION" == "true" ]]; then
+                    echo -e "${YELLOW}All configured accounts are rate-limited.${NC}"
+                fi
+                echo -e "${YELLOW}You can either:${NC}"
+                echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
+                echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
+                echo -e "\n${BLUE}Choose an option (1 or 2):${NC} "
+
+                # Read user input with timeout
+                read -t 30 -n 1 user_choice || true
+                echo  # New line after input
+
+                if [[ "$user_choice" == "2" ]]; then
+                    log_status "INFO" "User chose to exit. Exiting loop..."
+                    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
+                    break
+                else
+                    # Auto-wait on timeout (empty choice) or explicit "1" — supports unattended operation
+                    log_status "INFO" "Waiting for API limit reset (auto-wait for unattended mode)..."
+                    # Wait for longer period when API limit is hit
+                    local wait_minutes=60
+                    log_status "INFO" "Waiting $wait_minutes minutes before retrying..."
+
+                    # Countdown display
+                    local wait_seconds=$((wait_minutes * 60))
+                    while [[ $wait_seconds -gt 0 ]]; do
+                        local minutes=$((wait_seconds / 60))
+                        local seconds=$((wait_seconds % 60))
+                        printf "\r${YELLOW}Time until retry: %02d:%02d${NC}" $minutes $seconds
+                        sleep 1
+                        ((wait_seconds--))
+                    done
+                    printf "\n"
+                fi
             fi
         else
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
@@ -1788,6 +1821,7 @@ Options:
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
+    --reset-accounts        Reset account rotation state (clears all rate-limit cooldowns)
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -1884,6 +1918,15 @@ while [[ $# -gt 0 ]]; do
             source "$SCRIPT_DIR/lib/date_utils.sh"
             reset_session "manual_reset_flag"
             echo -e "\033[0;32m✅ Session state reset successfully\033[0m"
+            exit 0
+            ;;
+        --reset-accounts)
+            # Reset account rotation state (Issue #81)
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$SCRIPT_DIR/lib/date_utils.sh"
+            source "$SCRIPT_DIR/lib/account_rotation.sh"
+            reset_account_rotation "Manual reset via command line"
+            echo -e "\033[0;32m✅ Account rotation state reset successfully\033[0m"
             exit 0
             ;;
         --circuit-status)

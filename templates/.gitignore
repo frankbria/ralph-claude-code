@@ -9,6 +9,7 @@
 .ralph/.response_analysis
 .ralph/.circuit_breaker_state
 .ralph/.circuit_breaker_history
+.ralph/.account_rotation_state
 
 # Ralph logs and generated docs
 .ralph/logs/*

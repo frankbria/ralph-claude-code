@@ -1,0 +1,18 @@
+# ~/.ralph/accounts.conf - API key accounts for multi-account rotation
+# This file is sourced as bash. Store your Anthropic API keys here.
+# NEVER commit this file to version control.
+#
+# Usage:
+#   1. Copy this file to ~/.ralph/accounts.conf
+#   2. Add your API keys below
+#   3. Set ACCOUNT_ROTATION=true in your project's .ralphrc
+#   4. Restrict permissions: chmod 600 ~/.ralph/accounts.conf
+#
+# When Claude hits the 5-hour API limit, Ralph will rotate through
+# these keys automatically instead of waiting 60 minutes.
+
+CLAUDE_ACCOUNT_KEYS=(
+    # "sk-ant-api03-your-first-key-here"
+    # "sk-ant-api03-your-second-key-here"
+    # "sk-ant-api03-your-third-key-here"
+)

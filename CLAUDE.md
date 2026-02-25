@@ -92,6 +92,21 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - `get_integrity_report()`: human-readable report with missing files and recovery instructions
    - Lightweight validation that runs every loop iteration
 
+9. **lib/account_rotation.sh** - Multi-account rotation for API rate limit handling (Issue #81)
+   - Rotates between Claude accounts when the 5-hour API limit is hit (exit code 2)
+   - Supports two switching mechanisms: `ANTHROPIC_API_KEY` swap and `CLAUDE_CONFIG_DIR` swap
+   - `load_account_config()`: reads API keys from `~/.ralph/accounts.conf` and config dirs from `.ralphrc`
+   - `get_active_account()`, `get_total_accounts()`: state queries
+   - `mark_account_rate_limited()`: records rate-limit timestamp per account
+   - `get_next_available_account()`: finds next account not in 60-min cooldown, wraps around
+   - `switch_account()`: sets the appropriate env var for the next account
+   - `all_accounts_exhausted()`: checks if every account is in cooldown
+   - `init_account_rotation()`: startup initialization, opt-in via `ACCOUNT_ROTATION=true`
+   - `try_rotate_account()`: high-level function called from exit code 2 handler
+   - `reset_account_rotation()`: clears all rate-limit state
+   - State file: `.ralph/.account_rotation_state` (JSON)
+   - Config file for keys: `~/.ralph/accounts.conf` (sourced bash, never committed)
+
 ## Key Commands
 
 ### Installation
@@ -159,6 +174,9 @@ ralph --auto-reset-circuit   # Auto-reset OPEN state on startup
 
 # Session management
 ralph --reset-session    # Reset session state manually
+
+# Account rotation management (Issue #81)
+ralph --reset-accounts   # Clear all account rate-limit cooldowns
 ```
 
 ### Monitoring
@@ -176,7 +194,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (566 tests)
+# Run all tests (627 tests)
 npm test
 
 # Run specific test suites
@@ -193,6 +211,7 @@ bats tests/unit/test_ralph_enable.bats
 bats tests/unit/test_circuit_breaker_recovery.bats
 bats tests/unit/test_file_protection.bats
 bats tests/unit/test_integrity_check.bats
+bats tests/unit/test_account_rotation.bats
 ```
 
 ## Ralph Loop Configuration
@@ -336,7 +355,7 @@ Ralph installs to:
 - **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci)
 - **Templates**: `~/.ralph/templates/`
 - **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh, file_protection.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh, file_protection.sh, account_rotation.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
@@ -519,7 +538,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (566 tests total)
+### Test Files (627 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -541,6 +560,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
 | `test_file_protection.bats` | 22 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
 | `test_integrity_check.bats` | 12 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
+| `test_account_rotation.bats` | 61 | Multi-account rotation: config loading, rotation order, cooldown, env var switching, CLI flag, loop integration (Issue #81) |
 
 ### Running Tests
 ```bash
