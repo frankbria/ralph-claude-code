@@ -1187,3 +1187,29 @@ EOF
     run grep 'CLAUDE_CODE_CMD' "$script"
     assert_success
 }
+
+# --- Issue #196: Call counter must persist immediately, not only on success ---
+
+@test "execute_claude_code uses increment_call_counter instead of manual read+increment" {
+    # Issue #196: The bug was execute_claude_code manually doing calls_made=$((calls_made + 1))
+    # instead of using increment_call_counter() which writes to disk immediately.
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify increment_call_counter is called in execute_claude_code
+    run grep 'calls_made=\$(increment_call_counter)' "$script"
+    assert_success
+
+    # Verify the old manual increment pattern is gone (this was unique to the bug)
+    run grep 'calls_made=\$((calls_made + 1))' "$script"
+    assert_failure
+}
+
+@test "execute_claude_code does not conditionally write call count on success" {
+    # Issue #196: The comment "Only increment counter on successful execution" was
+    # the marker for the conditional write that caused stale counters on failure.
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # This comment+write pair was removed — counter is now persisted before execution
+    run grep 'Only increment counter on successful execution' "$script"
+    assert_failure
+}
