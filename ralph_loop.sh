@@ -1086,7 +1086,8 @@ execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/claude_output_${timestamp}.log"
     local loop_count=$1
-    local calls_made=$(increment_call_counter)
+    local calls_made
+    calls_made=$(increment_call_counter)
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
     # Store in file for access by progress detection after Claude execution
