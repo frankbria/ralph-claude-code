@@ -764,27 +764,23 @@ EOF
 }
 
 # ============================================================================
-# Default ~/.claude config dir handling
+# Explicit config dir handling (always set CLAUDE_CONFIG_DIR)
 # ============================================================================
 
-@test "switch_account: unsets CLAUDE_CONFIG_DIR for default ~/.claude dir" {
-    # The default ~/.claude dir requires CLAUDE_CONFIG_DIR to be UNSET.
-    # Setting it explicitly breaks auth (credentials tied to unset state).
-    export ACCOUNT_CONFIG_DIRS=("$HOME/.claude" "/tmp/test-claude-account2")
+@test "switch_account: always sets CLAUDE_CONFIG_DIR explicitly for config_dir accounts" {
+    # Each rotation account must have a dedicated config dir.
+    # CLAUDE_CONFIG_DIR is always set explicitly — no unset/fallback to default.
+    export ACCOUNT_CONFIG_DIRS=("/tmp/test-claude-account1" "/tmp/test-claude-account2")
     export ACCOUNT_KEYS=()
     _ensure_state_file
 
-    # Set CLAUDE_CONFIG_DIR to something first to prove it gets unset
-    export CLAUDE_CONFIG_DIR="/tmp/something"
-
     switch_account 0 "config_dir"
 
-    # Should be unset, not set to ~/.claude
-    [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]
+    [[ "$CLAUDE_CONFIG_DIR" == "/tmp/test-claude-account1" ]]
 }
 
-@test "switch_account: sets CLAUDE_CONFIG_DIR for non-default dirs" {
-    export ACCOUNT_CONFIG_DIRS=("$HOME/.claude" "/tmp/test-claude-account2")
+@test "switch_account: sets CLAUDE_CONFIG_DIR for second account" {
+    export ACCOUNT_CONFIG_DIRS=("/tmp/test-claude-account1" "/tmp/test-claude-account2")
     export ACCOUNT_KEYS=()
     _ensure_state_file
 
@@ -793,16 +789,14 @@ EOF
     [[ "$CLAUDE_CONFIG_DIR" == "/tmp/test-claude-account2" ]]
 }
 
-@test "switch_account: handles ~/.claude/ with trailing slash" {
-    export ACCOUNT_CONFIG_DIRS=("$HOME/.claude/" "/tmp/test-claude-account2")
+@test "switch_account: resolves tilde in config dir paths" {
+    export ACCOUNT_CONFIG_DIRS=("~/custom-claude-dir" "/tmp/test-claude-account2")
     export ACCOUNT_KEYS=()
     _ensure_state_file
 
-    export CLAUDE_CONFIG_DIR="/tmp/something"
-
     switch_account 0 "config_dir"
 
-    [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]
+    [[ "$CLAUDE_CONFIG_DIR" == "$HOME/custom-claude-dir" ]]
 }
 
 @test "switch_account: unsets CLAUDE_CONFIG_DIR when switching to key type" {
@@ -830,19 +824,15 @@ EOF
     [[ -z "${ANTHROPIC_API_KEY:-}" ]]
 }
 
-@test "switch_account: resolves tilde in config dir paths" {
+@test "switch_account: resolves tilde in all config dir paths" {
     # Tilde doesn't expand inside quoted array values in .ralphrc
-    export ACCOUNT_CONFIG_DIRS=("~/.claude" "~/.claude-account2")
+    export ACCOUNT_CONFIG_DIRS=("~/.claude-account1" "~/.claude-account2")
     export ACCOUNT_KEYS=()
     _ensure_state_file
 
-    export CLAUDE_CONFIG_DIR="/tmp/something"
-
-    # ~/.claude should resolve to $HOME/.claude and trigger the unset path
     switch_account 0 "config_dir"
-    [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]
+    [[ "$CLAUDE_CONFIG_DIR" == "$HOME/.claude-account1" ]]
 
-    # ~/.claude-account2 should resolve to $HOME/.claude-account2
     switch_account 1 "config_dir"
     [[ "$CLAUDE_CONFIG_DIR" == "$HOME/.claude-account2" ]]
 }

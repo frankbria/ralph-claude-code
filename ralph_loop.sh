@@ -1752,6 +1752,7 @@ main() {
                 local active_info
                 active_info=$(get_active_account)
                 log_status "SUCCESS" "🔄 Rotated to next account (active: $active_info)"
+                reset_session "account_rotation"  # Sessions are per-account; start fresh
                 log_status "INFO" "Retrying with new account..."
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "account_rotated" "running"
                 sleep 3

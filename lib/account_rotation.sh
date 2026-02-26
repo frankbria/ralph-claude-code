@@ -232,14 +232,12 @@ switch_account() {
         local target_dir="${ACCOUNT_CONFIG_DIRS[$index]}"
         # Resolve ~ to $HOME (tilde doesn't expand inside quoted array values)
         target_dir="${target_dir/#\~/$HOME}"
-        # The default ~/.claude dir requires CLAUDE_CONFIG_DIR to be UNSET.
-        # Setting it explicitly to ~/.claude breaks auth (credentials are in the
-        # system keychain, tied to the unset state). For any other dir, set it.
-        if [[ "$target_dir" == "$HOME/.claude" || "$target_dir" == "$HOME/.claude/" ]]; then
-            unset CLAUDE_CONFIG_DIR
-        else
-            export CLAUDE_CONFIG_DIR="$target_dir"
-        fi
+        # Always set CLAUDE_CONFIG_DIR explicitly for rotation accounts.
+        # Each account must have its own dedicated config dir (e.g., ~/.claude-account1)
+        # with separate credentials. Using the default ~/.claude is discouraged because
+        # its keychain credentials are tied to the "unset" state and conflict with
+        # interactive sessions.
+        export CLAUDE_CONFIG_DIR="$target_dir"
     else
         return 1
     fi

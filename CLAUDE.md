@@ -99,7 +99,8 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - `get_active_account()`, `get_total_accounts()`: state queries
    - `mark_account_rate_limited()`: records rate-limit timestamp per account
    - `get_next_available_account()`: finds next account not in 60-min cooldown, wraps around
-   - `switch_account()`: sets the appropriate env var for the next account
+   - `switch_account()`: sets `CLAUDE_CONFIG_DIR` explicitly for each account (never falls back to default `~/.claude`)
+   - **Important**: Each rotation account must use a dedicated config dir (e.g., `~/.claude-account1`, `~/.claude-account2`). Do NOT use `~/.claude` — its keychain credentials conflict with interactive sessions and share the same rate limit pool.
    - `all_accounts_exhausted()`: checks if every account is in cooldown
    - `init_account_rotation()`: startup initialization, opt-in via `ACCOUNT_ROTATION=true`
    - `try_rotate_account()`: high-level function called from exit code 2 handler
