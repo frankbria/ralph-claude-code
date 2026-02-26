@@ -1089,8 +1089,10 @@ execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/claude_output_${timestamp}.log"
     local loop_count=$1
-    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-    calls_made=$((calls_made + 1))
+    # Persist call count immediately so monitor dashboard reflects actual usage
+    # API calls consume rate limits regardless of success/failure
+    local calls_made
+    calls_made=$(increment_call_counter)
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
     # Store in file for access by progress detection after Claude execution
@@ -1395,9 +1397,6 @@ EOF
     fi
 
     if [ $exit_code -eq 0 ]; then
-        # Only increment counter on successful execution
-        echo "$calls_made" > "$CALL_COUNT_FILE"
-
         # Clear progress file
         echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
@@ -1512,9 +1511,15 @@ EOF
 
         # Layer 3: Filtered text fallback — only check tail, excluding tool result lines
         # Filters out type:user, tool_result, and tool_use_id lines which contain echoed file content
-        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached\|hit your limit"; then
             log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
             return 2  # API limit detected via text fallback
+        fi
+
+        # Layer 4: Account not logged in — treat as rotatable error when rotation is configured
+        if [[ "${ACCOUNT_ROTATION:-false}" == "true" ]] && grep -qi "not logged in\|please run /login" "$output_file" 2>/dev/null; then
+            log_status "ERROR" "🔐 Claude account not logged in — triggering rotation"
+            return 2  # Use same code as API limit so rotation logic fires
         fi
 
         log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
@@ -1721,8 +1726,9 @@ main() {
         update_status "$loop_count" "$calls_made" "executing" "running"
         
         # Execute Claude Code
-        execute_claude_code "$loop_count"
-        local exec_result=$?
+        # Use || to prevent set -e from exiting on non-zero return codes (2=API limit, 3=circuit breaker)
+        local exec_result=0
+        execute_claude_code "$loop_count" || exec_result=$?
         
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"

@@ -398,3 +398,21 @@ create_sample_stream_json_with_prompt_echo() {
 {"type":"result","subtype":"rate_limit_event","rate_limit_event":{"type":"rate_limit","status":"allowed","remaining":42}}
 EOF
 }
+
+# Sample output for daily usage cap: "You've hit your limit · resets 6pm"
+# This is the result JSON line after session extraction in live mode.
+create_sample_daily_limit_result() {
+    local file=${1:-"claude_output.log"}
+    cat > "$file" << 'EOF'
+{"type":"result","subtype":"error","is_error":true,"result":"You've hit your limit · resets 6pm"}
+EOF
+}
+
+# Sample output when Claude account is not logged in.
+# Occurs when CLAUDE_CONFIG_DIR points to an account that hasn't run /login.
+create_sample_not_logged_in_result() {
+    local file=${1:-"claude_output.log"}
+    cat > "$file" << 'EOF'
+{"type":"result","subtype":"success","is_error":true,"duration_ms":34,"result":"Not logged in · Please run /login","session_id":"abc123"}
+EOF
+}

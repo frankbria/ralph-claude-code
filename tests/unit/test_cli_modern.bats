@@ -1051,7 +1051,12 @@ _detect_api_limit() {
     fi
 
     # Layer 3: Filtered text fallback
-    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached\|hit your limit"; then
+        return 2
+    fi
+
+    # Layer 4: Account not logged in — rotatable error when rotation is configured
+    if [[ "${ACCOUNT_ROTATION:-false}" == "true" ]] && grep -qi "not logged in\|please run /login" "$output_file" 2>/dev/null; then
         return 2
     fi
 
@@ -1087,6 +1092,39 @@ _detect_api_limit() {
 
     # exit_code=1 (non-timeout failure) — should NOT detect API limit
     run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 1 ]]
+}
+
+@test "behavioral: daily usage cap 'hit your limit' message returns 2 not 1" {
+    # Scenario: Claude hit the daily usage cap (not 5-hour API limit)
+    # Error: "You've hit your limit · resets 6pm" with is_error:true
+    # This is the result JSON after session extraction in live mode
+    local output_file="$TEST_DIR/claude_output_daily_limit.log"
+    create_sample_daily_limit_result "$output_file"
+
+    # exit_code=1 (non-zero — Claude exited with error) — should detect as API limit
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 2 ]]
+}
+
+@test "behavioral: 'not logged in' with ACCOUNT_ROTATION=true returns 2 (triggers rotation)" {
+    # Scenario: CLAUDE_CONFIG_DIR points to an account that hasn't run /login yet.
+    # With rotation enabled, this should rotate to the next account (return 2)
+    # rather than treating it as a generic failure (return 1).
+    local output_file="$TEST_DIR/claude_output_not_logged_in.log"
+    create_sample_not_logged_in_result "$output_file"
+
+    ACCOUNT_ROTATION=true run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 2 ]]
+}
+
+@test "behavioral: 'not logged in' with ACCOUNT_ROTATION=false returns 1 (not rotatable)" {
+    # Scenario: Without rotation configured, a 'not logged in' error is a regular failure.
+    # The user needs to fix their auth manually — no automatic rotation.
+    local output_file="$TEST_DIR/claude_output_not_logged_in.log"
+    create_sample_not_logged_in_result "$output_file"
+
+    ACCOUNT_ROTATION=false run _detect_api_limit 1 "$output_file"
     [[ "$status" -eq 1 ]]
 }
 
