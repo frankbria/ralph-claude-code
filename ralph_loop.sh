@@ -1101,13 +1101,11 @@ execute_claude_code() {
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
-    # Build loop context for session continuity
+    # Build loop context (always, regardless of session mode)
     local loop_context=""
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        loop_context=$(build_loop_context "$loop_count")
-        if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
-            log_status "INFO" "Loop context: $loop_context"
-        fi
+    loop_context=$(build_loop_context "$loop_count")
+    if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "INFO" "Loop context: $loop_context"
     fi
 
     # Initialize or resume session
