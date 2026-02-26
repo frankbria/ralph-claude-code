@@ -1213,3 +1213,26 @@ EOF
     run grep 'Only increment counter on successful execution' "$script"
     assert_failure
 }
+
+# --- Issue #190: Loop context must be built regardless of session mode ---
+
+@test "build_claude_command includes loop context even when session continuity is disabled" {
+    export CLAUDE_CODE_CMD="claude"
+    export CLAUDE_OUTPUT_FORMAT="json"
+    export CLAUDE_ALLOWED_TOOLS=""
+    export CLAUDE_USE_CONTINUE="false"
+
+    echo "Test prompt" > "$PROMPT_FILE"
+
+    build_claude_command "$PROMPT_FILE" "Loop #3 context" ""
+
+    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+
+    # Loop context should be included regardless of session mode
+    [[ "$cmd_string" == *"--append-system-prompt"* ]]
+    [[ "$cmd_string" == *"Loop #3 context"* ]]
+
+    # Session continuity should NOT be included
+    [[ "$cmd_string" != *"--continue"* ]]
+    [[ "$cmd_string" != *"--resume"* ]]
+}
