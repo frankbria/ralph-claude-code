@@ -177,7 +177,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (583 tests)
+# Run all tests (588 tests)
 npm test
 
 # Run specific test suites
@@ -229,6 +229,7 @@ CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 - Configurable via `.ralphrc` for alternative installations (e.g., `"npx @anthropic-ai/claude-code"`)
 - Auto-detected during `ralph-enable` and `ralph-setup` (prefers `claude` if available, falls back to npx)
 - Validated at startup with `validate_claude_command()` — displays clear error with installation instructions if not found
+- After validation, `check_claude_version()` verifies minimum version compatibility and `check_claude_updates()` queries npm registry for latest version with auto-update attempt (Issue #190)
 - Environment variable `CLAUDE_CODE_CMD` takes precedence over `.ralphrc`
 
 **CLI Options:**
@@ -524,13 +525,13 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (583 tests total)
+### Test Files (588 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 76 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + question detection corrective message (#190) + stderr separation (#190) |
+| `test_cli_modern.bats` | 81 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + question detection corrective message (#190) + stderr separation (#190) + version check and auto-update at startup (#190) |
 | `test_json_parsing.bats` | 57 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
 | `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 55 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |

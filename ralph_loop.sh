@@ -620,6 +620,53 @@ check_claude_version() {
     return 0
 }
 
+# Check for Claude CLI updates and attempt auto-update (Issue #190)
+check_claude_updates() {
+    local installed_version
+    installed_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [[ -z "$installed_version" ]]; then
+        return 0
+    fi
+
+    # Query latest version from npm registry
+    local latest_version
+    latest_version=$(npm view @anthropic-ai/claude-code version 2>/dev/null)
+    if [[ -z "$latest_version" ]]; then
+        log_status "INFO" "Could not check for Claude CLI updates (npm registry unreachable)"
+        return 0
+    fi
+
+    if [[ "$installed_version" == "$latest_version" ]]; then
+        log_status "INFO" "Claude CLI is up to date ($installed_version)"
+        return 0
+    fi
+
+    # Semver numeric comparison
+    local inst_parts=(${installed_version//./ })
+    local lat_parts=(${latest_version//./ })
+    local inst_num=$((${inst_parts[0]:-0} * 10000 + ${inst_parts[1]:-0} * 100 + ${inst_parts[2]:-0}))
+    local lat_num=$((${lat_parts[0]:-0} * 10000 + ${lat_parts[1]:-0} * 100 + ${lat_parts[2]:-0}))
+
+    if [[ $inst_num -ge $lat_num ]]; then
+        return 0
+    fi
+
+    # Auto-update attempt
+    log_status "INFO" "Claude CLI update available: $installed_version → $latest_version. Attempting auto-update..."
+    if npm update -g @anthropic-ai/claude-code 2>/dev/null; then
+        local new_version
+        new_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        log_status "SUCCESS" "Claude CLI updated: $installed_version → ${new_version:-$latest_version}"
+        return 0
+    fi
+
+    # Auto-update failed — warn with environment-specific guidance
+    log_status "WARN" "Claude CLI auto-update failed ($installed_version → $latest_version)"
+    log_status "WARN" "Update manually: npm update -g @anthropic-ai/claude-code"
+    log_status "WARN" "In Docker: rebuild your image to include the latest version"
+    return 1
+}
+
 # Validate allowed tools against whitelist
 # Returns 0 if valid, 1 if invalid with error message
 validate_allowed_tools() {
@@ -1559,6 +1606,10 @@ main() {
         log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
         exit 1
     fi
+
+    # Check CLI version compatibility and auto-update (Issue #190)
+    check_claude_version
+    check_claude_updates
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
