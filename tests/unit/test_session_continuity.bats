@@ -109,7 +109,7 @@ function_exists_in_ralph() {
 
 @test "cleanup function includes session reset" {
     # Check if cleanup function includes reset_session
-    run grep -A5 'cleanup()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A20 'cleanup()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     [[ "$output" == *"reset_session"* ]] || skip "Cleanup session reset not yet implemented"
 }

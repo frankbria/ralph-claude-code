@@ -1321,6 +1321,8 @@ execute_claude_code() {
         # Log stderr output if any was captured (Issue #190)
         if [[ -s "$stderr_file" ]]; then
             log_status "WARN" "Claude CLI stderr output detected (see $stderr_file)"
+        else
+            rm -f "$stderr_file"
         fi
 
         echo ""
@@ -1355,6 +1357,8 @@ execute_claude_code() {
                 log_status "WARN" "Could not find result message in stream output"
                 # Keep stream output as-is for debugging
             fi
+            # Clean up temporary stream log after extraction
+            rm -f "$stream_output_file"
         fi
     else
         # BACKGROUND MODE: Original behavior with progress monitoring
@@ -1390,6 +1394,7 @@ execute_claude_code() {
 
         # Get PID and monitor progress
         local claude_pid=$!
+        _CLAUDE_PID=$claude_pid
         local progress_counter=0
 
         # Early failure detection: if the command doesn't exist or fails immediately,
@@ -1465,6 +1470,7 @@ EOF
         # Wait for the process to finish and get exit code
         wait $claude_pid
         exit_code=$?
+        _CLAUDE_PID=""
     fi
 
     if [ $exit_code -eq 0 ]; then
@@ -1594,17 +1600,33 @@ EOF
 
 # Cleanup function
 cleanup() {
-    log_status "INFO" "Ralph loop interrupted. Cleaning up..."
-    reset_session "manual_interrupt"
-    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
-    exit 0
+    # Reentrancy guard — prevent double execution from EXIT + signal combination
+    if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
+    _CLEANUP_DONE=true
+
+    # Kill background Claude process if still running
+    if [[ -n "$_CLAUDE_PID" ]] && kill -0 "$_CLAUDE_PID" 2>/dev/null; then
+        kill "$_CLAUDE_PID" 2>/dev/null || true
+        wait "$_CLAUDE_PID" 2>/dev/null || true
+    fi
+    _CLAUDE_PID=""
+
+    # Only perform session/status cleanup if main loop was running
+    if [[ $loop_count -gt 0 ]]; then
+        log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+        reset_session "manual_interrupt"
+        update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
+    fi
+    # No exit here — EXIT trap handles natural termination
 }
 
-# Set up signal handlers
-trap cleanup SIGINT SIGTERM
+# Set up signal handlers — EXIT covers SIGINT, SIGTERM, set -e errors, and normal exit
+trap cleanup EXIT
 
-# Global variable for loop count (needed by cleanup function)
+# Global variables for cleanup
 loop_count=0
+_CLAUDE_PID=""
+_CLEANUP_DONE=false
 
 # Main loop
 main() {
@@ -1679,6 +1701,10 @@ main() {
 
     # Initialize session tracking before entering the loop
     init_session_tracking
+
+    # Reset stale exit signals from previous session (SIGKILL/OOM recovery)
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    rm -f "$RALPH_DIR/.response_analysis"
 
     log_status "INFO" "Starting main loop..."
 
