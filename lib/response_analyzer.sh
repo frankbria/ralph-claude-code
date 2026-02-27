@@ -47,6 +47,8 @@ detect_questions() {
     for pattern in "${QUESTION_PATTERNS[@]}"; do
         local matches
         matches=$(echo "$content" | grep -i "$pattern" | grep -c '?' 2>/dev/null || echo "0")
+        matches=$(echo "$matches" | tr -d '[:space:]')
+        matches=${matches:-0}
         question_count=$((question_count + matches))
     done
 

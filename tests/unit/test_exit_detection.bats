@@ -1223,3 +1223,61 @@ detect_progress_with_commits() {
     # Should fall back to uncommitted changes (1 file)
     [ "$files_changed" -eq 1 ]
 }
+
+# =============================================================================
+# QUESTION DETECTION IN ANALYZE_RESPONSE (Issue #190 Bug 2)
+# =============================================================================
+
+@test "analyze_response sets asking_questions=true for question text output" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Should I implement approach A or B? Which option do you prefer?" > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+
+    local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
+    assert_equal "$asking" "true"
+}
+
+@test "analyze_response sets asking_questions=false for normal output" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. All tests passed successfully." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+
+    local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
+    assert_equal "$asking" "false"
+}
