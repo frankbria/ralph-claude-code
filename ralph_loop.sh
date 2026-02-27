@@ -697,7 +697,16 @@ build_loop_context() {
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null | head -c 200)
         if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
-            context+="Previous: ${prev_summary}"
+            context+="Previous: ${prev_summary} "
+        fi
+    fi
+
+    # If previous loop detected questions, inject corrective guidance (Issue #190 Bug 2)
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local prev_asking_questions
+        prev_asking_questions=$(jq -r '.analysis.asking_questions // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$prev_asking_questions" == "true" ]]; then
+            context+="IMPORTANT: You asked questions in the previous loop. This is a headless automation loop with no human to answer. Do NOT ask questions. Choose the most conservative/safe default and proceed autonomously. "
         fi
     fi
 

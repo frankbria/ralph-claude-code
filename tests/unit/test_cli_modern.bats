@@ -108,7 +108,16 @@ setup() {
         if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
             local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RALPH_DIR/.response_analysis" 2>/dev/null | head -c 200)
             if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
-                context+="Previous: ${prev_summary}"
+                context+="Previous: ${prev_summary} "
+            fi
+        fi
+
+        # If previous loop detected questions, inject corrective guidance (Issue #190 Bug 2)
+        if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
+            local prev_asking_questions
+            prev_asking_questions=$(jq -r '.analysis.asking_questions // false' "$RALPH_DIR/.response_analysis" 2>/dev/null || echo "false")
+            if [[ "$prev_asking_questions" == "true" ]]; then
+                context+="IMPORTANT: You asked questions in the previous loop. This is a headless automation loop with no human to answer. Do NOT ask questions. Choose the most conservative/safe default and proceed autonomously. "
             fi
         fi
 
@@ -1235,4 +1244,28 @@ EOF
     # Session continuity should NOT be included
     [[ "$cmd_string" != *"--continue"* ]]
     [[ "$cmd_string" != *"--resume"* ]]
+}
+
+# --- Issue #190 Bug 2: Question detection corrective message ---
+
+@test "build_loop_context includes corrective message when previous loop asked questions" {
+    # Create response analysis with asking_questions=true
+    echo '{"analysis":{"work_summary":"Asked about approach","asking_questions":true,"question_count":2}}' > "$RALPH_DIR/.response_analysis"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+
+    run build_loop_context 5
+
+    assert_success
+    [[ "$output" == *"Do NOT ask questions"* ]]
+}
+
+@test "build_loop_context omits corrective message when previous loop was normal" {
+    # Create response analysis with asking_questions=false
+    echo '{"analysis":{"work_summary":"Implemented feature X","asking_questions":false,"question_count":0}}' > "$RALPH_DIR/.response_analysis"
+    export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+
+    run build_loop_context 5
+
+    assert_success
+    [[ "$output" != *"Do NOT ask questions"* ]]
 }
