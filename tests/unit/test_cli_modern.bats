@@ -1319,3 +1319,56 @@ EOF
     assert_success
     [[ "$output" == *"#190"* ]]
 }
+
+# =============================================================================
+# Startup version check and auto-update tests (Issue #190)
+# =============================================================================
+
+@test "check_claude_version is called before loop in ralph_loop.sh" {
+    # Verify check_claude_version is called in main() before the while loop
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract content between main() and while true; verify check_claude_version appears
+    run bash -c "sed -n '/^main()/,/while true/p' '$script' | grep 'check_claude_version'"
+    assert_success
+}
+
+@test "check_claude_version is called after validate_claude_command" {
+    # Verify version check comes after command validation in startup sequence
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    local validate_line
+    validate_line=$(grep -n 'validate_claude_command' "$script" | grep 'if ! ' | head -1 | cut -d: -f1)
+    local version_line
+    version_line=$(sed -n '/^main()/,/while true/p' "$script" | grep -n 'check_claude_version' | head -1 | cut -d: -f1)
+    local validate_in_main
+    validate_in_main=$(sed -n '/^main()/,/while true/p' "$script" | grep -n 'validate_claude_command' | head -1 | cut -d: -f1)
+
+    # version check line number should be greater than validate line number (within main)
+    [[ $version_line -gt $validate_in_main ]]
+}
+
+@test "check_claude_updates function exists in ralph_loop.sh" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep '^check_claude_updates()' "$script"
+    assert_success
+}
+
+@test "check_claude_updates is called before loop in ralph_loop.sh" {
+    # Verify check_claude_updates is called in main() before the while loop
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/^main()/,/while true/p' '$script' | grep 'check_claude_updates'"
+    assert_success
+}
+
+@test "check_claude_updates handles npm failure gracefully" {
+    # When npm view fails, function should return 0 (non-blocking)
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify the npm failure path returns 0
+    run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep -A1 'npm registry unreachable'"
+    assert_success
+    [[ "$output" == *"return 0"* ]]
+}
