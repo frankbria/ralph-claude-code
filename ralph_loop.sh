@@ -1522,6 +1522,7 @@ EOF
 
 # Cleanup function
 cleanup() {
+    local trap_exit_code=${1:-$?}
     # Reentrancy guard — prevent double execution from EXIT + signal combination
     if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
     _CLEANUP_DONE=true
@@ -1533,8 +1534,9 @@ cleanup() {
     fi
     _CLAUDE_PID=""
 
-    # Only perform session/status cleanup if main loop was running
-    if [[ $loop_count -gt 0 ]]; then
+    # Only record "interrupted" status for abnormal exits (non-zero exit code)
+    # Normal exit (code 0) preserves the status already written by the main loop
+    if [[ $loop_count -gt 0 && $trap_exit_code -ne 0 ]]; then
         log_status "INFO" "Ralph loop interrupted. Cleaning up..."
         reset_session "manual_interrupt"
         update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
@@ -1543,7 +1545,7 @@ cleanup() {
 }
 
 # Set up signal handlers — EXIT covers SIGINT, SIGTERM, set -e errors, and normal exit
-trap cleanup EXIT
+trap 'cleanup $?' EXIT
 
 # Global variables for cleanup
 loop_count=0
