@@ -1321,6 +1321,8 @@ execute_claude_code() {
         # Log stderr output if any was captured (Issue #190)
         if [[ -s "$stderr_file" ]]; then
             log_status "WARN" "Claude CLI stderr output detected (see $stderr_file)"
+        else
+            rm -f "$stderr_file"
         fi
 
         echo ""
