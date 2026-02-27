@@ -395,13 +395,7 @@ analyze_response() {
             # Detect questions in JSON response text (Issue #190 Bug 2)
             local asking_questions=false
             local question_count=0
-            local json_text_content="$work_summary"
-            if [[ -f "$RALPH_DIR/.json_parse_result" ]]; then
-                local result_text
-                result_text=$(jq -r '.summary // ""' "$RALPH_DIR/.json_parse_result" 2>/dev/null || echo "")
-                [[ -n "$result_text" ]] && json_text_content="$result_text"
-            fi
-            question_count=$(detect_questions "$json_text_content")
+            question_count=$(detect_questions "$work_summary")
             [[ $question_count -gt 0 ]] && asking_questions=true
 
             # Check for file changes via git (supplements JSON data)
