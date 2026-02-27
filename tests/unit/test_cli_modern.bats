@@ -712,7 +712,8 @@ EOF
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # The live mode has LIVE_CMD_ARGS on one line and < /dev/null on the next
-    run grep '< /dev/null 2>&1 |' "$script"
+    # stderr is redirected to $stderr_file, not merged with stdout (Issue #190)
+    run grep '< /dev/null 2>"$stderr_file" |' "$script"
 
     assert_success
     [[ "$output" == *'< /dev/null'* ]]
@@ -732,8 +733,8 @@ EOF
     run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null' "$script"
     assert_success
 
-    # Live mode: has < /dev/null on continuation line
-    run grep '< /dev/null 2>&1 |' "$script"
+    # Live mode: has < /dev/null on continuation line (stderr to file, Issue #190)
+    run grep '< /dev/null 2>"$stderr_file" |' "$script"
     assert_success
 
     # Legacy mode: has < "$PROMPT_FILE" on same line
@@ -1268,4 +1269,53 @@ EOF
 
     assert_success
     [[ "$output" != *"Do NOT ask questions"* ]]
+}
+
+# =============================================================================
+# LIVE MODE STDERR SEPARATION TESTS (Issue #190)
+# Verify stderr is redirected to a separate file instead of merging into stdout
+# =============================================================================
+
+@test "live mode pipeline does not merge stderr into stdout" {
+    # The live mode pipeline must NOT use 2>&1 which merges stderr into the
+    # JSON stdout stream, breaking jq parsing (Issue #190)
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract the live pipeline line and verify 2>&1 is absent
+    local pipeline_line
+    pipeline_line=$(grep '< /dev/null 2>' "$script" | grep -v '2>&1' | head -1)
+    [[ -n "$pipeline_line" ]]
+}
+
+@test "live mode pipeline redirects stderr to separate file" {
+    # Verify stderr is redirected to $stderr_file (Issue #190)
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep '2>"$stderr_file"' "$script"
+    assert_success
+}
+
+@test "stderr_file variable is defined in execute_claude_code" {
+    # Verify the stderr_file variable is declared alongside output_file
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep 'local stderr_file=.*claude_stderr.*\.log' "$script"
+    assert_success
+}
+
+@test "live mode logs stderr output when non-empty" {
+    # Verify the stderr logging logic exists for non-empty stderr files
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep 'Claude CLI stderr output detected' "$script"
+    assert_success
+}
+
+@test "live mode pipeline comment references Issue #190" {
+    # Verify the pipeline comment documents the stderr separation fix
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -A1 'stderr.*separate file' "$script"
+    assert_success
+    [[ "$output" == *"#190"* ]]
 }
