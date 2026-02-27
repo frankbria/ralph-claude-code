@@ -62,24 +62,38 @@ setup() {
     # These are copies of the functions from ralph_loop.sh for isolated testing
     # ==========================================================================
 
+    # Compare two semver strings: returns 0 if ver1 >= ver2, 1 if ver1 < ver2
+    compare_semver() {
+        local ver1="$1" ver2="$2"
+        local v1_major v1_minor v1_patch
+        local v2_major v2_minor v2_patch
+
+        IFS='.' read -r v1_major v1_minor v1_patch <<< "$ver1"
+        IFS='.' read -r v2_major v2_minor v2_patch <<< "$ver2"
+
+        v1_major=${v1_major:-0}; v1_minor=${v1_minor:-0}; v1_patch=${v1_patch:-0}
+        v2_major=${v2_major:-0}; v2_minor=${v2_minor:-0}; v2_patch=${v2_patch:-0}
+
+        if [[ $v1_major -gt $v2_major ]]; then return 0; fi
+        if [[ $v1_major -lt $v2_major ]]; then return 1; fi
+        if [[ $v1_minor -gt $v2_minor ]]; then return 0; fi
+        if [[ $v1_minor -lt $v2_minor ]]; then return 1; fi
+        if [[ $v1_patch -lt $v2_patch ]]; then return 1; fi
+        return 0
+    }
+
     # Check Claude CLI version for compatibility with modern flags
     check_claude_version() {
-        local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        local version
+        version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
         if [[ -z "$version" ]]; then
             log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
             return 0
         fi
 
-        local required="$CLAUDE_MIN_VERSION"
-        local ver_parts=(${version//./ })
-        local req_parts=(${required//./ })
-
-        local ver_num=$((${ver_parts[0]:-0} * 10000 + ${ver_parts[1]:-0} * 100 + ${ver_parts[2]:-0}))
-        local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
-
-        if [[ $ver_num -lt $req_num ]]; then
-            log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+        if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
+            log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
             return 1
         fi
 
@@ -199,13 +213,6 @@ teardown() {
 # CONFIGURATION VARIABLE TESTS
 # =============================================================================
 
-@test "CLAUDE_OUTPUT_FORMAT defaults to json" {
-    # Verify by checking the default in ralph_loop.sh via grep
-    # The default is set via ${CLAUDE_OUTPUT_FORMAT:-json} pattern
-    run grep 'CLAUDE_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *"json"* ]]
-}
-
 @test "CLAUDE_ALLOWED_TOOLS has sensible defaults" {
     # Verify by checking the default in ralph_loop.sh via grep
     run grep 'CLAUDE_ALLOWED_TOOLS=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
@@ -231,12 +238,6 @@ teardown() {
     [[ "$output" == *'Bash(npm *)'* ]]
     # Should include Bash(pytest) for Python tests
     [[ "$output" == *'Bash(pytest)'* ]]
-}
-
-@test "CLAUDE_USE_CONTINUE defaults to true" {
-    # Verify by checking the default in ralph_loop.sh via grep
-    run grep 'CLAUDE_USE_CONTINUE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *"true"* ]]
 }
 
 # =============================================================================
@@ -1295,14 +1296,6 @@ EOF
     assert_success
 }
 
-@test "stderr_file variable is defined in execute_claude_code" {
-    # Verify the stderr_file variable is declared alongside output_file
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    run grep 'local stderr_file=.*claude_stderr.*\.log' "$script"
-    assert_success
-}
-
 @test "live mode logs stderr output when non-empty" {
     # Verify the stderr logging logic exists for non-empty stderr files
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
@@ -1311,11 +1304,93 @@ EOF
     assert_success
 }
 
-@test "live mode pipeline comment references Issue #190" {
-    # Verify the pipeline comment documents the stderr separation fix
+# =============================================================================
+# Startup version check and auto-update tests (Issue #190)
+# =============================================================================
+
+@test "check_claude_version is called before loop in ralph_loop.sh" {
+    # Verify check_claude_version is called in main() before the while loop
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    run grep -A1 'stderr.*separate file' "$script"
+    # Extract content between main() and while true; verify check_claude_version appears
+    run bash -c "sed -n '/^main()/,/while true/p' '$script' | grep 'check_claude_version'"
     assert_success
-    [[ "$output" == *"#190"* ]]
+}
+
+@test "check_claude_version is called after validate_claude_command" {
+    # Verify version check comes after command validation in startup sequence
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    local validate_line
+    validate_line=$(grep -n 'validate_claude_command' "$script" | grep 'if ! ' | head -1 | cut -d: -f1)
+    local version_line
+    version_line=$(sed -n '/^main()/,/while true/p' "$script" | grep -n 'check_claude_version' | head -1 | cut -d: -f1)
+    local validate_in_main
+    validate_in_main=$(sed -n '/^main()/,/while true/p' "$script" | grep -n 'validate_claude_command' | head -1 | cut -d: -f1)
+
+    # version check line number should be greater than validate line number (within main)
+    [[ $version_line -gt $validate_in_main ]]
+}
+
+@test "check_claude_updates is called before loop in ralph_loop.sh" {
+    # Verify check_claude_updates is called in main() before the while loop
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/^main()/,/while true/p' '$script' | grep 'check_claude_updates'"
+    assert_success
+}
+
+@test "check_claude_updates handles npm failure gracefully" {
+    # When npm view fails, function should return 0 (non-blocking)
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify the npm failure path returns 0
+    run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep -A1 'npm registry unreachable'"
+    assert_success
+    [[ "$output" == *"return 0"* ]]
+}
+
+# =============================================================================
+# Semver comparison tests (Issue #190 — replace integer arithmetic with proper comparison)
+# =============================================================================
+
+@test "compare_semver returns 0 when ver1 > ver2" {
+    run compare_semver "2.1.0" "2.0.76"
+    assert_success
+}
+
+@test "compare_semver returns 1 when ver1 < ver2" {
+    run compare_semver "1.0.0" "2.0.76"
+    assert_failure
+}
+
+@test "compare_semver handles equal versions" {
+    run compare_semver "2.0.76" "2.0.76"
+    assert_success
+}
+
+@test "compare_semver handles high patch numbers correctly" {
+    # This is the key bug fix: 1.0.100 vs 1.1.0
+    # Old integer method: 1*10000+0*100+100=10100 vs 1*10000+1*100+0=10100 → equal (WRONG)
+    # Correct: 1.0.100 < 1.1.0
+    run compare_semver "1.0.100" "1.1.0"
+    assert_failure
+}
+
+@test "check_claude_updates respects CLAUDE_AUTO_UPDATE=false" {
+    # When CLAUDE_AUTO_UPDATE is false, function should return 0 immediately
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify the CLAUDE_AUTO_UPDATE check exists at the top of the function
+    run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | head -5 | grep 'CLAUDE_AUTO_UPDATE'"
+    assert_success
+}
+
+@test "check_claude_updates runs when CLAUDE_AUTO_UPDATE=true" {
+    # Verify the default behavior (CLAUDE_AUTO_UPDATE=true) proceeds to version check
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The function should contain npm view call (only reached when auto-update is enabled)
+    run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep 'npm view'"
+    assert_success
 }

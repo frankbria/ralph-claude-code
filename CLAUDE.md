@@ -177,7 +177,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (583 tests)
+# Run all tests (546 tests)
 npm test
 
 # Run specific test suites
@@ -222,13 +222,23 @@ CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
 CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),...,Bash(npm *),Bash(pytest)"  # Allowed tool permissions (see File Protection)
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
+CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set false for air-gapped environments)
 ```
+
+**Auto-Update Configuration:**
+- `CLAUDE_AUTO_UPDATE` controls whether Ralph checks npm registry and attempts `npm update -g` at startup
+- **Local workstation / home server**: Keep `true` (default) — CLI updates include bug fixes and new features that improve Ralph's effectiveness. The 200-500ms startup overhead is negligible for loops that run hours
+- **Docker container**: Set `false` in `.ralphrc` — container is ephemeral and version is pinned at image build time. The npm registry query and potential update are pure overhead
+- **Air-gapped environment**: Set `false` — npm registry is unreachable, the check will timeout and log a warning
+- Update failure is non-blocking: Ralph logs a warning and continues the loop normally
 
 **Claude Code CLI Command (Issue #97):**
 - `CLAUDE_CODE_CMD` defaults to `"claude"` (global install)
 - Configurable via `.ralphrc` for alternative installations (e.g., `"npx @anthropic-ai/claude-code"`)
 - Auto-detected during `ralph-enable` and `ralph-setup` (prefers `claude` if available, falls back to npx)
 - Validated at startup with `validate_claude_command()` — displays clear error with installation instructions if not found
+- After validation, `check_claude_version()` verifies minimum version compatibility and `check_claude_updates()` queries npm registry for latest version with auto-update attempt (Issue #190)
+- Both functions use `compare_semver()` for proper major→minor→patch sequential comparison (safe for any patch number, unlike integer arithmetic)
 - Environment variable `CLAUDE_CODE_CMD` takes precedence over `.ralphrc`
 
 **CLI Options:**
@@ -524,17 +534,17 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (583 tests total)
+### Test Files (546 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 76 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + question detection corrective message (#190) + stderr separation (#190) |
-| `test_json_parsing.bats` | 57 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
-| `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
-| `test_exit_detection.bats` | 55 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |
-| `test_rate_limiting.bats` | 15 | Rate limiting behavior |
+| `test_cli_modern.bats` | 82 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + question detection corrective message (#190) + stderr separation (#190) + version check and auto-update at startup (#190) + semver comparison (#190) |
+| `test_json_parsing.bats` | 50 | JSON output format parsing + Claude CLI format + array format + question detection (#190) |
+| `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
+| `test_exit_detection.bats` | 50 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |
+| `test_rate_limiting.bats` | 11 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 25 | Edge case handling |
 | `test_installation.bats` | 15 | Global installation/uninstall workflows + dotfile template copying (#174) |
@@ -544,8 +554,8 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_task_sources.bats` | 23 | Task sources (beads, GitHub, PRD extraction, normalization) |
 | `test_ralph_enable.bats` | 24 | Ralph enable integration tests (wizard, CI version, JSON output, .ralphrc validation #149) |
 | `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
-| `test_file_protection.bats` | 22 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
-| `test_integrity_check.bats` | 12 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
+| `test_file_protection.bats` | 15 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
+| `test_integrity_check.bats` | 10 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
 
 ### Running Tests
 ```bash
