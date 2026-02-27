@@ -93,7 +93,7 @@ get_past_timestamp() {
     if date -d "@$past_epoch" -Iseconds 2>/dev/null; then
         return
     fi
-    date -r "$past_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00"
+    date -u -r "$past_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00"
 }
 
 # =============================================================================
