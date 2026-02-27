@@ -1110,3 +1110,44 @@ EOF
     local has_denials=$(jq -r '.has_permission_denials' "$result_file")
     assert_equal "$has_denials" "true"
 }
+
+# =============================================================================
+# QUESTION DETECTION TESTS (Issue #190 Bug 2)
+# =============================================================================
+
+@test "detect_questions detects question pattern with question mark" {
+    run detect_questions "Should I implement approach A or B?"
+
+    assert_success
+    [[ "$output" -gt 0 ]]
+}
+
+@test "detect_questions returns 0 count for normal implementation text" {
+    run detect_questions "Implementing module. Tests passed. All done."
+
+    assert_failure
+    assert_output "0"
+}
+
+@test "detect_questions ignores pattern without question mark" {
+    run detect_questions "I should implement the conservative approach."
+
+    assert_failure
+    assert_output "0"
+}
+
+@test "detect_questions returns 0 for empty input" {
+    run detect_questions ""
+
+    assert_failure
+    assert_output "0"
+}
+
+@test "detect_questions counts multiple questions" {
+    local text="Should I use approach A? Would you prefer option B? What should I do next?"
+
+    run detect_questions "$text"
+
+    assert_success
+    [[ "$output" -ge 2 ]]
+}
