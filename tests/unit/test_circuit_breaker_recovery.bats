@@ -230,7 +230,7 @@ get_past_timestamp() {
     if future_timestamp=$(date -d "@$future_epoch" -Iseconds 2>/dev/null); then
         : # success
     else
-        future_timestamp=$(date -r "$future_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || skip "Cannot create future timestamp")
+        future_timestamp=$(date -u -r "$future_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || skip "Cannot create future timestamp")
     fi
     create_open_state "$future_timestamp"
     export CB_COOLDOWN_MINUTES=30
