@@ -22,6 +22,37 @@ RALPH_DIR="${RALPH_DIR:-.ralph}"
 COMPLETION_KEYWORDS=("done" "complete" "finished" "all tasks complete" "project complete" "ready for review")
 TEST_ONLY_PATTERNS=("npm test" "bats" "pytest" "jest" "cargo test" "go test" "running tests")
 NO_WORK_PATTERNS=("nothing to do" "no changes" "already implemented" "up to date")
+QUESTION_PATTERNS=("should I" "would you" "do you want" "which approach" "which option" "how should" "what should" "shall I" "do you prefer" "can you clarify" "could you" "what do you think" "please confirm" "need clarification" "awaiting.*input" "waiting.*response" "your preference")
+
+# Detect if Claude is asking questions instead of acting autonomously
+# Args: $1 = text content to analyze
+# Returns: 0 if questions detected, 1 otherwise
+# Outputs: question count on stdout
+detect_questions() {
+    local content="$1"
+    local question_count=0
+
+    if [[ -z "$content" ]]; then
+        echo "0"
+        return 1
+    fi
+
+    # Quick bail-out: no question marks → no questions
+    if ! echo "$content" | grep -q '?'; then
+        echo "0"
+        return 1
+    fi
+
+    # Count lines matching question patterns AND containing '?'
+    for pattern in "${QUESTION_PATTERNS[@]}"; do
+        local matches
+        matches=$(echo "$content" | grep -i "$pattern" | grep -c '?' 2>/dev/null || echo "0")
+        question_count=$((question_count + matches))
+    done
+
+    echo "$question_count"
+    [[ $question_count -gt 0 ]] && return 0 || return 1
+}
 
 # =============================================================================
 # JSON OUTPUT FORMAT DETECTION AND PARSING
@@ -359,6 +390,18 @@ analyze_response() {
                 confidence_score=$((json_confidence + 50))
             fi
 
+            # Detect questions in JSON response text (Issue #190 Bug 2)
+            local asking_questions=false
+            local question_count=0
+            local json_text_content="$work_summary"
+            if [[ -f "$RALPH_DIR/.json_parse_result" ]]; then
+                local result_text
+                result_text=$(jq -r '.summary // ""' "$RALPH_DIR/.json_parse_result" 2>/dev/null || echo "")
+                [[ -n "$result_text" ]] && json_text_content="$result_text"
+            fi
+            question_count=$(detect_questions "$json_text_content")
+            [[ $question_count -gt 0 ]] && asking_questions=true
+
             # Check for file changes via git (supplements JSON data)
             # Fix #141: Detect both uncommitted changes AND committed changes
             if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
@@ -415,6 +458,8 @@ analyze_response() {
                 --argjson has_permission_denials "$has_permission_denials" \
                 --argjson permission_denial_count "$permission_denial_count" \
                 --argjson denied_commands "$denied_commands_json" \
+                --argjson asking_questions "$asking_questions" \
+                --argjson question_count "$question_count" \
                 '{
                     loop_number: $loop_number,
                     timestamp: $timestamp,
@@ -432,7 +477,9 @@ analyze_response() {
                         output_length: $output_length,
                         has_permission_denials: $has_permission_denials,
                         permission_denial_count: $permission_denial_count,
-                        denied_commands: $denied_commands
+                        denied_commands: $denied_commands,
+                        asking_questions: $asking_questions,
+                        question_count: $question_count
                     }
                 }' > "$analysis_result_file"
             rm -f "$RALPH_DIR/.json_parse_result"
@@ -530,6 +577,15 @@ analyze_response() {
         fi
     done
 
+    # 5.5. Detect question patterns (Claude asking instead of acting) (Issue #190 Bug 2)
+    local asking_questions=false
+    local question_count=0
+    question_count=$(detect_questions "$output_content")
+    if [[ $question_count -gt 0 ]]; then
+        asking_questions=true
+        work_summary="Claude is asking questions instead of acting autonomously"
+    fi
+
     # 6. Check for file changes (git integration)
     # Fix #141: Detect both uncommitted changes AND committed changes
     if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
@@ -613,6 +669,8 @@ analyze_response() {
         --argjson exit_signal "$exit_signal" \
         --arg work_summary "$work_summary" \
         --argjson output_length "$output_length" \
+        --argjson asking_questions "$asking_questions" \
+        --argjson question_count "$question_count" \
         '{
             loop_number: $loop_number,
             timestamp: $timestamp,
@@ -630,7 +688,9 @@ analyze_response() {
                 output_length: $output_length,
                 has_permission_denials: false,
                 permission_denial_count: 0,
-                denied_commands: []
+                denied_commands: [],
+                asking_questions: $asking_questions,
+                question_count: $question_count
             }
         }' > "$analysis_result_file"
 
@@ -879,6 +939,7 @@ export -f analyze_response
 export -f update_exit_signals
 export -f log_analysis_summary
 export -f detect_stuck_loop
+export -f detect_questions
 export -f store_session_id
 export -f get_last_session_id
 export -f should_resume_session
