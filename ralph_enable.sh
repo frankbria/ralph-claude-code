@@ -237,12 +237,12 @@ phase_environment_detection() {
     echo "Available task sources:"
     if [[ "$DETECTED_BEADS_AVAILABLE" == "true" ]]; then
         local beads_count
-        beads_count=$(get_beads_count)
+        beads_count=$(get_beads_count 2>/dev/null || echo "0")
         print_detection_result "beads" "$beads_count open issues" "true"
     fi
     if [[ "$DETECTED_GITHUB_AVAILABLE" == "true" ]]; then
         local gh_count
-        gh_count=$(get_github_issue_count)
+        gh_count=$(get_github_issue_count 2>/dev/null || echo "0")
         print_detection_result "GitHub Issues" "$gh_count open issues" "true"
     fi
     if [[ ${#DETECTED_PRD_FILES[@]} -gt 0 ]]; then
@@ -289,14 +289,14 @@ phase_task_source_selection() {
 
     if [[ "$DETECTED_BEADS_AVAILABLE" == "true" ]]; then
         local beads_count
-        beads_count=$(get_beads_count)
+        beads_count=$(get_beads_count 2>/dev/null || echo "0")
         options+=("Import from beads ($beads_count issues)")
         option_keys+=("beads")
     fi
 
     if [[ "$DETECTED_GITHUB_AVAILABLE" == "true" ]]; then
         local gh_count
-        gh_count=$(get_github_issue_count)
+        gh_count=$(get_github_issue_count 2>/dev/null || echo "0")
         options+=("Import from GitHub Issues ($gh_count issues)")
         option_keys+=("github")
     fi
