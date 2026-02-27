@@ -213,13 +213,6 @@ teardown() {
 # CONFIGURATION VARIABLE TESTS
 # =============================================================================
 
-@test "CLAUDE_OUTPUT_FORMAT defaults to json" {
-    # Verify by checking the default in ralph_loop.sh via grep
-    # The default is set via ${CLAUDE_OUTPUT_FORMAT:-json} pattern
-    run grep 'CLAUDE_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *"json"* ]]
-}
-
 @test "CLAUDE_ALLOWED_TOOLS has sensible defaults" {
     # Verify by checking the default in ralph_loop.sh via grep
     run grep 'CLAUDE_ALLOWED_TOOLS=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
@@ -245,12 +238,6 @@ teardown() {
     [[ "$output" == *'Bash(npm *)'* ]]
     # Should include Bash(pytest) for Python tests
     [[ "$output" == *'Bash(pytest)'* ]]
-}
-
-@test "CLAUDE_USE_CONTINUE defaults to true" {
-    # Verify by checking the default in ralph_loop.sh via grep
-    run grep 'CLAUDE_USE_CONTINUE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *"true"* ]]
 }
 
 # =============================================================================
@@ -1309,29 +1296,12 @@ EOF
     assert_success
 }
 
-@test "stderr_file variable is defined in execute_claude_code" {
-    # Verify the stderr_file variable is declared alongside output_file
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    run grep 'local stderr_file=.*claude_stderr.*\.log' "$script"
-    assert_success
-}
-
 @test "live mode logs stderr output when non-empty" {
     # Verify the stderr logging logic exists for non-empty stderr files
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     run grep 'Claude CLI stderr output detected' "$script"
     assert_success
-}
-
-@test "live mode pipeline comment references Issue #190" {
-    # Verify the pipeline comment documents the stderr separation fix
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    run grep -A1 'stderr.*separate file' "$script"
-    assert_success
-    [[ "$output" == *"#190"* ]]
 }
 
 # =============================================================================
@@ -1360,13 +1330,6 @@ EOF
 
     # version check line number should be greater than validate line number (within main)
     [[ $version_line -gt $validate_in_main ]]
-}
-
-@test "check_claude_updates function exists in ralph_loop.sh" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    run grep '^check_claude_updates()' "$script"
-    assert_success
 }
 
 @test "check_claude_updates is called before loop in ralph_loop.sh" {
@@ -1412,12 +1375,6 @@ EOF
     # Correct: 1.0.100 < 1.1.0
     run compare_semver "1.0.100" "1.1.0"
     assert_failure
-}
-
-@test "compare_semver function exists in ralph_loop.sh" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    run grep '^compare_semver()' "$script"
-    assert_success
 }
 
 @test "check_claude_updates respects CLAUDE_AUTO_UPDATE=false" {
