@@ -62,24 +62,38 @@ setup() {
     # These are copies of the functions from ralph_loop.sh for isolated testing
     # ==========================================================================
 
+    # Compare two semver strings: returns 0 if ver1 >= ver2, 1 if ver1 < ver2
+    compare_semver() {
+        local ver1="$1" ver2="$2"
+        local v1_major v1_minor v1_patch
+        local v2_major v2_minor v2_patch
+
+        IFS='.' read -r v1_major v1_minor v1_patch <<< "$ver1"
+        IFS='.' read -r v2_major v2_minor v2_patch <<< "$ver2"
+
+        v1_major=${v1_major:-0}; v1_minor=${v1_minor:-0}; v1_patch=${v1_patch:-0}
+        v2_major=${v2_major:-0}; v2_minor=${v2_minor:-0}; v2_patch=${v2_patch:-0}
+
+        if [[ $v1_major -gt $v2_major ]]; then return 0; fi
+        if [[ $v1_major -lt $v2_major ]]; then return 1; fi
+        if [[ $v1_minor -gt $v2_minor ]]; then return 0; fi
+        if [[ $v1_minor -lt $v2_minor ]]; then return 1; fi
+        if [[ $v1_patch -lt $v2_patch ]]; then return 1; fi
+        return 0
+    }
+
     # Check Claude CLI version for compatibility with modern flags
     check_claude_version() {
-        local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        local version
+        version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
         if [[ -z "$version" ]]; then
             log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
             return 0
         fi
 
-        local required="$CLAUDE_MIN_VERSION"
-        local ver_parts=(${version//./ })
-        local req_parts=(${required//./ })
-
-        local ver_num=$((${ver_parts[0]:-0} * 10000 + ${ver_parts[1]:-0} * 100 + ${ver_parts[2]:-0}))
-        local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
-
-        if [[ $ver_num -lt $req_num ]]; then
-            log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+        if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
+            log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
             return 1
         fi
 
@@ -1371,4 +1385,55 @@ EOF
     run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep -A1 'npm registry unreachable'"
     assert_success
     [[ "$output" == *"return 0"* ]]
+}
+
+# =============================================================================
+# Semver comparison tests (Issue #190 — replace integer arithmetic with proper comparison)
+# =============================================================================
+
+@test "compare_semver returns 0 when ver1 > ver2" {
+    run compare_semver "2.1.0" "2.0.76"
+    assert_success
+}
+
+@test "compare_semver returns 1 when ver1 < ver2" {
+    run compare_semver "1.0.0" "2.0.76"
+    assert_failure
+}
+
+@test "compare_semver handles equal versions" {
+    run compare_semver "2.0.76" "2.0.76"
+    assert_success
+}
+
+@test "compare_semver handles high patch numbers correctly" {
+    # This is the key bug fix: 1.0.100 vs 1.1.0
+    # Old integer method: 1*10000+0*100+100=10100 vs 1*10000+1*100+0=10100 → equal (WRONG)
+    # Correct: 1.0.100 < 1.1.0
+    run compare_semver "1.0.100" "1.1.0"
+    assert_failure
+}
+
+@test "compare_semver function exists in ralph_loop.sh" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep '^compare_semver()' "$script"
+    assert_success
+}
+
+@test "check_claude_updates respects CLAUDE_AUTO_UPDATE=false" {
+    # When CLAUDE_AUTO_UPDATE is false, function should return 0 immediately
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Verify the CLAUDE_AUTO_UPDATE check exists at the top of the function
+    run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | head -5 | grep 'CLAUDE_AUTO_UPDATE'"
+    assert_success
+}
+
+@test "check_claude_updates runs when CLAUDE_AUTO_UPDATE=true" {
+    # Verify the default behavior (CLAUDE_AUTO_UPDATE=true) proceeds to version check
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The function should contain npm view call (only reached when auto-update is enabled)
+    run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep 'npm view'"
+    assert_success
 }

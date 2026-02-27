@@ -90,6 +90,10 @@ CB_AUTO_RESET=false
 # ADVANCED SETTINGS
 # =============================================================================
 
+# Auto-update Claude CLI at startup (checks npm registry, attempts npm update -g)
+# Set to false to skip update checks (useful for air-gapped environments)
+CLAUDE_AUTO_UPDATE=true
+
 # Minimum Claude CLI version required
 CLAUDE_MIN_VERSION="2.0.76"
 
