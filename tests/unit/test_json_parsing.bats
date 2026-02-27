@@ -1051,7 +1051,7 @@ EOF
     assert_output "0"
 }
 
-@test "detect_questions ignores pattern without question mark" {
+@test "detect_questions ignores non-matching word order" {
     run detect_questions "I should implement the conservative approach."
 
     assert_failure
@@ -1072,4 +1072,18 @@ EOF
 
     assert_success
     [[ "$output" -ge 2 ]]
+}
+
+@test "detect_questions detects declarative wait pattern without question mark" {
+    run detect_questions "Please confirm the approach before proceeding."
+
+    assert_success
+    [[ "$output" -gt 0 ]]
+}
+
+@test "detect_questions detects awaiting input pattern without question mark" {
+    run detect_questions "Awaiting your input on the design decision."
+
+    assert_success
+    [[ "$output" -gt 0 ]]
 }

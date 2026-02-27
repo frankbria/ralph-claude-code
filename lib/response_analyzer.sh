@@ -37,16 +37,10 @@ detect_questions() {
         return 1
     fi
 
-    # Quick bail-out: no question marks → no questions
-    if ! echo "$content" | grep -q '?'; then
-        echo "0"
-        return 1
-    fi
-
-    # Count lines matching question patterns AND containing '?'
+    # Count lines matching question patterns (case-insensitive)
     for pattern in "${QUESTION_PATTERNS[@]}"; do
         local matches
-        matches=$(echo "$content" | grep -i "$pattern" | grep -c '?' 2>/dev/null || echo "0")
+        matches=$(echo "$content" | grep -ciw "$pattern" 2>/dev/null || echo "0")
         matches=$(echo "$matches" | tr -d '[:space:]')
         matches=${matches:-0}
         question_count=$((question_count + matches))
