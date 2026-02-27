@@ -46,6 +46,7 @@ _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+_env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -59,6 +60,7 @@ CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git add *),Ba
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
+CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-true}"  # Auto-update Claude CLI at startup
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -118,6 +120,7 @@ RALPHRC_LOADED=false
 #   - CB_OUTPUT_DECLINE_THRESHOLD
 #   - RALPH_VERBOSE
 #   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
+#   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -155,6 +158,7 @@ load_ralphrc() {
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+    [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
 
     RALPHRC_LOADED=true
     return 0
@@ -591,37 +595,53 @@ should_exit_gracefully() {
 # MODERN CLI HELPER FUNCTIONS (Phase 1.1)
 # =============================================================================
 
+# Compare two semver strings: returns 0 if ver1 >= ver2, 1 if ver1 < ver2
+# Uses sequential major→minor→patch comparison (safe for any patch number)
+compare_semver() {
+    local ver1="$1" ver2="$2"
+    local v1_major v1_minor v1_patch
+    local v2_major v2_minor v2_patch
+
+    IFS='.' read -r v1_major v1_minor v1_patch <<< "$ver1"
+    IFS='.' read -r v2_major v2_minor v2_patch <<< "$ver2"
+
+    v1_major=${v1_major:-0}; v1_minor=${v1_minor:-0}; v1_patch=${v1_patch:-0}
+    v2_major=${v2_major:-0}; v2_minor=${v2_minor:-0}; v2_patch=${v2_patch:-0}
+
+    if [[ $v1_major -gt $v2_major ]]; then return 0; fi
+    if [[ $v1_major -lt $v2_major ]]; then return 1; fi
+    if [[ $v1_minor -gt $v2_minor ]]; then return 0; fi
+    if [[ $v1_minor -lt $v2_minor ]]; then return 1; fi
+    if [[ $v1_patch -lt $v2_patch ]]; then return 1; fi
+    return 0
+}
+
 # Check Claude CLI version for compatibility with modern flags
 check_claude_version() {
-    local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local version
+    version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
         log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
         return 0
     fi
 
-    # Compare versions (simplified semver comparison)
-    local required="$CLAUDE_MIN_VERSION"
-
-    # Convert to comparable integers (major * 10000 + minor * 100 + patch)
-    local ver_parts=(${version//./ })
-    local req_parts=(${required//./ })
-
-    local ver_num=$((${ver_parts[0]:-0} * 10000 + ${ver_parts[1]:-0} * 100 + ${ver_parts[2]:-0}))
-    local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
-
-    if [[ $ver_num -lt $req_num ]]; then
-        log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+    if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
+        log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
         log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
         return 1
     fi
 
-    log_status "INFO" "Claude CLI version $version (>= $required) - modern features enabled"
+    log_status "INFO" "Claude CLI version $version (>= $CLAUDE_MIN_VERSION) - modern features enabled"
     return 0
 }
 
 # Check for Claude CLI updates and attempt auto-update (Issue #190)
 check_claude_updates() {
+    if [[ "${CLAUDE_AUTO_UPDATE:-true}" != "true" ]]; then
+        return 0
+    fi
+
     local installed_version
     installed_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     if [[ -z "$installed_version" ]]; then
@@ -641,13 +661,7 @@ check_claude_updates() {
         return 0
     fi
 
-    # Semver numeric comparison
-    local inst_parts=(${installed_version//./ })
-    local lat_parts=(${latest_version//./ })
-    local inst_num=$((${inst_parts[0]:-0} * 10000 + ${inst_parts[1]:-0} * 100 + ${inst_parts[2]:-0}))
-    local lat_num=$((${lat_parts[0]:-0} * 10000 + ${lat_parts[1]:-0} * 100 + ${lat_parts[2]:-0}))
-
-    if [[ $inst_num -ge $lat_num ]]; then
+    if compare_semver "$installed_version" "$latest_version"; then
         return 0
     fi
 
