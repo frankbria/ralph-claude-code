@@ -1094,6 +1094,7 @@ build_claude_command() {
 execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/claude_output_${timestamp}.log"
+    local stderr_file="$LOG_DIR/claude_stderr_${timestamp}.log"
     local loop_count=$1
     local calls_made
     calls_made=$(increment_call_counter)
@@ -1224,12 +1225,14 @@ execute_claude_code() {
         # Capture all pipeline exit codes for proper error handling
         # stdin must be redirected from /dev/null because newer Claude CLI versions
         # read from stdin even in -p (print) mode, causing the process to hang
+        # stderr is redirected to a separate file to prevent Claude CLI warnings
+        # (e.g., Node.js UNDICI) from corrupting the stdout JSON stream (Issue #190)
         # Disable errexit for pipeline - timeout returns non-zero exit code 124
         # which would cause set -e to silently kill the entire script (Issue #175)
         set +e
         set -o pipefail
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+            < /dev/null 2>"$stderr_file" | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
@@ -1252,6 +1255,11 @@ execute_claude_code() {
         # Check for jq failures (third command) - warn but don't fail
         if [[ ${pipe_status[2]} -ne 0 ]]; then
             log_status "WARN" "jq filter had issues parsing some stream events (exit code ${pipe_status[2]})"
+        fi
+
+        # Log stderr output if any was captured (Issue #190)
+        if [[ -s "$stderr_file" ]]; then
+            log_status "WARN" "Claude CLI stderr output detected (see $stderr_file)"
         fi
 
         echo ""
