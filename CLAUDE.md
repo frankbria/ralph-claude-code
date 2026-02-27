@@ -225,6 +225,13 @@ CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set false for air-gapped environments)
 ```
 
+**Auto-Update Configuration:**
+- `CLAUDE_AUTO_UPDATE` controls whether Ralph checks npm registry and attempts `npm update -g` at startup
+- **Local workstation / home server**: Keep `true` (default) — CLI updates include bug fixes and new features that improve Ralph's effectiveness. The 200-500ms startup overhead is negligible for loops that run hours
+- **Docker container**: Set `false` in `.ralphrc` — container is ephemeral and version is pinned at image build time. The npm registry query and potential update are pure overhead
+- **Air-gapped environment**: Set `false` — npm registry is unreachable, the check will timeout and log a warning
+- Update failure is non-blocking: Ralph logs a warning and continues the loop normally
+
 **Claude Code CLI Command (Issue #97):**
 - `CLAUDE_CODE_CMD` defaults to `"claude"` (global install)
 - Configurable via `.ralphrc` for alternative installations (e.g., `"npx @anthropic-ai/claude-code"`)
