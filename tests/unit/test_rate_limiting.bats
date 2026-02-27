@@ -15,7 +15,7 @@ setup() {
     export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 
     # Create temp test directory
-    export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
+    export TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
     mkdir -p "$RALPH_DIR"
 
