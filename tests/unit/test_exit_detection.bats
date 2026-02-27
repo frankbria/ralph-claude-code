@@ -15,7 +15,7 @@ setup() {
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
 
     # Create temp test directory
-    export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
+    export TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
     mkdir -p "$RALPH_DIR"
 
