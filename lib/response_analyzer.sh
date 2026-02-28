@@ -37,16 +37,10 @@ detect_questions() {
         return 1
     fi
 
-    # Quick bail-out: no question marks → no questions
-    if ! echo "$content" | grep -q '?'; then
-        echo "0"
-        return 1
-    fi
-
-    # Count lines matching question patterns AND containing '?'
+    # Count lines matching question patterns (case-insensitive)
     for pattern in "${QUESTION_PATTERNS[@]}"; do
         local matches
-        matches=$(echo "$content" | grep -i "$pattern" | grep -c '?' 2>/dev/null || echo "0")
+        matches=$(echo "$content" | grep -ciw "$pattern" 2>/dev/null || echo "0")
         matches=$(echo "$matches" | tr -d '[:space:]')
         matches=${matches:-0}
         question_count=$((question_count + matches))
@@ -395,8 +389,9 @@ analyze_response() {
             # Detect questions in JSON response text (Issue #190 Bug 2)
             local asking_questions=false
             local question_count=0
-            question_count=$(detect_questions "$work_summary")
-            [[ $question_count -gt 0 ]] && asking_questions=true
+            if question_count=$(detect_questions "$work_summary"); then
+                asking_questions=true
+            fi
 
             # Check for file changes via git (supplements JSON data)
             # Fix #141: Detect both uncommitted changes AND committed changes
@@ -576,8 +571,7 @@ analyze_response() {
     # 5.5. Detect question patterns (Claude asking instead of acting) (Issue #190 Bug 2)
     local asking_questions=false
     local question_count=0
-    question_count=$(detect_questions "$output_content")
-    if [[ $question_count -gt 0 ]]; then
+    if question_count=$(detect_questions "$output_content"); then
         asking_questions=true
         work_summary="Claude is asking questions instead of acting autonomously"
     fi
