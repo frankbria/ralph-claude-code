@@ -46,6 +46,7 @@ _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+_env_RALPH_LIVE_VERBOSITY="${RALPH_LIVE_VERBOSITY:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -57,6 +58,7 @@ CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
 # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
 CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
+RALPH_LIVE_VERBOSITY="${RALPH_LIVE_VERBOSITY:-normal}"  # Live output verbosity: minimal, normal, verbose
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
 
@@ -118,6 +120,7 @@ RALPHRC_LOADED=false
 #   - CB_OUTPUT_DECLINE_THRESHOLD
 #   - RALPH_VERBOSE
 #   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
+#   - RALPH_LIVE_VERBOSITY (live output verbosity: minimal, normal, verbose)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -155,6 +158,7 @@ load_ralphrc() {
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+    [[ -n "$_env_RALPH_LIVE_VERBOSITY" ]] && RALPH_LIVE_VERBOSITY="$_env_RALPH_LIVE_VERBOSITY"
 
     RALPHRC_LOADED=true
     return 0
@@ -331,6 +335,10 @@ setup_tmux_session() {
     # Forward --auto-reset-circuit if enabled
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
+    fi
+    # Forward --live-verbosity if non-default
+    if [[ "$RALPH_LIVE_VERBOSITY" != "normal" ]]; then
+        ralph_cmd="$ralph_cmd --live-verbosity $RALPH_LIVE_VERBOSITY"
     fi
 
     # Chain tmux kill-session after the loop command so the entire tmux
@@ -666,6 +674,131 @@ validate_allowed_tools() {
     done
 
     return 0
+}
+
+# Build jq filter for live streaming output based on verbosity level
+#
+# Parameters:
+#   $1 (verbosity) - One of: minimal, normal, verbose
+#
+# Verbosity levels:
+#   minimal  - Text output + tool names + block boundaries (original behavior)
+#   normal   - + tool_result errors + stop_reason + session errors + rate_limit_event
+#   verbose  - + input_json_delta fragments + thinking content + successful tool_results
+#
+# Outputs jq filter string to stdout
+#
+build_jq_filter() {
+    local verbosity="${1:-normal}"
+
+    case "$verbosity" in
+        minimal)
+            cat <<'JQEOF'
+if .type == "stream_event" then
+    if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
+        .event.delta.text
+    elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
+        "\n\n⚡ [" + .event.content_block.name + "]\n"
+    elif .event.type == "content_block_stop" then
+        "\n"
+    else
+        empty
+    end
+else
+    empty
+end
+JQEOF
+            ;;
+        normal)
+            cat <<'JQEOF'
+if .type == "stream_event" then
+    if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
+        .event.delta.text
+    elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
+        "\n\n⚡ [" + .event.content_block.name + "]\n"
+    elif .event.type == "content_block_stop" then
+        "\n"
+    elif .event.type == "message_delta" and .event.delta.stop_reason then
+        "\n🏁 [stop: " + (.event.delta.stop_reason // "unknown" | tostring) + "]\n"
+    else
+        empty
+    end
+elif .type == "user" then
+    if .message.content then
+        (.message.content | if type == "array" then .[] else . end) |
+        if .type == "tool_result" and .is_error == true then
+            "\n❌ [tool error] " + ((.content // "" | tostring)[:120]) + "\n"
+        else
+            empty
+        end
+    else
+        empty
+    end
+elif .type == "result" then
+    if .is_error == true then
+        "\n❌ [session error] " + ((.error // "" | tostring)[:120]) + "\n"
+    elif .subtype == "rate_limit_event" then
+        "\n⚠️ [rate limit] " + ((.rate_limit_event.message // .rate_limit_event.status // "" | tostring)[:120]) + "\n"
+    else
+        empty
+    end
+else
+    empty
+end
+JQEOF
+            ;;
+        verbose)
+            cat <<'JQEOF'
+if .type == "stream_event" then
+    if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
+        .event.delta.text
+    elif .event.type == "content_block_delta" and .event.delta.type == "input_json_delta" then
+        .event.delta.partial_json // empty
+    elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
+        "\n\n⚡ [" + .event.content_block.name + "]\n"
+    elif .event.type == "content_block_start" and .event.content_block.type == "thinking" then
+        "\n💭 [thinking]\n"
+    elif .event.type == "content_block_delta" and .event.delta.type == "thinking_delta" then
+        .event.delta.thinking // empty
+    elif .event.type == "content_block_stop" then
+        "\n"
+    elif .event.type == "message_delta" and .event.delta.stop_reason then
+        "\n🏁 [stop: " + (.event.delta.stop_reason // "unknown" | tostring) + "]\n"
+    else
+        empty
+    end
+elif .type == "user" then
+    if .message.content then
+        (.message.content | if type == "array" then .[] else . end) |
+        if .type == "tool_result" and .is_error == true then
+            "\n❌ [tool error] " + ((.content // "" | tostring)[:200]) + "\n"
+        elif .type == "tool_result" then
+            "\n✅ [tool result] " + ((.content // "" | tostring)[:200]) + "\n"
+        else
+            empty
+        end
+    else
+        empty
+    end
+elif .type == "result" then
+    if .is_error == true then
+        "\n❌ [session error] " + ((.error // "" | tostring)[:200]) + "\n"
+    elif .subtype == "rate_limit_event" then
+        "\n⚠️ [rate limit] " + ((.rate_limit_event.message // .rate_limit_event.status // "" | tostring)[:200]) + "\n"
+    else
+        empty
+    end
+else
+    empty
+end
+JQEOF
+            ;;
+        *)
+            # Unknown verbosity level: fall back to minimal
+            build_jq_filter "minimal"
+            return
+            ;;
+    esac
 }
 
 # Build loop context for Claude Code session
@@ -1195,21 +1328,9 @@ execute_claude_code() {
         # These are required for stream-json to work properly
         LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
 
-        # jq filter: show text + tool names + newlines for readability
-        local jq_filter='
-            if .type == "stream_event" then
-                if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
-                    .event.delta.text
-                elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
-                    "\n\n⚡ [" + .event.content_block.name + "]\n"
-                elif .event.type == "content_block_stop" then
-                    "\n"
-                else
-                    empty
-                end
-            else
-                empty
-            end'
+        # Build jq filter based on verbosity level
+        local jq_filter
+        jq_filter=$(build_jq_filter "$RALPH_LIVE_VERBOSITY")
 
         # Execute with streaming, preserving all flags from build_claude_command()
         # Use stdbuf to disable buffering for real-time output
@@ -1780,6 +1901,7 @@ Options:
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
     -l, --live              Show Claude Code output in real-time (auto-switches to JSON output)
+    --live-verbosity LEVEL  Set live output verbosity: minimal, normal, verbose (default: $RALPH_LIVE_VERBOSITY)
     -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
@@ -1812,6 +1934,7 @@ Examples:
     $0 --monitor             # Start with integrated tmux monitoring
     $0 --live                # Show Claude Code output in real-time (streaming)
     $0 --live --verbose      # Live streaming + verbose logging
+    $0 --live --live-verbosity verbose  # Live streaming with maximum detail
     $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
     $0 --output-format text     # Use legacy text output format
@@ -1916,6 +2039,15 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CLAUDE_SESSION_EXPIRY_HOURS="$2"
+            shift 2
+            ;;
+        --live-verbosity)
+            if [[ "$2" == "minimal" || "$2" == "normal" || "$2" == "verbose" ]]; then
+                RALPH_LIVE_VERBOSITY="$2"
+            else
+                echo "Error: --live-verbosity must be 'minimal', 'normal', or 'verbose'"
+                exit 1
+            fi
             shift 2
             ;;
         --auto-reset-circuit)

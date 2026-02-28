@@ -728,6 +728,9 @@ BEADS_FILTER="status:open"
 CB_NO_PROGRESS_THRESHOLD=3
 CB_SAME_ERROR_THRESHOLD=5
 CB_OUTPUT_DECLINE_THRESHOLD=70
+
+# Live output verbosity: minimal, normal, verbose
+RALPH_LIVE_VERBOSITY="normal"
 RALPHRCEOF
 }
 
