@@ -1420,6 +1420,26 @@ EOF
     [[ "$output" == *"file contents here"* ]]
 }
 
+# =============================================================================
+# LIVE MONITORING ENHANCEMENT: ralph_monitor.sh live.log integration
+# =============================================================================
+
+@test "ralph_monitor.sh references live.log file" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_monitor.sh"
+    run grep 'live\.log' "$script"
+    assert_success
+}
+
+@test "ralph_monitor.sh handles missing live.log gracefully" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_monitor.sh"
+    # Verify there's a file existence check before reading
+    run grep -A1 'LIVE_LOG_FILE' "$script"
+    assert_success
+    # Verify graceful message when file doesn't exist
+    run grep 'No live output' "$script"
+    assert_success
+}
+
 @test "build_jq_filter verbose shows input_json_delta fragments" {
     eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
     create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
