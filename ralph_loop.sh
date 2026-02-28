@@ -648,9 +648,9 @@ check_claude_updates() {
         return 0
     fi
 
-    # Query latest version from npm registry
+    # Query latest version from npm registry (with timeout to avoid hanging on flaky networks)
     local latest_version
-    latest_version=$(npm view @anthropic-ai/claude-code version 2>/dev/null)
+    latest_version=$(portable_timeout 5s npm view @anthropic-ai/claude-code version 2>/dev/null)
     if [[ -z "$latest_version" ]]; then
         log_status "INFO" "Could not check for Claude CLI updates (npm registry unreachable)"
         return 0
@@ -667,7 +667,8 @@ check_claude_updates() {
 
     # Auto-update attempt
     log_status "INFO" "Claude CLI update available: $installed_version → $latest_version. Attempting auto-update..."
-    if npm update -g @anthropic-ai/claude-code 2>/dev/null; then
+    local update_output
+    if update_output=$(npm update -g @anthropic-ai/claude-code 2>&1); then
         local new_version
         new_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_status "SUCCESS" "Claude CLI updated: $installed_version → ${new_version:-$latest_version}"
@@ -676,6 +677,7 @@ check_claude_updates() {
 
     # Auto-update failed — warn with environment-specific guidance
     log_status "WARN" "Claude CLI auto-update failed ($installed_version → $latest_version)"
+    [[ -n "$update_output" ]] && log_status "DEBUG" "npm output: $update_output"
     log_status "WARN" "Update manually: npm update -g @anthropic-ai/claude-code"
     log_status "WARN" "In Docker: rebuild your image to include the latest version"
     return 1

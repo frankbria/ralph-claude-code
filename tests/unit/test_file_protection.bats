@@ -187,8 +187,8 @@ create_complete_ralph_project() {
 @test "RALPH_REQUIRED_PATHS contains all critical paths and excludes optional files" {
     local expected=(".ralph" ".ralph/PROMPT.md" ".ralph/fix_plan.md" ".ralph/AGENT.md" ".ralphrc")
     for path in "${expected[@]}"; do
-        [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " $path " ]]
+        [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " $path " ]] || fail "Missing required path: $path"
     done
     # Optional paths should NOT be required
-    [[ ! " ${RALPH_REQUIRED_PATHS[*]} " =~ "status.json" ]]
+    [[ ! " ${RALPH_REQUIRED_PATHS[*]} " =~ "status.json" ]] || fail "Optional path incorrectly required: status.json"
 }
