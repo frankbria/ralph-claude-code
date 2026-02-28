@@ -352,8 +352,6 @@ create_sample_metrics() {
 EOF
 }
 
-# Create complete test project structure
-# Creates .ralph/ subfolder structure for Ralph-specific files
 # =============================================================================
 # STREAM-JSON NDJSON FIXTURES (for jq filter / build_jq_filter tests)
 # =============================================================================
@@ -404,6 +402,17 @@ create_sample_stream_events_session_error() {
         > "$file"
 }
 
+# Stream events with rate_limit_event (result.subtype="rate_limit_event")
+create_sample_stream_events_rate_limit() {
+    local file=${1:-"stream_events_rate_limit.ndjson"}
+    printf '%s\n' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Processing..."}}}' \
+        '{"type":"result","subtype":"rate_limit_event","rate_limit_event":{"message":"Rate limit exceeded, please wait","status":"rejected"}}' \
+        > "$file"
+}
+
+# Create complete test project structure
+# Creates .ralph/ subfolder structure for Ralph-specific files
 create_test_project() {
     local project_dir=${1:-"test_project"}
 

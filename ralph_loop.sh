@@ -379,7 +379,6 @@ setup_fallback_monitor() {
     echo ""
     LIVE_OUTPUT=true
     main
-    exit 0
 }
 
 # Initialize call tracking
@@ -2051,6 +2050,10 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --live-verbosity)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --live-verbosity requires a value (minimal, normal, or verbose)"
+                exit 1
+            fi
             if [[ "$2" == "minimal" || "$2" == "normal" || "$2" == "verbose" ]]; then
                 RALPH_LIVE_VERBOSITY="$2"
             else

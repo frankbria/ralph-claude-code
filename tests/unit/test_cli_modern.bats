@@ -1420,6 +1420,39 @@ EOF
     [[ "$output" == *"file contents here"* ]]
 }
 
+@test "build_jq_filter normal shows rate_limit_event with ⚠️" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_rate_limit "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "normal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"⚠️"* ]]
+    [[ "$output" == *"rate limit"* ]]
+    [[ "$output" == *"Rate limit exceeded"* ]]
+}
+
+@test "build_jq_filter verbose shows rate_limit_event with ⚠️" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_rate_limit "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "verbose")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"⚠️"* ]]
+    [[ "$output" == *"Rate limit exceeded"* ]]
+}
+
+@test "build_jq_filter minimal does NOT show rate_limit_event" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_rate_limit "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "minimal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" != *"rate limit"* ]]
+}
+
 # =============================================================================
 # LIVE MONITORING ENHANCEMENT: ralph_monitor.sh live.log integration
 # =============================================================================
