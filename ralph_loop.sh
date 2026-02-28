@@ -235,12 +235,8 @@ mkdir -p "$LOG_DIR" "$DOCS_DIR"
 # Check if tmux is available
 check_tmux_available() {
     if ! command -v tmux &> /dev/null; then
-        log_status "ERROR" "tmux is not installed. Please install tmux or run without --monitor flag."
-        echo "Install tmux:"
-        echo "  Ubuntu/Debian: sudo apt-get install tmux"
-        echo "  macOS: brew install tmux"
-        echo "  CentOS/RHEL: sudo yum install tmux"
-        exit 1
+        log_status "WARN" "tmux is not installed."
+        return 1
     fi
 }
 
@@ -370,6 +366,19 @@ setup_tmux_session() {
     # Attach to session (this will block until session ends)
     tmux attach-session -t "$session_name"
 
+    exit 0
+}
+
+# Fallback when tmux is not available: run with live output only
+setup_fallback_monitor() {
+    echo "tmux is not installed. Falling back to live output mode."
+    echo "Install tmux for the full monitoring dashboard:"
+    echo "  Ubuntu/Debian: sudo apt-get install tmux"
+    echo "  macOS: brew install tmux"
+    echo "  CentOS/RHEL: sudo yum install tmux"
+    echo ""
+    LIVE_OUTPUT=true
+    main
     exit 0
 }
 
@@ -2064,10 +2073,13 @@ done
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # If tmux mode requested, set it up
+    # If tmux mode requested, set it up (fallback to live output if tmux unavailable)
     if [[ "$USE_TMUX" == "true" ]]; then
-        check_tmux_available
-        setup_tmux_session
+        if check_tmux_available; then
+            setup_tmux_session
+        else
+            setup_fallback_monitor
+        fi
     fi
 
     # Start the main loop

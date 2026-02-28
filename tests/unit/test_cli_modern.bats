@@ -1440,6 +1440,34 @@ EOF
     assert_success
 }
 
+# =============================================================================
+# LIVE MONITORING ENHANCEMENT: tmux fallback for --monitor
+# =============================================================================
+
+@test "check_tmux_available uses return not exit" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local func_body
+    func_body=$(sed -n '/^check_tmux_available()/,/^}/p' "$script")
+    # Must not contain 'exit' — only 'return'
+    [[ "$func_body" != *"exit "* ]]
+    [[ "$func_body" == *"return 1"* ]]
+}
+
+@test "setup_fallback_monitor function exists in ralph_loop.sh" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep '^setup_fallback_monitor()' "$script"
+    assert_success
+}
+
+@test "monitor dispatch has fallback path when tmux unavailable" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Verify the dispatch block contains both setup_tmux_session and setup_fallback_monitor
+    run grep 'setup_fallback_monitor' "$script"
+    assert_success
+    run grep 'if check_tmux_available' "$script"
+    assert_success
+}
+
 @test "build_jq_filter verbose shows input_json_delta fragments" {
     eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
     create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
