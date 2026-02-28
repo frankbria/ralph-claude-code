@@ -420,8 +420,6 @@ When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` terminates
 
 In both modes, a timeout results in `exit_code=124`, which flows into the standard error handling path (logged, circuit breaker updated, loop continues to next iteration).
 
-**Stderr separation (Issue #190):** In live mode, Claude CLI stderr (e.g., Node.js UNDICI warnings) is redirected to a separate file (`claude_stderr_<timestamp>.log`) instead of being merged into the stdout JSON stream via `2>&1`. This prevents non-JSON stderr content from corrupting the `jq` pipeline, which previously caused jq exit code 4, empty `live.log`, and no terminal output. Background mode is unaffected (stderr goes directly to the log file). If stderr content is detected, a WARN is logged referencing the stderr file.
-
 ### API Limit Detection (Issue #183)
 
 The API 5-hour limit detection uses a three-layer approach to avoid false positives. In stream-json mode, output files contain echoed file content from tool results (`"type":"user"` lines). If project files mention "5-hour limit", naive grep patterns match those echoed strings, incorrectly triggering the API limit recovery flow.
@@ -540,7 +538,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 82 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + question detection corrective message (#190) + stderr separation (#190) + version check and auto-update at startup (#190) + semver comparison (#190) |
+| `test_cli_modern.bats` | 82 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + question detection corrective message (#190) + version check and auto-update at startup (#190) + semver comparison (#190) |
 | `test_json_parsing.bats` | 50 | JSON output format parsing + Claude CLI format + array format + question detection (#190) |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 50 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |
