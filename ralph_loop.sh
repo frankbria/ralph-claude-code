@@ -629,7 +629,7 @@ check_claude_version() {
     if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
         log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
         log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
-        return 1
+        return 0  # Non-blocking: loop continues with reduced feature set
     fi
 
     log_status "INFO" "Claude CLI version $version (>= $CLAUDE_MIN_VERSION) - modern features enabled"
@@ -678,7 +678,7 @@ check_claude_updates() {
     log_status "WARN" "Claude CLI auto-update failed ($installed_version → $latest_version)"
     log_status "WARN" "Update manually: npm update -g @anthropic-ai/claude-code"
     log_status "WARN" "In Docker: rebuild your image to include the latest version"
-    return 1
+    return 0  # Non-blocking: continue with current version
 }
 
 # Validate allowed tools against whitelist
@@ -1486,14 +1486,14 @@ EOF
 
         # Analyze the response
         log_status "INFO" "🔍 Analyzing Claude Code response..."
-        analyze_response "$output_file" "$loop_count"
-        local analysis_exit_code=$?
+        local analysis_exit_code=0
+        analyze_response "$output_file" "$loop_count" || analysis_exit_code=$?
 
         # Update exit signals based on analysis
-        update_exit_signals
+        update_exit_signals || true
 
         # Log analysis summary
-        log_analysis_summary
+        log_analysis_summary || true
 
         # Get file change count for circuit breaker
         # Fix #141: Detect both uncommitted changes AND committed changes
@@ -1556,8 +1556,8 @@ EOF
         local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
 
         # Record result in circuit breaker
-        record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length"
-        local circuit_result=$?
+        local circuit_result=0
+        record_loop_result "$loop_count" "$files_changed" "$has_errors" "$output_length" || circuit_result=$?
 
         if [[ $circuit_result -ne 0 ]]; then
             log_status "WARN" "Circuit breaker opened - halting execution"
@@ -1805,8 +1805,8 @@ main() {
         update_status "$loop_count" "$calls_made" "executing" "running"
         
         # Execute Claude Code
-        execute_claude_code "$loop_count"
-        local exec_result=$?
+        local exec_result=0
+        execute_claude_code "$loop_count" || exec_result=$?
         
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"

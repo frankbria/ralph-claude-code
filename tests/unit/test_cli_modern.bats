@@ -94,7 +94,8 @@ setup() {
 
         if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
             log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
-            return 1
+            log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
+            return 0  # Non-blocking: loop continues with reduced feature set
         fi
 
         return 0
@@ -445,7 +446,7 @@ EOF
     assert_equal "$status" "0"
 }
 
-@test "check_claude_version warns for old version" {
+@test "check_claude_version warns for old version but returns 0" {
     # Mock claude command with old version
     function claude() {
         if [[ "$1" == "--version" ]]; then
@@ -457,8 +458,9 @@ EOF
 
     run check_claude_version
 
-    # Should fail or warn
-    [[ $status -ne 0 ]] || [[ "$output" == *"upgrade"* ]] || [[ "$output" == *"version"* ]]
+    # Should return 0 (non-blocking) even for old versions, but emit warning
+    assert_success
+    [[ "$output" == *"upgrade"* ]] || [[ "$output" == *"version"* ]]
 }
 
 # =============================================================================
@@ -1393,4 +1395,67 @@ EOF
     # The function should contain npm view call (only reached when auto-update is enabled)
     run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep 'npm view'"
     assert_success
+}
+
+# =============================================================================
+# set -e safety: bare function calls must not terminate script (Issue #190)
+# =============================================================================
+
+@test "check_claude_version returns 0 on all code paths" {
+    # Every return statement in check_claude_version must be 'return 0'
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract function body and find all return statements
+    local returns
+    returns=$(sed -n '/^check_claude_version()/,/^}/p' "$script" | grep 'return')
+
+    # Every return must be 'return 0'
+    while IFS= read -r line; do
+        [[ "$line" == *"return 0"* ]]
+    done <<< "$returns"
+}
+
+@test "check_claude_updates returns 0 on all code paths including update failure" {
+    # Every return statement in check_claude_updates must be 'return 0'
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    local returns
+    returns=$(sed -n '/^check_claude_updates()/,/^}/p' "$script" | grep 'return')
+
+    while IFS= read -r line; do
+        [[ "$line" == *"return 0"* ]]
+    done <<< "$returns"
+}
+
+@test "execute_claude_code call site uses || pattern for set -e safety" {
+    # The call to execute_claude_code must use '|| exec_result=$?' to capture exit codes
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n 'execute_claude_code.*|| exec_result' "$script"
+    assert_success
+}
+
+@test "record_loop_result call site uses || pattern for set -e safety" {
+    # The call to record_loop_result must use '|| circuit_result=$?' to capture exit codes
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n 'record_loop_result.*|| circuit_result' "$script"
+    assert_success
+}
+
+@test "analyze_response call site uses || pattern for set -e safety" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n 'analyze_response.*|| analysis_exit_code' "$script"
+    assert_success
+}
+
+@test "update_exit_signals and log_analysis_summary use || true for set -e safety" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Both non-critical analysis functions should have || true
+    run bash -c "grep -c '|| true' <(sed -n '/Analyze the response/,/Get file change count/p' '$script')"
+    assert_success
+    # Should find at least 2 (update_exit_signals || true and log_analysis_summary || true)
+    [[ "$output" -ge 2 ]]
 }
