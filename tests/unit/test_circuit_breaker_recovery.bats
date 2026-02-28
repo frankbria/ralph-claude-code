@@ -444,3 +444,31 @@ TUEOF
     cd /
     rm -rf "$CLI_TEST_DIR"
 }
+
+# =============================================================================
+# log_circuit_transition jq failure resilience
+# =============================================================================
+
+@test "log_circuit_transition falls back to single entry when history file is corrupted" {
+    # Corrupt the history file with invalid JSON
+    echo "NOT VALID JSON" > "$CB_HISTORY_FILE"
+
+    # Define color variables needed by log_circuit_transition
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+
+    # Call should not fail
+    run log_circuit_transition "CLOSED" "OPEN" "test_reason" 1
+    assert_success
+
+    # History file should contain the fallback single-entry array
+    local content
+    content=$(cat "$CB_HISTORY_FILE")
+    # Should be valid JSON (parseable by jq)
+    run jq '.' "$CB_HISTORY_FILE"
+    assert_success
+    # Should contain the transition reason
+    [[ "$content" == *"test_reason"* ]]
+}

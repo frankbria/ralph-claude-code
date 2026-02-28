@@ -350,8 +350,16 @@ log_circuit_transition() {
         \"reason\": \"$reason\"
     }"
 
-    history=$(echo "$history" | jq ". += [$transition]")
-    echo "$history" > "$CB_HISTORY_FILE"
+    local updated_history
+    updated_history=$(echo "$history" | jq ". += [$transition]" 2>/dev/null)
+    local jq_status=$?
+
+    if [[ $jq_status -eq 0 && -n "$updated_history" ]]; then
+        echo "$updated_history" > "$CB_HISTORY_FILE"
+    else
+        # Fallback: preserve current transition only (history file was corrupted)
+        echo "[$transition]" > "$CB_HISTORY_FILE"
+    fi
 
     # Console log with colors
     case $to_state in

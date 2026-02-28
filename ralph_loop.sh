@@ -1700,7 +1700,7 @@ main() {
     fi
 
     # Initialize session tracking before entering the loop
-    init_session_tracking
+    init_session_tracking || true
 
     # Reset stale exit signals from previous session (SIGKILL/OOM recovery)
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -1712,10 +1712,10 @@ main() {
         loop_count=$((loop_count + 1))
 
         # Update session last_used timestamp
-        update_session_last_used
+        update_session_last_used || true
 
         log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
-        init_call_tracking
+        init_call_tracking || true
         
         log_status "LOOP" "=== Starting Loop #$loop_count ==="
         
@@ -1727,15 +1727,15 @@ main() {
             echo ""
             echo "$(get_integrity_report)"
             echo ""
-            reset_session "integrity_failure"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)" "integrity_failure" "halted" "files_deleted"
+            reset_session "integrity_failure" || true
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)" "integrity_failure" "halted" "files_deleted" || true
             break
         fi
 
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
-            reset_session "circuit_breaker_open"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
+            reset_session "circuit_breaker_open" || true
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected" || true
             log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
             break
         fi
@@ -1752,8 +1752,8 @@ main() {
             # Handle permission_denied specially (Issue #101)
             if [[ "$exit_reason" == "permission_denied" ]]; then
                 log_status "ERROR" "🚫 Permission denied - halting loop"
-                reset_session "permission_denied"
-                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "permission_denied" "halted" "permission_denied"
+                reset_session "permission_denied" || true
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "permission_denied" "halted" "permission_denied" || true
 
                 # Display helpful guidance for resolving permission issues
                 echo ""
@@ -1789,8 +1789,8 @@ main() {
             fi
 
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
-            reset_session "project_complete"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
+            reset_session "project_complete" || true
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason" || true
 
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
             log_status "INFO" "  - Total loops: $loop_count"
@@ -1802,27 +1802,27 @@ main() {
         
         # Update status
         local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-        update_status "$loop_count" "$calls_made" "executing" "running"
+        update_status "$loop_count" "$calls_made" "executing" "running" || true
         
         # Execute Claude Code
         local exec_result=0
         execute_claude_code "$loop_count" || exec_result=$?
         
         if [ $exec_result -eq 0 ]; then
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success" || true
 
             # Brief pause between successful executions
             sleep 5
         elif [ $exec_result -eq 3 ]; then
             # Circuit breaker opened
-            reset_session "circuit_breaker_trip"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
+            reset_session "circuit_breaker_trip" || true
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected" || true
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
             break
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused" || true
             log_status "WARN" "🛑 Claude API 5-hour limit reached!"
             
             # Ask user whether to wait or exit
@@ -1838,7 +1838,7 @@ main() {
             
             if [[ "$user_choice" == "2" ]]; then
                 log_status "INFO" "User chose to exit. Exiting loop..."
-                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit" || true
                 break
             else
                 # Auto-wait on timeout (empty choice) or explicit "1" — supports unattended operation
@@ -1859,7 +1859,7 @@ main() {
                 printf "\n"
             fi
         else
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error" || true
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
             sleep 30
         fi
@@ -1977,15 +1977,15 @@ while [[ $# -gt 0 ]]; do
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
             source "$SCRIPT_DIR/lib/date_utils.sh"
-            reset_circuit_breaker "Manual reset via command line"
-            reset_session "manual_circuit_reset"
+            reset_circuit_breaker "Manual reset via command line" || true
+            reset_session "manual_circuit_reset" || true
             exit 0
             ;;
         --reset-session)
             # Reset session state only
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/date_utils.sh"
-            reset_session "manual_reset_flag"
+            reset_session "manual_reset_flag" || true
             echo -e "\033[0;32m✅ Session state reset successfully\033[0m"
             exit 0
             ;;
@@ -1993,7 +1993,7 @@ while [[ $# -gt 0 ]]; do
             # Source the circuit breaker library
             SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
             source "$SCRIPT_DIR/lib/circuit_breaker.sh"
-            show_circuit_status
+            show_circuit_status || true
             exit 0
             ;;
         --output-format)

@@ -1459,3 +1459,50 @@ EOF
     # Should find at least 2 (update_exit_signals || true and log_analysis_summary || true)
     [[ "$output" -ge 2 ]]
 }
+
+@test "all reset_session calls in main() use || true for set -e safety" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract main() body and find all reset_session calls
+    local bare_calls
+    bare_calls=$(sed -n '/^main()/,/^}/p' "$script" | grep 'reset_session' | grep -v '|| true' | grep -v '^#' || true)
+
+    # No bare reset_session calls should remain
+    [[ -z "$bare_calls" ]]
+}
+
+@test "all update_status calls in main() use || true for set -e safety" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    local bare_calls
+    bare_calls=$(sed -n '/^main()/,/^}/p' "$script" | grep 'update_status' | grep -v '|| true' | grep -v '^#' || true)
+
+    [[ -z "$bare_calls" ]]
+}
+
+@test "init_session_tracking and init_call_tracking calls use || true for set -e safety" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Both init functions in main() should have || true
+    run grep -n 'init_session_tracking || true' "$script"
+    assert_success
+
+    run grep -n 'init_call_tracking || true' "$script"
+    assert_success
+}
+
+@test "CLI parsing reset_session and reset_circuit_breaker calls use || true for set -e safety" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # --reset-circuit handler
+    run grep -n 'reset_circuit_breaker.*|| true' "$script"
+    assert_success
+
+    # --reset-session handler
+    run bash -c "grep -n 'reset_session \"manual_reset_flag\" || true' '$script'"
+    assert_success
+
+    # --circuit-status handler
+    run grep -n 'show_circuit_status || true' "$script"
+    assert_success
+}
