@@ -703,7 +703,8 @@ EOF
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # The live mode has LIVE_CMD_ARGS on one line and < /dev/null on the next
-    run grep '< /dev/null 2>&1 |' "$script"
+    # stderr is redirected to a separate file (Issue #190)
+    run grep '< /dev/null 2>"$stderr_file" |' "$script"
 
     assert_success
     [[ "$output" == *'< /dev/null'* ]]
@@ -723,8 +724,8 @@ EOF
     run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null' "$script"
     assert_success
 
-    # Live mode: has < /dev/null on continuation line
-    run grep '< /dev/null 2>&1 |' "$script"
+    # Live mode: has < /dev/null with stderr redirect on continuation line
+    run grep '< /dev/null 2>"$stderr_file" |' "$script"
     assert_success
 
     # Legacy mode: has < "$PROMPT_FILE" on same line
@@ -865,64 +866,24 @@ EOF
 }
 
 # =============================================================================
-# LIVE MODE PIPELINE ERREXIT PROTECTION TESTS (Issue #175)
-# set -e + set -o pipefail caused silent script death when Claude timed out.
-# The fix disables errexit around the pipeline so PIPESTATUS can be captured.
+# LIVE MODE PIPELINE ERROR HANDLING TESTS
+# set -e was removed globally; the live pipeline no longer needs errexit toggles.
+# These tests verify the new explicit error handling approach.
 # =============================================================================
 
-@test "live mode pipeline has set +e before set -o pipefail" {
-    # Verify that errexit is disabled BEFORE pipefail is enabled.
-    # Without this, timeout exit code 124 silently kills the script.
-    # Scoped to the live-mode block to avoid false positives from other sections.
+@test "live mode pipeline does not use set +e/set -e toggles" {
+    # With set -e removed globally, the live mode pipeline no longer needs
+    # to toggle errexit. Verify no set +e/set -e appears in the live block.
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Extract only the live-mode section (from "Live output mode enabled" to "End of Output")
     local live_block
     live_block=$(sed -n '/Live output mode enabled/,/End of Output/p' "$script")
 
-    # set +e must appear before set -o pipefail within the live-mode block
-    echo "$live_block" | grep -q 'set +e'
-    echo "$live_block" | grep -q 'set -o pipefail'
-
-    # Verify ordering: set +e comes first
-    local plus_e_line=$(echo "$live_block" | grep -n 'set +e' | head -1 | cut -d: -f1)
-    local pipefail_line=$(echo "$live_block" | grep -n 'set -o pipefail' | head -1 | cut -d: -f1)
-
-    [[ -n "$plus_e_line" ]]
-    [[ -n "$pipefail_line" ]]
-    [[ $plus_e_line -lt $pipefail_line ]]
-}
-
-@test "live mode pipeline re-enables set -e after PIPESTATUS capture" {
-    # Verify that errexit is re-enabled after the pipeline exit codes are captured.
-    # Scoped to the live-mode block to avoid matching the global set -e at line 6.
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # Extract only the live-mode section
-    local live_block
-    live_block=$(sed -n '/Live output mode enabled/,/End of Output/p' "$script")
-
-    # set +o pipefail and set -e must both exist in the live block
-    echo "$live_block" | grep -q 'set +o pipefail'
-    echo "$live_block" | grep -q 'set -e'
-
-    # Verify ordering: set -e comes after set +o pipefail
-    local pipefail_off_line=$(echo "$live_block" | grep -n 'set +o pipefail' | head -1 | cut -d: -f1)
-    local re_enable_line=$(echo "$live_block" | grep -n '^\s*set -e' | awk -F: -v threshold="$pipefail_off_line" '$1 > threshold {print $1; exit}')
-
-    [[ -n "$pipefail_off_line" ]]
-    [[ -n "$re_enable_line" ]]
-    [[ $re_enable_line -gt $pipefail_off_line ]]
-}
-
-@test "live mode pipeline has errexit guard comment referencing Issue #175" {
-    # Verify the fix is documented with context about why errexit is disabled
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    run grep -c 'Issue #175' "$script"
-    assert_success
-    # At least one reference to the issue
-    [[ "${output}" -ge 1 ]]
+    # set +e and set -e should NOT appear in the live block
+    ! echo "$live_block" | grep -q '^[[:space:]]*set +e$'
+    ! echo "$live_block" | grep -q '^[[:space:]]*set -e'
+    ! echo "$live_block" | grep -q 'set -o pipefail'
+    ! echo "$live_block" | grep -q 'set +o pipefail'
 }
 
 @test "live mode pipeline logs timeout events with exit code 124" {
@@ -1212,4 +1173,71 @@ EOF
     # This comment+write pair was removed — counter is now persisted before execution
     run grep 'Only increment counter on successful execution' "$script"
     assert_failure
+}
+
+# ─── set -e removal: explicit error handling (#208) ───
+
+@test "ralph_loop.sh does not use set -e" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # set -e must not appear (except in comments or test descriptions)
+    run bash -c "grep -n '^set -e' '$script'"
+    assert_failure
+}
+
+@test "source statements have explicit error guards" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # All 5 library source lines must have || { echo "FATAL: ..."; exit 1; }
+    local libs=("date_utils.sh" "timeout_utils.sh" "response_analyzer.sh" "circuit_breaker.sh" "file_protection.sh")
+    for lib in "${libs[@]}"; do
+        run grep "source.*${lib}.*|| { echo.*FATAL.*exit 1; }" "$script"
+        assert_success
+    done
+}
+
+@test "cleanup skips interrupt status on normal exit (exit code 0)" {
+    # Verify cleanup captures trap_exit_code and only records interrupt on non-zero
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # cleanup() must capture exit code as first statement
+    run bash -c "sed -n '/^cleanup()/,/^}/p' '$script' | head -3 | grep 'trap_exit_code=\$?'"
+    assert_success
+
+    # The condition must check for non-zero exit code
+    run bash -c "sed -n '/^cleanup()/,/^}/p' '$script' | grep 'trap_exit_code -ne 0'"
+    assert_success
+}
+
+@test "analyze_response failure skips signal updates" {
+    # Verify that when analysis fails, stale response_analysis file is removed
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The pattern: analysis failure should remove the response analysis file
+    run bash -c "grep -A 3 'analysis_exit_code' '$script' | grep 'rm -f.*RESPONSE_ANALYSIS_FILE'"
+    assert_success
+}
+
+@test "live mode pipeline does not merge stderr into stdout" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The old pattern "2>&1 |" must NOT exist in the live pipeline
+    run bash -c "grep 'LIVE_CMD_ARGS.*2>&1' '$script'"
+    assert_failure
+}
+
+@test "live mode pipeline redirects stderr to separate file" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # stderr must be redirected to a separate file (continuation line)
+    run grep '2>"$stderr_file"' "$script"
+    assert_success
+}
+
+@test "live mode logs stderr output when non-empty" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # When stderr file has content, a WARN should be logged
+    run grep 'Claude CLI wrote to stderr' "$script"
+    assert_success
 }
