@@ -177,7 +177,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (546 tests)
+# Run all tests (545 tests)
 npm test
 
 # Run specific test suites
