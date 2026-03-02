@@ -190,7 +190,7 @@ while true; do
 
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
         completed=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
-        remaining=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
+        remaining=$(grep -cE "^[[:space:]]*- \[[ ~]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
         total=$((completed + remaining))
 
         if [[ $total -gt 0 ]]; then

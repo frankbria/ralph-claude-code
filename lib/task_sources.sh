@@ -688,6 +688,103 @@ beads_post_sync() {
 }
 
 # =============================================================================
+# TASK PICKING & IN-PROGRESS MARKING (for parallel loop support)
+# =============================================================================
+
+# pick_next_task - Find the first unclaimed, uncompleted task from fix_plan.md
+# Skips tasks already in-progress [~] or completed [x/X].
+# Outputs: "task_id|line_number|bead_id" on stdout
+#   - task_id: sanitized identifier suitable for branch naming
+#   - line_number: 1-based line number in fix_plan.md
+#   - bead_id: extracted bead ID if present (empty otherwise)
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+# Returns:
+#   0 - Found an unclaimed task (output on stdout)
+#   1 - No unclaimed tasks found or file missing
+pick_next_task() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+
+    if [[ ! -f "$fix_plan_file" ]]; then
+        return 1
+    fi
+
+    local line_num=0
+    while IFS= read -r line; do
+        line_num=$((line_num + 1))
+
+        # Match uncompleted, unclaimed tasks: "- [ ] ..."
+        if echo "$line" | grep -qE '^\s*- \[ \] '; then
+            # Extract bead ID if present: "- [ ] [some-id] Title"
+            local bead_id=""
+            bead_id=$(echo "$line" | sed -n 's/.*\[ \] \[\([a-zA-Z0-9_-]*\)\].*/\1/p' | head -1)
+
+            # Build task_id from bead_id or sanitized title
+            local task_id=""
+            if [[ -n "$bead_id" ]]; then
+                task_id="$bead_id"
+            else
+                task_id=$(echo "$line" | sed 's/.*\[ \] //' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//' | head -c 50)
+            fi
+
+            echo "${task_id}|${line_num}|${bead_id}"
+            return 0
+        fi
+    done < "$fix_plan_file"
+
+    return 1
+}
+
+# mark_fix_plan_in_progress - Mark a specific task as in-progress in fix_plan.md
+# Changes "- [ ]" to "- [~]" on the given line number.
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+#   $2 - line_num: 1-based line number to mark
+# Returns:
+#   0 on success, 1 on error
+mark_fix_plan_in_progress() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+    local line_num="${2}"
+
+    if [[ -z "$line_num" || ! -f "$fix_plan_file" ]]; then
+        return 1
+    fi
+
+    # Portable in-place edit using temp file (works on macOS and Linux)
+    local tmp_file="${fix_plan_file}.tmp.$$"
+    awk -v ln="$line_num" 'NR==ln { sub(/- \[ \]/, "- [~]") } 1' "$fix_plan_file" > "$tmp_file" \
+        && mv "$tmp_file" "$fix_plan_file"
+    return $?
+}
+
+# mark_single_bead_in_progress - Claim a single bead as in_progress via bd CLI
+#
+# Args:
+#   $1 - bead_id: The bead ID to claim
+# Returns:
+#   0 on success, 1 if bead_id empty or bd unavailable
+mark_single_bead_in_progress() {
+    local bead_id="${1}"
+
+    if [[ -z "$bead_id" ]]; then
+        return 1
+    fi
+
+    if ! command -v bd &>/dev/null; then
+        return 1
+    fi
+
+    if bd update "$bead_id" --claim 2>/dev/null; then
+        echo "BEAD_CLAIM: Claimed bead $bead_id as in_progress" >&2
+        return 0
+    fi
+
+    return 1
+}
+
+# =============================================================================
 # EXPORTS
 # =============================================================================
 
@@ -706,3 +803,6 @@ export -f import_tasks_from_sources
 export -f beads_sync_available
 export -f beads_pre_sync
 export -f beads_post_sync
+export -f pick_next_task
+export -f mark_fix_plan_in_progress
+export -f mark_single_bead_in_progress

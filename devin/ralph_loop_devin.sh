@@ -405,7 +405,7 @@ should_exit_gracefully() {
     # 5. Check fix_plan.md for completion
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
         local uncompleted_items
-        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
+        uncompleted_items=$(grep -cE "^[[:space:]]*- \[[ ~]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
         [[ -z "$uncompleted_items" ]] && uncompleted_items=0
         local completed_items
         completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
@@ -434,7 +434,7 @@ build_loop_context() {
 
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
         local incomplete_tasks
-        incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
+        incomplete_tasks=$(grep -cE "^[[:space:]]*- \[[ ~]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
         [[ -z "$incomplete_tasks" ]] && incomplete_tasks=0
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
@@ -935,12 +935,38 @@ main() {
             beads_pre_sync "$RALPH_DIR/fix_plan.md" 2>&1 | while IFS= read -r sync_msg; do
                 log_status "INFO" "$sync_msg"
             done
+        fi
 
-            # Claim uncompleted beads as in_progress before working on them
-            log_status "INFO" "Claiming beads as in_progress..."
-            beads_mark_in_progress "$RALPH_DIR/fix_plan.md" "$loop_count" 2>&1 | while IFS= read -r sync_msg; do
-                log_status "INFO" "$sync_msg"
-            done
+        # Pick next unclaimed task and mark it in-progress BEFORE worktree creation
+        # This enables parallel loops to each pick a different task
+        local picked_task_id=""
+        local picked_line_num=""
+        local picked_bead_id=""
+        local task_info=""
+        if task_info=$(pick_next_task "$RALPH_DIR/fix_plan.md"); then
+            picked_task_id=$(echo "$task_info" | cut -d'|' -f1)
+            picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
+            picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
+
+            log_status "INFO" "Picked task: $picked_task_id (line $picked_line_num)"
+
+            # Mark fix_plan.md item as in-progress [~]
+            if mark_fix_plan_in_progress "$RALPH_DIR/fix_plan.md" "$picked_line_num"; then
+                log_status "SUCCESS" "Marked fix_plan.md item as in-progress: $picked_task_id"
+            else
+                log_status "WARN" "Failed to mark fix_plan.md item as in-progress"
+            fi
+
+            # Claim the specific bead as in_progress (if it's a bead task)
+            if [[ -n "$picked_bead_id" ]] && beads_sync_available; then
+                if mark_single_bead_in_progress "$picked_bead_id" 2>&1 | while IFS= read -r sync_msg; do
+                    log_status "INFO" "$sync_msg"
+                done; then
+                    :
+                fi
+            fi
+        else
+            log_status "WARN" "No unclaimed tasks found in fix_plan.md"
         fi
 
         # Create worktree for this loop iteration
@@ -950,7 +976,8 @@ main() {
         local work_dir
         work_dir="$(pwd)"
         if [[ "$WORKTREE_ENABLED" == "true" ]]; then
-            if worktree_create "$loop_count" > /dev/null; then
+            local wt_task_id="${picked_task_id:-loop-${loop_count}-$(date +%s)}"
+            if worktree_create "$loop_count" "$wt_task_id" > /dev/null; then
                 work_dir="$(worktree_get_path)"
                 log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
             else

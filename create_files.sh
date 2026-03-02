@@ -207,7 +207,7 @@ should_exit_gracefully() {
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[[ ~]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         local total_items=$((uncompleted_items + completed_items))
 

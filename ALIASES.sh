@@ -36,6 +36,9 @@ alias rpc.sonnet='ralph --model sonnet'
 alias rpc.json='ralph --output-format json'
 alias rpc.text='ralph --output-format text'
 
+# Auto-exit control
+alias rpc.int='ralph --live --monitor'
+
 # Combined common workflows
 alias rpc.dev='ralph --live --monitor --verbose'
 alias rpc.prod='ralph --calls 50 --auto-reset-circuit'
