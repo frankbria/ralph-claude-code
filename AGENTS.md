@@ -230,7 +230,7 @@ Ralph uses modern Claude Code CLI flags for structured communication:
 **Configuration Variables:**
 ```bash
 CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
-CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"  # Allowed tool permissions
+CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(which *),Bash(bd *),Bash(cd *)"  # Allowed tool permissions
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 ```
@@ -438,7 +438,7 @@ When Claude Code is denied permission to execute commands (e.g., `npm install`),
 **Example `.ralphrc` tool patterns:**
 ```bash
 # Broad patterns (recommended for development)
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(which *),Bash(bd *),Bash(cd *)"
 
 # Specific patterns (more restrictive)
 ALLOWED_TOOLS="Write,Read,Edit,Bash(git commit),Bash(npm install)"

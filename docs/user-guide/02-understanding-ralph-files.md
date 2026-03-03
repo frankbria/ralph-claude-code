@@ -148,7 +148,7 @@ Use HTTPException with these codes:
 PROJECT_NAME="my-project"
 PROJECT_TYPE="typescript"
 MAX_CALLS_PER_HOUR=100
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(which *),Bash(bd *),Bash(cd *)"
 ```
 
 **When to edit**:
