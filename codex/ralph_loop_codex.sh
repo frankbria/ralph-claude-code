@@ -518,6 +518,12 @@ execute_codex_session() {
         fi
     fi
 
+    # When in worktree mode, inject explicit working directory instruction
+    # This prevents the AI agent from navigating back to the main project directory
+    if [[ "$work_dir" != "$main_dir" ]]; then
+        loop_context+=" WORKTREE MODE: You are working in an isolated git worktree at '${work_dir}'. All file edits, git operations, and commands MUST be executed within this directory. Do NOT navigate to or modify files in '${main_dir}' or any other directory."
+    fi
+
     # Initialize or resume session
     local session_id=""
     if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then

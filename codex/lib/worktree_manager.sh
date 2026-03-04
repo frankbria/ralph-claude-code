@@ -130,16 +130,26 @@ worktree_create() {
         return 1
     fi
 
-    # Sync .ralph/ config files into worktree (gitignored, so not in worktree by default)
+    # Sync entire .ralph/ directory into worktree (gitignored, so not in worktree by default)
+    # Copy everything: specs/, docs/, constitution.md, PROMPT.md, fix_plan.md, AGENT.md, etc.
+    # Without full context the AI agent may navigate back to the main project directory.
     if [[ -d "${_WT_MAIN_DIR}/.ralph" ]]; then
+        cp -R "${_WT_MAIN_DIR}/.ralph" "$_WT_CURRENT_PATH/.ralph"
+        # Ensure logs and docs dirs exist (may not be in source if empty)
         mkdir -p "$_WT_CURRENT_PATH/.ralph/logs"
         mkdir -p "$_WT_CURRENT_PATH/.ralph/docs/generated"
-
-        for f in PROMPT.md fix_plan.md AGENT.md; do
-            if [[ -f "${_WT_MAIN_DIR}/.ralph/$f" ]]; then
-                cp "${_WT_MAIN_DIR}/.ralph/$f" "$_WT_CURRENT_PATH/.ralph/$f"
-            fi
-        done
+        # Clear stale state files that shouldn't carry over between worktrees
+        rm -f "$_WT_CURRENT_PATH/.ralph/.call_count" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.last_reset" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.exit_signals" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.response_analysis" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.circuit_breaker_state" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.devin_session_id" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.codex_session_id" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/.claude_session_id" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/status.json" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/progress.json" 2>/dev/null
+        rm -f "$_WT_CURRENT_PATH/.ralph/live.log" 2>/dev/null
     fi
 
     # Copy .ralphrc.devin if present
