@@ -6,10 +6,12 @@
 #
 # Usage: ralph_plan.sh [options]
 #   --prd-dir <dir>    Directory containing PRD files (interactive if omitted)
+#   --pm-os <dir>      PM OS directory (auto-detected if omitted)
+#   --doe-os <dir>     DoE OS directory (auto-detected if omitted)
 #   --engine <name>    AI engine: claude (default), codex, devin
 #   --help             Show help
 #
-# Version: 0.2.0
+# Version: 0.3.0
 
 set -e
 
@@ -26,6 +28,8 @@ LOG_DIR="$RALPH_DIR/logs"
 
 # Planning mode settings
 PRD_DIR=""
+PM_OS_DIR=""
+DOE_OS_DIR=""
 
 # Engine selection: claude (default), codex, devin
 ENGINE="claude"
@@ -74,6 +78,8 @@ Usage: ralph-plan [options]
 Options:
     --prd-dir <dir>    Directory containing PRD files
                        (interactive prompt if omitted, remembers in constitution.md)
+    --pm-os <dir>      PM OS directory (contains PRDs, analyses, specs in outputs/)
+    --doe-os <dir>     DoE OS directory (contains TDDs, tech specs in outputs/)
     --engine <name>    AI engine: claude (default), codex, devin
     -h, --help         Show this help
 
@@ -83,11 +89,30 @@ Examples:
     ralph-plan --engine codex                   # Use Codex for analysis
     ralph-plan --engine devin                   # Use Devin for analysis
     ralph-plan --prd-dir ./specs --engine codex # Codex on specific directory
+    ralph-plan --pm-os ../product/my-pm-os --doe-os ../engineering/my-doe-os
+
+PM-OS / DoE-OS Auto-Detection:
+    When Ralph is not enabled in the current directory (no .ralph/ folder),
+    ralph-plan will search for sibling and cousin directories matching
+    *-pm-os and *-doe-os naming patterns. If found, it will:
+
+    1. Auto-bootstrap .ralph/ in the current (app) directory
+    2. Gather PRDs and outputs from PM OS (outputs/prds/, outputs/analyses/, etc.)
+    3. Gather tech specs and TDDs from DoE OS (outputs/tdds/, outputs/specs/, etc.)
+    4. Run AI planning to build .ralph/fix_plan.md from all sources
+
+    Expected directory layout:
+      .
+      ├── engineering/
+      │   ├── myapp/              ← Run ralph-plan here
+      │   └── myapp-doe-os/      ← Auto-detected DoE OS
+      └── product/
+          └── myapp-pm-os/       ← Auto-detected PM OS
 
 What it does:
-    1. Asks for (or reads) your PRD directory
-    2. Sends PRDs to the AI engine for deep analysis
-    3. AI reads all PRD files and extracts requirements
+    1. Detects PM-OS and DoE-OS directories (or asks for PRD directory)
+    2. Sends PRDs + tech specs to the AI engine for deep analysis
+    3. AI reads all source files and extracts requirements
     4. AI builds/updates .ralph/fix_plan.md with prioritized tasks
     5. AI updates .ralph/constitution.md with project context
 
@@ -153,6 +178,8 @@ update_constitution() {
 
 ## PRD Configuration
 - **PRD Directory**: not configured
+- **PM-OS Directory**: not configured
+- **DoE-OS Directory**: not configured
 - **PRD Files Found**: none
 
 ## Architecture Decisions
@@ -176,6 +203,18 @@ CONSTEOF
         rm -f "$CONSTITUTION_FILE.bak"
     fi
 
+    # Update PM-OS Directory
+    if [[ -n "$PM_OS_DIR" ]] && grep -q '^\- \*\*PM-OS Directory\*\*:' "$CONSTITUTION_FILE" 2>/dev/null; then
+        sed -i.bak "s|^\- \*\*PM-OS Directory\*\*:.*|- **PM-OS Directory**: $PM_OS_DIR|" "$CONSTITUTION_FILE"
+        rm -f "$CONSTITUTION_FILE.bak"
+    fi
+
+    # Update DoE-OS Directory
+    if [[ -n "$DOE_OS_DIR" ]] && grep -q '^\- \*\*DoE-OS Directory\*\*:' "$CONSTITUTION_FILE" 2>/dev/null; then
+        sed -i.bak "s|^\- \*\*DoE-OS Directory\*\*:.*|- **DoE-OS Directory**: $DOE_OS_DIR|" "$CONSTITUTION_FILE"
+        rm -f "$CONSTITUTION_FILE.bak"
+    fi
+
     # Update PRD Files Found
     if grep -q '^\- \*\*PRD Files Found\*\*:' "$CONSTITUTION_FILE" 2>/dev/null; then
         sed -i.bak "s|^\- \*\*PRD Files Found\*\*:.*|- **PRD Files Found**: $prd_files_found|" "$CONSTITUTION_FILE"
@@ -193,6 +232,104 @@ CONSTEOF
     echo "$history_line" >> "$CONSTITUTION_FILE"
 
     log "SUCCESS" "Updated constitution.md"
+}
+
+# =============================================================================
+# PM-OS / DOE-OS AUTO-DETECTION
+# =============================================================================
+
+# Search for directories matching a glob pattern in siblings and cousins
+# Usage: find_os_dir <pattern>
+# Searches: siblings (../*pattern), cousins (../../*/*pattern)
+find_os_dir() {
+    local pattern=$1
+    local found=""
+
+    # Search siblings first (same parent directory)
+    for dir in ../*${pattern}; do
+        if [[ -d "$dir" ]]; then
+            found="$(cd "$dir" && pwd)"
+            echo "$found"
+            return 0
+        fi
+    done
+
+    # Search cousins (parent's siblings' children)
+    for dir in ../../*/*${pattern}; do
+        if [[ -d "$dir" ]]; then
+            found="$(cd "$dir" && pwd)"
+            echo "$found"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Detect pm-os and doe-os directories automatically
+# Sets PM_OS_DIR and DOE_OS_DIR if found
+detect_pm_doe_dirs() {
+    log "INFO" "Searching for PM-OS and DoE-OS directories..."
+
+    if [[ -z "$PM_OS_DIR" ]]; then
+        PM_OS_DIR=$(find_os_dir "-pm-os" 2>/dev/null || true)
+    fi
+
+    if [[ -z "$DOE_OS_DIR" ]]; then
+        DOE_OS_DIR=$(find_os_dir "-doe-os" 2>/dev/null || true)
+    fi
+
+    if [[ -n "$PM_OS_DIR" ]]; then
+        log "SUCCESS" "Found PM-OS: $PM_OS_DIR"
+    else
+        log "WARN" "No *-pm-os directory found"
+    fi
+
+    if [[ -n "$DOE_OS_DIR" ]]; then
+        log "SUCCESS" "Found DoE-OS: $DOE_OS_DIR"
+    else
+        log "WARN" "No *-doe-os directory found"
+    fi
+
+    # Return success if at least one was found
+    [[ -n "$PM_OS_DIR" ]] || [[ -n "$DOE_OS_DIR" ]]
+}
+
+# Collect all relevant source files from PM-OS and DoE-OS directories
+# Outputs newline-separated list of absolute file paths
+collect_pm_doe_sources() {
+    local sources=""
+
+    # PM-OS sources: PRDs, analyses, specs, decisions
+    if [[ -n "$PM_OS_DIR" ]]; then
+        local pm_dirs=("outputs/prds" "outputs/analyses" "outputs/specs" "outputs/decisions" "outputs/roadmaps" "outputs/research-synthesis")
+        for subdir in "${pm_dirs[@]}"; do
+            if [[ -d "$PM_OS_DIR/$subdir" ]]; then
+                local files
+                files=$(find "$PM_OS_DIR/$subdir" -maxdepth 2 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.json" \) 2>/dev/null || true)
+                if [[ -n "$files" ]]; then
+                    sources+="$files"$'\n'
+                fi
+            fi
+        done
+    fi
+
+    # DoE-OS sources: TDDs, specs, PRDs (solution reviews), decisions, analyses
+    if [[ -n "$DOE_OS_DIR" ]]; then
+        local doe_dirs=("outputs/tdds" "outputs/specs" "outputs/prds" "outputs/decisions" "outputs/analyses" "outputs/technical-research" "outputs/reviews")
+        for subdir in "${doe_dirs[@]}"; do
+            if [[ -d "$DOE_OS_DIR/$subdir" ]]; then
+                local files
+                files=$(find "$DOE_OS_DIR/$subdir" -maxdepth 2 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.json" \) 2>/dev/null || true)
+                if [[ -n "$files" ]]; then
+                    sources+="$files"$'\n'
+                fi
+            fi
+        done
+    fi
+
+    # Remove trailing newlines and empty lines
+    echo "$sources" | sed '/^$/d' | sort -u
 }
 
 # =============================================================================
@@ -326,13 +463,33 @@ run_ai_planning() {
     fi
 
     # Build context
-    local context="PRD Directory: $prd_dir"
-    context+="\nProject Root: $(pwd)"
+    local context="Project Root: $(pwd)"
 
-    local prd_list
-    prd_list=$(find "$prd_dir" -maxdepth 3 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.json" \) 2>/dev/null | sort)
-    if [[ -n "$prd_list" ]]; then
-        context+="\n\nPRD Files Found:\n$prd_list"
+    if [[ -n "$prd_dir" ]]; then
+        context+="\nPRD Directory: $prd_dir"
+        local prd_list
+        prd_list=$(find "$prd_dir" -maxdepth 3 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.json" \) 2>/dev/null | sort)
+        if [[ -n "$prd_list" ]]; then
+            context+="\n\nPRD Files Found:\n$prd_list"
+        fi
+    fi
+
+    # PM-OS / DoE-OS sources
+    if [[ -n "$PM_OS_DIR" ]] || [[ -n "$DOE_OS_DIR" ]]; then
+        local pm_doe_sources
+        pm_doe_sources=$(collect_pm_doe_sources)
+        local source_count
+        source_count=$(echo "$pm_doe_sources" | grep -c '.' 2>/dev/null || echo "0")
+
+        if [[ -n "$PM_OS_DIR" ]]; then
+            context+="\n\nPM-OS Directory: $PM_OS_DIR"
+        fi
+        if [[ -n "$DOE_OS_DIR" ]]; then
+            context+="\nDoE-OS Directory: $DOE_OS_DIR"
+        fi
+        if [[ -n "$pm_doe_sources" ]]; then
+            context+="\n\nPM-OS / DoE-OS Source Files ($source_count files):\n$pm_doe_sources"
+        fi
     fi
 
     # Check for beads if available
@@ -353,7 +510,14 @@ run_ai_planning() {
         echo -e "$context"
         echo ""
         echo "## Instructions"
-        echo "Analyze the PRD files listed above. Read each one, extract requirements, and generate the fix_plan.md content."
+        if [[ -n "$PM_OS_DIR" ]] || [[ -n "$DOE_OS_DIR" ]]; then
+            echo "Analyze ALL source files listed above from PM-OS and DoE-OS directories."
+            echo "Read each PRD, tech spec, TDD, analysis, and decision document."
+            echo "Cross-reference product requirements (PM-OS) with technical specifications (DoE-OS)."
+            echo "Extract actionable engineering tasks and generate a comprehensive fix_plan.md."
+        else
+            echo "Analyze the PRD files listed above. Read each one, extract requirements, and generate the fix_plan.md content."
+        fi
         echo "Write directly to .ralph/fix_plan.md and .ralph/constitution.md."
     } > "$prompt_file"
 
@@ -418,6 +582,14 @@ parse_args() {
                 PRD_DIR="$2"
                 shift 2
                 ;;
+            --pm-os)
+                PM_OS_DIR="$2"
+                shift 2
+                ;;
+            --doe-os)
+                DOE_OS_DIR="$2"
+                shift 2
+                ;;
             --engine)
                 ENGINE="$2"
                 shift 2
@@ -443,38 +615,111 @@ main() {
     echo -e "${PURPLE}===================${NC}"
     echo ""
 
-    # Ensure .ralph directory exists
-    mkdir -p "$RALPH_DIR" "$LOG_DIR"
+    local ralph_was_enabled=true
+    local use_pm_doe=false
 
-    # Step 1: Determine PRD directory
-    if [[ -z "$PRD_DIR" ]]; then
-        prompt_prd_directory
-    else
-        if [[ ! -d "$PRD_DIR" ]]; then
-            log "ERROR" "PRD directory does not exist: $PRD_DIR"
-            exit 1
-        fi
-        log "INFO" "Using PRD directory: $PRD_DIR"
+    # Validate explicit pm-os/doe-os paths if provided
+    if [[ -n "$PM_OS_DIR" ]] && [[ ! -d "$PM_OS_DIR" ]]; then
+        log "ERROR" "PM-OS directory does not exist: $PM_OS_DIR"
+        exit 1
+    fi
+    if [[ -n "$DOE_OS_DIR" ]] && [[ ! -d "$DOE_OS_DIR" ]]; then
+        log "ERROR" "DoE-OS directory does not exist: $DOE_OS_DIR"
+        exit 1
     fi
 
-    # Step 2: Run AI planning
-    if run_ai_planning "$PRD_DIR"; then
-        # AI handled everything, update constitution
-        local prd_count
-        prd_count=$(find "$PRD_DIR" -maxdepth 3 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.json" \) 2>/dev/null | wc -l | tr -d ' ')
-        update_constitution "$PRD_DIR" "$prd_count files" "0" "0" "AI-generated"
-        echo ""
-        log "SUCCESS" "Planning complete!"
-        echo ""
-        echo "Next steps:"
-        echo "  1. Review .ralph/fix_plan.md"
-        echo "  2. Review .ralph/constitution.md"
-        echo "  3. Run 'ralph --monitor' to start execution"
-        echo ""
-        echo "Re-run planning anytime with: ralph-plan"
+    # Check if Ralph is already enabled in this directory
+    if [[ ! -d "$RALPH_DIR" ]]; then
+        ralph_was_enabled=false
+        log "INFO" "Ralph not enabled in current directory (no .ralph/ folder)"
+
+        # If pm-os/doe-os explicitly provided or auto-detectable, use that flow
+        if [[ -n "$PM_OS_DIR" ]] || [[ -n "$DOE_OS_DIR" ]]; then
+            use_pm_doe=true
+        elif [[ -z "$PRD_DIR" ]] && detect_pm_doe_dirs; then
+            use_pm_doe=true
+        fi
+
+        if [[ "$use_pm_doe" == true ]]; then
+            log "INFO" "Auto-bootstrapping .ralph/ in $(pwd)"
+            mkdir -p "$RALPH_DIR" "$LOG_DIR"
+        fi
     else
-        log "ERROR" "AI planning failed. Ensure your $ENGINE CLI is installed and authenticated."
-        exit 1
+        # Ralph is enabled — still use pm-os/doe-os if explicitly provided or detectable
+        if [[ -n "$PM_OS_DIR" ]] || [[ -n "$DOE_OS_DIR" ]]; then
+            use_pm_doe=true
+        elif [[ -z "$PRD_DIR" ]] && detect_pm_doe_dirs; then
+            use_pm_doe=true
+        fi
+    fi
+
+    # Ensure .ralph directory exists (for all flows)
+    mkdir -p "$RALPH_DIR" "$LOG_DIR"
+
+    if [[ "$use_pm_doe" == true ]]; then
+        # PM-OS / DoE-OS flow: AI-only planning from external sources
+        local source_files
+        source_files=$(collect_pm_doe_sources)
+        local source_count
+        source_count=$(echo "$source_files" | grep -c '.' 2>/dev/null || echo "0")
+
+        echo ""
+        log "PLAN" "Planning from PM-OS / DoE-OS sources ($source_count files)"
+        [[ -n "$PM_OS_DIR" ]] && log "INFO" "  PM-OS:  $PM_OS_DIR"
+        [[ -n "$DOE_OS_DIR" ]] && log "INFO" "  DoE-OS: $DOE_OS_DIR"
+        echo ""
+
+        if [[ "$source_count" -eq 0 ]]; then
+            log "ERROR" "No source files found in PM-OS/DoE-OS directories"
+            exit 1
+        fi
+
+        # Run AI planning (prd_dir can be empty for pm-os/doe-os flow)
+        if run_ai_planning "${PRD_DIR:-}"; then
+            local prd_label="pm-os/doe-os"
+            update_constitution "${PM_OS_DIR:-}+${DOE_OS_DIR:-}" "$source_count files" "0" "0" "AI-generated from PM-OS/DoE-OS"
+            echo ""
+            log "SUCCESS" "Planning complete!"
+            echo ""
+            echo "Next steps:"
+            echo "  1. Review .ralph/fix_plan.md"
+            echo "  2. Review .ralph/constitution.md"
+            echo "  3. Run 'ralph --monitor' to start execution"
+            echo ""
+            echo "Re-run planning anytime with: ralph-plan"
+        else
+            log "ERROR" "AI planning failed. Ensure your $ENGINE CLI is installed and authenticated."
+            exit 1
+        fi
+    else
+        # Standard flow: PRD directory based planning
+        if [[ -z "$PRD_DIR" ]]; then
+            prompt_prd_directory
+        else
+            if [[ ! -d "$PRD_DIR" ]]; then
+                log "ERROR" "PRD directory does not exist: $PRD_DIR"
+                exit 1
+            fi
+            log "INFO" "Using PRD directory: $PRD_DIR"
+        fi
+
+        if run_ai_planning "$PRD_DIR"; then
+            local prd_count
+            prd_count=$(find "$PRD_DIR" -maxdepth 3 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.json" \) 2>/dev/null | wc -l | tr -d ' ')
+            update_constitution "$PRD_DIR" "$prd_count files" "0" "0" "AI-generated"
+            echo ""
+            log "SUCCESS" "Planning complete!"
+            echo ""
+            echo "Next steps:"
+            echo "  1. Review .ralph/fix_plan.md"
+            echo "  2. Review .ralph/constitution.md"
+            echo "  3. Run 'ralph --monitor' to start execution"
+            echo ""
+            echo "Re-run planning anytime with: ralph-plan"
+        else
+            log "ERROR" "AI planning failed. Ensure your $ENGINE CLI is installed and authenticated."
+            exit 1
+        fi
     fi
 }
 

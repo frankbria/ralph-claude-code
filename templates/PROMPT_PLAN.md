@@ -12,10 +12,12 @@ In this mode, you do **NOT execute any tasks**. You only analyze, plan, and buil
 5. Update `.ralph/constitution.md` with any learned project context
 
 ## Input Sources (Priority Order)
-1. **PRDs** - Product Requirement Documents from the configured PRD directory
-2. **Beads** - Task tracking items from `.beads/` (if available)
-3. **JSON specs** - Any `.json` files in `.ralph/specs/` or project root that contain task/requirement data
-4. **Existing fix_plan.md** - Preserve completed items and merge new work
+1. **PM-OS** - Product Manager OS directory (if detected): PRDs, analyses, specs, roadmaps from `outputs/`
+2. **DoE-OS** - Director of Engineering OS directory (if detected): TDDs, tech specs, architecture decisions from `outputs/`
+3. **PRDs** - Product Requirement Documents from the configured PRD directory
+4. **Beads** - Task tracking items from `.beads/` (if available)
+5. **JSON specs** - Any `.json` files in `.ralph/specs/` or project root that contain task/requirement data
+6. **Existing fix_plan.md** - Preserve completed items and merge new work
 
 ## Key Principles
 - **READ-ONLY MODE** - Do NOT modify source code, do NOT run builds, do NOT execute tests
@@ -28,12 +30,14 @@ In this mode, you do **NOT execute any tasks**. You only analyze, plan, and buil
 - Keep the Completed section intact from previous fix_plan.md
 
 ## Analysis Process
-1. **Scan PRD directory** - Read all `.md`, `.txt`, `.pdf` files
-2. **Scan beads** - If `.beads/` exists, read all open beads
-3. **Scan JSON specs** - Check `.ralph/specs/` and project root for task JSONs
-4. **Cross-reference** - Match PRD requirements to existing beads/issues
-5. **Prioritize** - Use urgency/impact matrix from PRD language
-6. **Generate fix_plan.md** - Write the comprehensive plan
+1. **Scan PM-OS** - If PM-OS directory is provided, read all PRDs, analyses, specs, and roadmaps from `outputs/`
+2. **Scan DoE-OS** - If DoE-OS directory is provided, read all TDDs, tech specs, decisions, and reviews from `outputs/`
+3. **Scan PRD directory** - Read all `.md`, `.txt`, `.pdf` files from the configured PRD directory
+4. **Scan beads** - If `.beads/` exists, read all open beads
+5. **Scan JSON specs** - Check `.ralph/specs/` and project root for task JSONs
+6. **Cross-reference** - Match product requirements (PM-OS PRDs) with technical specifications (DoE-OS TDDs/specs). Match PRD requirements to existing beads/issues
+7. **Prioritize** - Use urgency/impact matrix from PRD language. Technical dependencies from TDDs inform ordering
+8. **Generate fix_plan.md** - Write the comprehensive plan with tasks traceable to their PM-OS or DoE-OS source
 
 ## fix_plan.md Format
 ```markdown
@@ -41,11 +45,13 @@ In this mode, you do **NOT execute any tasks**. You only analyze, plan, and buil
 
 > Last planned: [timestamp]
 > Sources: [list of PRD files, beads count, JSON files analyzed]
+> PM-OS: [path if used]
+> DoE-OS: [path if used]
 
 ## High Priority
 - [ ] [source-ref] Task description
   - Depends on: [other-task-ref] (if applicable)
-  - Source: PRD section X / bead-id / issue #N
+  - Source: PM-OS PRD / DoE-OS TDD / bead-id / issue #N
 
 ## Medium Priority
 - [ ] [source-ref] Task description
@@ -57,7 +63,8 @@ In this mode, you do **NOT execute any tasks**. You only analyze, plan, and buil
 - [x] Previously completed items preserved here
 
 ## Notes
-- Cross-reference notes and dependency information
+- Cross-reference notes between PM-OS PRDs and DoE-OS tech specs
+- Dependency information and technical constraints from TDDs
 - Risks or blockers identified during planning
 ```
 

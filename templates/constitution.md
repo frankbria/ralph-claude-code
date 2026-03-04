@@ -11,6 +11,8 @@
 
 ## PRD Configuration
 - **PRD Directory**: [configured by ralph-plan, e.g., ./docs, ./specs, ./prds]
+- **PM-OS Directory**: [auto-detected or configured *-pm-os directory]
+- **DoE-OS Directory**: [auto-detected or configured *-doe-os directory]
 - **PRD Files Found**: [list of files discovered during last planning session]
 
 ## Architecture Decisions

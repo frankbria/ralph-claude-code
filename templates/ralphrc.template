@@ -37,7 +37,7 @@ CLAUDE_OUTPUT_FORMAT="json"
 # Common tools: Write, Read, Edit, Grep, Glob
 # Bash patterns: Bash(git *), Bash(npm *), Bash(bun *), Bash(pytest), etc.
 # Add project-specific tools as needed (e.g., Bash(cargo *), Bash(go *))
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(which *),Bash(bd *),Bash(cd *)"
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *)"
 
 # =============================================================================
 # SESSION MANAGEMENT

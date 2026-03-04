@@ -519,7 +519,7 @@ teardown() {
     bash "$SETUP_SCRIPT" test-project
 
     # The expected ALLOWED_TOOLS value that ralph-enable uses
-    local expected_tools='ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"'
+    local expected_tools='ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *)"'
 
     # Check that .ralphrc contains the expected ALLOWED_TOOLS line
     # Use grep -F for literal string matching (avoids regex interpretation of *)

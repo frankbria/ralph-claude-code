@@ -36,6 +36,12 @@ The system consists of four main bash scripts and a modular library system:
    - Interactive PRD directory selection with memory (stored in constitution.md)
    - `--engine` flag to select AI engine: claude (default), codex, devin
    - Shared across all Ralph flavors (wrappers pass correct engine)
+   - **PM-OS / DoE-OS auto-detection**: When Ralph is not enabled (no `.ralph/`), auto-detects
+     sibling/cousin `*-pm-os` and `*-doe-os` directories, bootstraps `.ralph/`, and runs AI-only
+     planning from product PRDs (PM-OS) and tech specs/TDDs (DoE-OS)
+   - `--pm-os <dir>` and `--doe-os <dir>` flags for explicit paths
+   - `find_os_dir()` searches siblings (`../*-pm-os`) then cousins (`../../*/*-pm-os`)
+   - `collect_pm_doe_sources()` gathers files from `outputs/prds`, `outputs/tdds`, `outputs/specs`, etc.
 
 ### Library Components (lib/)
 
@@ -151,6 +157,16 @@ ralph-plan --engine devin
 
 # Combined: specific engine + directory
 ralph-plan --prd-dir ./specs --engine codex
+
+# PM-OS / DoE-OS auto-detection (run from app dir without .ralph/)
+# Auto-detects sibling/cousin *-pm-os and *-doe-os directories
+ralph-plan
+
+# Explicit PM-OS and DoE-OS paths
+ralph-plan --pm-os ../product/myapp-pm-os --doe-os ../engineering/myapp-doe-os
+
+# PM-OS/DoE-OS with specific engine
+ralph-plan --pm-os ../product/myapp-pm-os --doe-os ../engineering/myapp-doe-os --engine codex
 ```
 
 ### Running the Ralph Loop
