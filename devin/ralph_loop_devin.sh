@@ -520,10 +520,19 @@ execute_devin_session() {
         fi
     fi
 
-    # When in worktree mode, inject explicit working directory instruction
-    # This prevents the AI agent from navigating back to the main project directory
+    # When in worktree mode, build a standalone directive that will be
+    # prepended at the TOP of the prompt so the agent sees it first.
+    local worktree_directive=""
     if [[ "$work_dir" != "$main_dir" ]]; then
-        loop_context+=" WORKTREE MODE: You are working in an isolated git worktree at '${work_dir}'. All file edits, git operations, and commands MUST be executed within this directory. Do NOT navigate to or modify files in '${main_dir}' or any other directory."
+        worktree_directive="# ⚠️  CRITICAL: WORKING DIRECTORY CONSTRAINT
+
+You are operating inside an **isolated git worktree**.
+
+- **Your working directory**: \`${work_dir}\`
+- **DO NOT** navigate to, read from, or modify files in \`${main_dir}\` or any other directory.
+- All file edits, git operations, and shell commands **MUST** stay within \`${work_dir}\`.
+- Run \`pwd\` before any file operation to confirm you are in the correct directory.
+- If a tool or command attempts to change to a different directory, refuse and stay in \`${work_dir}\`."
     fi
 
     # Initialize or resume session
@@ -556,7 +565,7 @@ execute_devin_session() {
         effective_prompt="${main_dir}/$PROMPT_FILE"
     fi
 
-    if ! build_devin_command "$effective_prompt" "$loop_context" "$session_id" "$print_mode"; then
+    if ! build_devin_command "$effective_prompt" "$loop_context" "$session_id" "$print_mode" "$worktree_directive"; then
         log_status "ERROR" "Failed to build Devin command"
         return 1
     fi
@@ -956,14 +965,7 @@ main() {
             picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
             picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
 
-            log_status "INFO" "Picked task: $picked_task_id (line $picked_line_num)"
-
-            # Mark fix_plan.md item as in-progress [~]
-            if mark_fix_plan_in_progress "$RALPH_DIR/fix_plan.md" "$picked_line_num"; then
-                log_status "SUCCESS" "Marked fix_plan.md item as in-progress: $picked_task_id"
-            else
-                log_status "WARN" "Failed to mark fix_plan.md item as in-progress"
-            fi
+            log_status "SUCCESS" "Picked and locked task: $picked_task_id (line $picked_line_num)"
 
             # Claim the specific bead as in_progress (if it's a bead task)
             if [[ -n "$picked_bead_id" ]] && beads_sync_available; then

@@ -691,6 +691,49 @@ beads_post_sync() {
 # TASK PICKING & IN-PROGRESS MARKING (for parallel loop support)
 # =============================================================================
 
+# Portable file locking for parallel task picking.
+# Uses mkdir as an atomic lock (works on macOS and Linux without flock).
+# Args:
+#   $1 - lock_path: Path to the lock directory
+#   $2 - timeout: Max seconds to wait (default: 10)
+# Returns: 0 if lock acquired, 1 on timeout
+_acquire_task_lock() {
+    local lock_path="${1:-.ralph/.task_pick_lock}"
+    local timeout="${2:-10}"
+    local waited=0
+
+    while ! mkdir "$lock_path" 2>/dev/null; do
+        # Check if the lock is stale (older than 30 seconds)
+        if [[ -d "$lock_path" ]]; then
+            local lock_age=0
+            if [[ "$(uname)" == "Darwin" ]]; then
+                lock_age=$(( $(date +%s) - $(stat -f %m "$lock_path" 2>/dev/null || echo "0") ))
+            else
+                lock_age=$(( $(date +%s) - $(stat -c %Y "$lock_path" 2>/dev/null || echo "0") ))
+            fi
+            if [[ $lock_age -gt 30 ]]; then
+                rmdir "$lock_path" 2>/dev/null || true
+                continue
+            fi
+        fi
+
+        sleep 0.2
+        waited=$((waited + 1))
+        if [[ $waited -ge $((timeout * 5)) ]]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Release the task pick lock
+# Args:
+#   $1 - lock_path: Path to the lock directory
+_release_task_lock() {
+    local lock_path="${1:-.ralph/.task_pick_lock}"
+    rmdir "$lock_path" 2>/dev/null || true
+}
+
 # pick_next_task - Find the first unclaimed, uncompleted task from fix_plan.md
 # Skips tasks already in-progress [~] or completed [x/X].
 # Outputs: "task_id|line_number|bead_id" on stdout
@@ -710,7 +753,17 @@ pick_next_task() {
         return 1
     fi
 
+    # Acquire lock to prevent parallel agents from picking the same task
+    local lock_dir
+    lock_dir="$(dirname "$fix_plan_file")/.task_pick_lock"
+    if ! _acquire_task_lock "$lock_dir"; then
+        echo "WARN: Could not acquire task pick lock after timeout" >&2
+        return 1
+    fi
+
+    # Re-read file under lock to get latest state
     local line_num=0
+    local found=1
     while IFS= read -r line; do
         line_num=$((line_num + 1))
 
@@ -728,12 +781,20 @@ pick_next_task() {
                 task_id=$(echo "$line" | sed 's/.*\[ \] //' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//' | head -c 50)
             fi
 
+            # Atomically mark in-progress WHILE holding the lock
+            # so no other agent can pick the same task
+            local tmp_file="${fix_plan_file}.tmp.$$"
+            awk -v ln="$line_num" 'NR==ln { sub(/- \[ \]/, "- [~]") } 1' "$fix_plan_file" > "$tmp_file" \
+                && mv "$tmp_file" "$fix_plan_file"
+
             echo "${task_id}|${line_num}|${bead_id}"
-            return 0
+            found=0
+            break
         fi
     done < "$fix_plan_file"
 
-    return 1
+    _release_task_lock "$lock_dir"
+    return $found
 }
 
 # mark_fix_plan_in_progress - Mark a specific task as in-progress in fix_plan.md
@@ -803,6 +864,8 @@ export -f import_tasks_from_sources
 export -f beads_sync_available
 export -f beads_pre_sync
 export -f beads_post_sync
+export -f _acquire_task_lock
+export -f _release_task_lock
 export -f pick_next_task
 export -f mark_fix_plan_in_progress
 export -f mark_single_bead_in_progress

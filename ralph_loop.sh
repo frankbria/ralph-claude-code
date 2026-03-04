@@ -979,10 +979,18 @@ declare -a CLAUDE_CMD_ARGS=()
 # Build Claude CLI command with modern flags using array (shell-injection safe)
 # Populates global CLAUDE_CMD_ARGS array for direct execution
 # Uses -p flag with prompt content (Claude CLI does not have --prompt-file)
+#
+# Args:
+#   $1 - prompt_file: Path to the prompt file
+#   $2 - loop_context: Additional context string for --append-system-prompt
+#   $3 - session_id: Session ID for --resume (empty = new session)
+#   $4 - worktree_directive: If set, prepended to prompt content so the agent
+#        sees the working-directory constraint before any other instruction.
 build_claude_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
+    local worktree_directive="${4:-}"
 
     # Reset global array
     # Note: We do NOT use --dangerously-skip-permissions here. Tool permissions
@@ -1037,6 +1045,16 @@ build_claude_command() {
     # Array-based approach maintains shell injection safety
     local prompt_content
     prompt_content=$(cat "$prompt_file")
+
+    # Worktree directive goes FIRST so the agent sees it before any other instruction
+    if [[ -n "$worktree_directive" ]]; then
+        prompt_content="${worktree_directive}
+
+---
+
+${prompt_content}"
+    fi
+
     CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
 }
 
@@ -1076,10 +1094,19 @@ execute_claude_code() {
         fi
     fi
 
-    # When in worktree mode, inject explicit working directory instruction
-    # This prevents the AI agent from navigating back to the main project directory
+    # When in worktree mode, build a standalone directive that will be
+    # prepended at the TOP of the prompt so the agent sees it first.
+    local worktree_directive=""
     if [[ "$work_dir" != "$main_dir" ]]; then
-        loop_context+=" WORKTREE MODE: You are working in an isolated git worktree at '${work_dir}'. All file edits, git operations, and commands MUST be executed within this directory. Do NOT navigate to or modify files in '${main_dir}' or any other directory."
+        worktree_directive="# ⚠️  CRITICAL: WORKING DIRECTORY CONSTRAINT
+
+You are operating inside an **isolated git worktree**.
+
+- **Your working directory**: \`${work_dir}\`
+- **DO NOT** navigate to, read from, or modify files in \`${main_dir}\` or any other directory.
+- All file edits, git operations, and shell commands **MUST** stay within \`${work_dir}\`.
+- Run \`pwd\` before any file operation to confirm you are in the correct directory.
+- If a tool or command attempts to change to a different directory, refuse and stay in \`${work_dir}\`."
         log_status "INFO" "Working directory: $work_dir"
     fi
 
@@ -1106,7 +1133,7 @@ execute_claude_code() {
     # Build the Claude CLI command with modern flags
     local use_modern_cli=false
 
-    if build_claude_command "$effective_prompt" "$loop_context" "$session_id"; then
+    if build_claude_command "$effective_prompt" "$loop_context" "$session_id" "$worktree_directive"; then
         use_modern_cli=true
         log_status "INFO" "Using modern CLI mode (${CLAUDE_OUTPUT_FORMAT} output)"
     else
@@ -1677,14 +1704,7 @@ main() {
             picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
             picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
 
-            log_status "INFO" "Picked task: $picked_task_id (line $picked_line_num)"
-
-            # Mark fix_plan.md item as in-progress [~]
-            if mark_fix_plan_in_progress "$RALPH_DIR/fix_plan.md" "$picked_line_num"; then
-                log_status "SUCCESS" "Marked fix_plan.md item as in-progress: $picked_task_id"
-            else
-                log_status "WARN" "Failed to mark fix_plan.md item as in-progress"
-            fi
+            log_status "SUCCESS" "Picked and locked task: $picked_task_id (line $picked_line_num)"
 
             # Claim the specific bead as in_progress (if it's a bead task)
             if [[ -n "$picked_bead_id" ]] && beads_sync_available; then

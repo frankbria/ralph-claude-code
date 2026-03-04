@@ -72,11 +72,15 @@ declare -a DEVIN_CMD_ARGS=()
 #   $1 - prompt_file: Path to the prompt file
 #   $2 - loop_context: Additional context string to append
 #   $3 - session_id: Session ID for --resume (empty = new session)
+#   $4 - print_mode: true = non-interactive (-p), false = interactive
+#   $5 - worktree_directive: If set, prepended at TOP of prompt so the agent
+#        sees the working-directory constraint before any other instruction.
 build_devin_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
     local print_mode="${4:-false}"  # true = non-interactive (-p), false = interactive
+    local worktree_directive="${5:-}"
 
     # Reset global array
     DEVIN_CMD_ARGS=("$DEVIN_CMD")
@@ -109,14 +113,24 @@ build_devin_command() {
     fi
 
     # --prompt-file and -- PROMPT are mutually exclusive in Devin CLI.
-    # When loop context exists, merge prompt + context into a temp file.
-    if [[ -n "$loop_context" ]]; then
+    # When loop context or worktree directive exists, merge into a temp file.
+    if [[ -n "$loop_context" || -n "$worktree_directive" ]]; then
         # Place combined file next to the prompt file (works from any cwd, including worktrees)
         local prompt_dir
         prompt_dir=$(dirname "$prompt_file")
         local combined_file="${prompt_dir}/.devin_prompt_combined.md"
-        cat "$prompt_file" > "$combined_file"
-        printf '\n\n---\nRALPH LOOP CONTEXT: %s\n' "$loop_context" >> "$combined_file"
+
+        # Worktree directive goes FIRST so the agent sees it before any other instruction
+        if [[ -n "$worktree_directive" ]]; then
+            printf '%s\n\n---\n\n' "$worktree_directive" > "$combined_file"
+            cat "$prompt_file" >> "$combined_file"
+        else
+            cat "$prompt_file" > "$combined_file"
+        fi
+
+        if [[ -n "$loop_context" ]]; then
+            printf '\n\n---\nRALPH LOOP CONTEXT: %s\n' "$loop_context" >> "$combined_file"
+        fi
         DEVIN_CMD_ARGS+=("--prompt-file" "$combined_file")
     else
         DEVIN_CMD_ARGS+=("--prompt-file" "$prompt_file")
