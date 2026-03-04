@@ -17,6 +17,8 @@ source "$SCRIPT_DIR/lib/timeout_utils.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 source "$SCRIPT_DIR/lib/task_sources.sh"
+source "$SCRIPT_DIR/lib/parallel_spawn.sh"
+source "$SCRIPT_DIR/lib/worktree_manager.sh"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -29,6 +31,7 @@ PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="claude"
 SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
+PARALLEL_COUNT=0       # Number of parallel agents to spawn (0 = disabled)
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
@@ -46,6 +49,9 @@ _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_MAX_LOOPS="${MAX_LOOPS:-}"
+_env_WORKTREE_ENABLED="${WORKTREE_ENABLED:-}"
+_env_WORKTREE_MERGE_STRATEGY="${WORKTREE_MERGE_STRATEGY:-}"
+_env_WORKTREE_QUALITY_GATES="${WORKTREE_QUALITY_GATES:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -154,6 +160,9 @@ load_ralphrc() {
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
+    [[ -n "$_env_WORKTREE_ENABLED" ]] && WORKTREE_ENABLED="$_env_WORKTREE_ENABLED"
+    [[ -n "$_env_WORKTREE_MERGE_STRATEGY" ]] && WORKTREE_MERGE_STRATEGY="$_env_WORKTREE_MERGE_STRATEGY"
+    [[ -n "$_env_WORKTREE_QUALITY_GATES" ]] && WORKTREE_QUALITY_GATES="$_env_WORKTREE_QUALITY_GATES"
 
     RALPHRC_LOADED=true
     return 0
@@ -273,6 +282,16 @@ setup_tmux_session() {
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
     fi
+    # Forward worktree flags
+    if [[ "$WORKTREE_ENABLED" == "false" ]]; then
+        ralph_cmd="$ralph_cmd --no-worktree"
+    fi
+    if [[ "$WORKTREE_MERGE_STRATEGY" != "squash" ]]; then
+        ralph_cmd="$ralph_cmd --merge-strategy $WORKTREE_MERGE_STRATEGY"
+    fi
+    if [[ "$WORKTREE_QUALITY_GATES" != "auto" ]]; then
+        ralph_cmd="$ralph_cmd --quality-gates '$WORKTREE_QUALITY_GATES'"
+    fi
 
     tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
 
@@ -359,12 +378,16 @@ update_status() {
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
+    "engine": "claude",
     "loop_count": $loop_count,
     "calls_made_this_hour": $calls_made,
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
     "last_action": "$last_action",
     "status": "$status",
     "exit_reason": "$exit_reason",
+    "worktree_enabled": $([[ "$WORKTREE_ENABLED" == "true" ]] && echo "true" || echo "false"),
+    "worktree_branch": "$(worktree_get_branch 2>/dev/null)",
+    "worktree_path": "$(worktree_get_path 2>/dev/null)",
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
@@ -1019,17 +1042,24 @@ build_claude_command() {
 
 # Main execution function
 execute_claude_code() {
-    local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
-    local output_file="$LOG_DIR/claude_output_${timestamp}.log"
     local loop_count=$1
+    local work_dir="${2:-$(pwd)}"
+    local main_dir
+    main_dir="$(pwd)"
+    local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+    local output_file="${main_dir}/${LOG_DIR}/claude_output_${timestamp}.log"
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
     # Store in file for access by progress detection after Claude execution
     local loop_start_sha=""
-    if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
-        loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+    if command -v git &>/dev/null; then
+        if [[ "$work_dir" != "$main_dir" ]]; then
+            loop_start_sha=$(cd "$work_dir" && git rev-parse HEAD 2>/dev/null || echo "")
+        elif git rev-parse --git-dir &>/dev/null 2>&1; then
+            loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+        fi
     fi
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
 
@@ -1046,6 +1076,13 @@ execute_claude_code() {
         fi
     fi
 
+    # When in worktree mode, inject explicit working directory instruction
+    # This prevents the AI agent from navigating back to the main project directory
+    if [[ "$work_dir" != "$main_dir" ]]; then
+        loop_context+=" WORKTREE MODE: You are working in an isolated git worktree at '${work_dir}'. All file edits, git operations, and commands MUST be executed within this directory. Do NOT navigate to or modify files in '${main_dir}' or any other directory."
+        log_status "INFO" "Working directory: $work_dir"
+    fi
+
     # Initialize or resume session
     local session_id=""
     if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
@@ -1058,10 +1095,18 @@ execute_claude_code() {
         CLAUDE_OUTPUT_FORMAT="json"
     fi
 
+    # Use worktree's prompt file when in worktree mode
+    local effective_prompt="$PROMPT_FILE"
+    if [[ "$work_dir" != "$main_dir" && -f "$work_dir/$PROMPT_FILE" ]]; then
+        effective_prompt="$work_dir/$PROMPT_FILE"
+    elif [[ "$work_dir" != "$main_dir" && -f "${main_dir}/$PROMPT_FILE" ]]; then
+        effective_prompt="${main_dir}/$PROMPT_FILE"
+    fi
+
     # Build the Claude CLI command with modern flags
     local use_modern_cli=false
 
-    if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+    if build_claude_command "$effective_prompt" "$loop_context" "$session_id"; then
         use_modern_cli=true
         log_status "INFO" "Using modern CLI mode (${CLAUDE_OUTPUT_FORMAT} output)"
     else
@@ -1443,6 +1488,10 @@ EOF
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+    if worktree_is_active 2>/dev/null; then
+        log_status "INFO" "Cleaning up active worktree..."
+        worktree_cleanup "true" 2>/dev/null || true
+    fi
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
@@ -1466,6 +1515,7 @@ main() {
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
+    log_status "INFO" "Worktree: ${WORKTREE_ENABLED} | Merge: ${WORKTREE_MERGE_STRATEGY} | Gates: ${WORKTREE_QUALITY_GATES}"
 
     # Check if project uses old flat structure and needs migration
     if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
@@ -1508,6 +1558,16 @@ main() {
 
     # Initialize session tracking before entering the loop
     init_session_tracking
+
+    # Initialize worktree system
+    if [[ "$WORKTREE_ENABLED" == "true" ]]; then
+        if worktree_init; then
+            log_status "SUCCESS" "Worktree mode enabled (base: $(worktree_get_base_dir))"
+        else
+            log_status "WARN" "Worktree init failed, using direct mode"
+            WORKTREE_ENABLED="false"
+        fi
+    fi
 
     log_status "INFO" "Starting main loop..."
     
@@ -1638,18 +1698,34 @@ main() {
             log_status "WARN" "No unclaimed tasks found in fix_plan.md"
         fi
 
+        # Create worktree for this loop iteration
+        # NOTE: worktree_create must NOT be called inside $() — that runs a subshell
+        # and the internal state variables (_WT_CURRENT_PATH, _WT_CURRENT_BRANCH)
+        # would be lost. Instead, call directly and use accessors afterward.
+        local work_dir
+        work_dir="$(pwd)"
+        if [[ "$WORKTREE_ENABLED" == "true" ]]; then
+            local wt_task_id="${picked_task_id:-loop-${loop_count}-$(date +%s)}"
+            if worktree_create "$loop_count" "$wt_task_id" > /dev/null; then
+                work_dir="$(worktree_get_path)"
+                log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
+            else
+                log_status "WARN" "Worktree creation failed, using main directory"
+            fi
+        fi
+
         # Update status
         local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
         
-        # Execute Claude Code
+        # Execute Claude Code (in worktree if active)
         # CRITICAL: Disable set -e for the entire execution + error detection block.
         # set -e causes silent script death at multiple points:
         #   1. Live mode pipeline when jq fails on non-stream-json (rate limit)
         #   2. grep commands returning 1 on no-match during error detection
         #   3. Function return codes triggering script exit
         set +e
-        execute_claude_code "$loop_count"
+        execute_claude_code "$loop_count" "$work_dir"
         local exec_result=$?
 
         # Check latest output log for API errors (rate limits return exit 0)
@@ -1676,6 +1752,46 @@ main() {
         set -e
         
         if [ $exec_result -eq 0 ]; then
+            # Worktree: quality gates + interactive merge prompt + cleanup
+            if [[ "$WORKTREE_ENABLED" == "true" ]] && worktree_is_active; then
+                log_status "INFO" "Running quality gates in worktree..."
+                local gate_output
+                gate_output=$(worktree_run_quality_gates 2>&1)
+                local gate_result=$?
+                while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$gate_output"
+
+                if [[ $gate_result -eq 0 ]]; then
+                    log_status "SUCCESS" "Quality gates passed."
+                    echo ""
+                    echo -e "${GREEN}Quality gates passed for branch: $(worktree_get_branch)${NC}"
+                    echo -e "Merge into $(worktree_get_main_branch)? (yes/no)"
+                    local merge_answer=""
+                    read -r merge_answer < /dev/tty 2>/dev/null || merge_answer="no"
+
+                    if [[ "$merge_answer" == "yes" ]]; then
+                        log_status "INFO" "User approved merge. Merging..."
+                        local merge_output
+                        merge_output=$(worktree_merge 2>&1)
+                        local merge_result=$?
+                        while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$merge_output"
+
+                        if [[ $merge_result -eq 0 ]]; then
+                            log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
+                            worktree_cleanup "true"
+                        else
+                            log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
+                            worktree_cleanup "false"
+                        fi
+                    else
+                        log_status "INFO" "Merge skipped by user. Branch preserved: $(worktree_get_branch)"
+                        worktree_cleanup "false"
+                    fi
+                else
+                    log_status "WARN" "Quality gates failed. Branch preserved: $(worktree_get_branch)"
+                    worktree_cleanup "false"
+                fi
+            fi
+
             # Beads post-sync: close completed beads
             if beads_sync_available; then
                 log_status "INFO" "Syncing completed tasks back to beads..."
@@ -1690,6 +1806,7 @@ main() {
             sleep 5
         elif [ $exec_result -eq 3 ]; then
             # Circuit breaker opened
+            if worktree_is_active; then worktree_cleanup "true"; fi
             reset_session "circuit_breaker_trip"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
@@ -1733,6 +1850,10 @@ main() {
                 printf "\n"
             fi
         else
+            if worktree_is_active; then
+                log_status "WARN" "Cleaning up worktree after failure..."
+                worktree_cleanup "true"
+            fi
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
             sleep 30
@@ -1765,13 +1886,20 @@ Options:
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
+    --max-loops NUM         Stop after NUM loops (default: 0 = unlimited)
+    --parallel N            Spawn N parallel ralph agents in separate iTerm2 windows
 
-Modern CLI Options (Phase 1.1):
+Modern CLI Options:
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
                             Note: --live mode requires JSON and will auto-switch
     --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
     --no-continue           Disable session continuity across loops
     --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
+
+Worktree Options:
+    --no-worktree           Disable git worktree isolation
+    --merge-strategy STR    Merge strategy: squash, merge, rebase (default: squash)
+    --quality-gates GATES   Quality gates: auto, none, or "cmd1;cmd2" (default: auto)
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -1797,6 +1925,7 @@ Examples:
     ralph --output-format text     # Use legacy text output format
     ralph --no-continue            # Disable session continuity
     ralph --session-expiry 48      # 48-hour session expiration
+    ralph --live --monitor --parallel 3  # Spawn 3 parallel int-mode agents
 
 Bash Aliases (rpc):
     Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/ALIASES.sh
@@ -1812,6 +1941,9 @@ Bash Aliases (rpc):
 
 HELPEOF
 }
+
+# Save original args for parallel mode reconstruction
+_RALPH_ORIGINAL_ARGS=("$@")
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -1923,6 +2055,31 @@ while [[ $# -gt 0 ]]; do
             fi
             shift 2
             ;;
+        --no-worktree)
+            WORKTREE_ENABLED=false
+            shift
+            ;;
+        --merge-strategy)
+            if [[ "$2" == "squash" || "$2" == "merge" || "$2" == "rebase" ]]; then
+                WORKTREE_MERGE_STRATEGY="$2"
+            else
+                echo "Error: --merge-strategy must be 'squash', 'merge', or 'rebase'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --quality-gates)
+            WORKTREE_QUALITY_GATES="$2"
+            shift 2
+            ;;
+        --parallel)
+            if [[ -z "$2" || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: --parallel requires a positive integer (number of agents)"
+                exit 1
+            fi
+            PARALLEL_COUNT="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -1933,6 +2090,26 @@ done
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # If parallel mode requested, spawn iTerm windows and exit
+    if [[ "$PARALLEL_COUNT" -gt 0 ]]; then
+        # Rebuild args without --parallel N
+        passthrough_args=()
+        skip_next=false
+        for arg in "${_RALPH_ORIGINAL_ARGS[@]}"; do
+            if [[ "$skip_next" == "true" ]]; then
+                skip_next=false
+                continue
+            fi
+            if [[ "$arg" == "--parallel" ]]; then
+                skip_next=true
+                continue
+            fi
+            passthrough_args+=("$arg")
+        done
+        spawn_parallel_agents "$PARALLEL_COUNT" ralph "${passthrough_args[@]}"
+        exit $?
+    fi
+
     # If tmux mode requested, set it up
     if [[ "$USE_TMUX" == "true" ]]; then
         check_tmux_available

@@ -36,8 +36,20 @@ alias rpc.sonnet='ralph --model sonnet'
 alias rpc.json='ralph --output-format json'
 alias rpc.text='ralph --output-format text'
 
-# Auto-exit control
+# Worktree management
+alias rpc.nowt='ralph --no-worktree'
+alias rpc.wt.squash='ralph --merge-strategy squash'
+alias rpc.wt.merge='ralph --merge-strategy merge'
+alias rpc.wt.rebase='ralph --merge-strategy rebase'
+alias rpc.wt.nogate='ralph --quality-gates none'
+alias rpc.wt.full='ralph --live --monitor --merge-strategy squash --quality-gates auto'
+
+# Interactive mode
 alias rpc.int='ralph --live --monitor'
+
+# Parallel mode (spawns N iTerm2 windows in int mode)
+# Usage: rpc.int.p 3  -> spawns 3 parallel ralph agents
+rpc.int.p() { ralph --live --monitor --parallel "${1:?Usage: rpc.int.p <number>}"; }
 
 # Combined common workflows
 alias rpc.dev='ralph --live --monitor --verbose'

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# worktree_manager.sh - Git worktree lifecycle management for Ralph Codex
+# worktree_manager.sh - Git worktree lifecycle management for Ralph Claude
 # Creates isolated worktrees per loop iteration, runs quality gates, merges on success.
 #
 # Lifecycle:
 #   1. worktree_init()              - Validate git, compute paths, gitignore
 #   2. worktree_create(loop, task)  - Create branch + worktree, sync .ralph/
-#   3. [execute codex in worktree]
+#   3. [execute claude in worktree]
 #   4. worktree_run_quality_gates() - Auto-detect and run lint/test/build
 #   5. worktree_merge()             - Auto-commit + squash/merge/rebase to main
 #   6. worktree_cleanup()           - Remove worktree, sync state back, prune
@@ -15,12 +15,12 @@
 #
 # Version: 0.1.0
 
-# Configuration (overridable from .ralphrc.devin)
+# Configuration (overridable from .ralphrc)
 WORKTREE_ENABLED="${WORKTREE_ENABLED:-true}"
 WORKTREE_MERGE_STRATEGY="${WORKTREE_MERGE_STRATEGY:-squash}"   # squash|merge|rebase
 WORKTREE_QUALITY_GATES="${WORKTREE_QUALITY_GATES:-auto}"       # auto|none|"cmd1;cmd2"
 WORKTREE_AUTO_CLEANUP="${WORKTREE_AUTO_CLEANUP:-true}"
-WORKTREE_BRANCH_PREFIX="${WORKTREE_BRANCH_PREFIX:-ralph-codex}"
+WORKTREE_BRANCH_PREFIX="${WORKTREE_BRANCH_PREFIX:-ralph-claude}"
 WORKTREE_AUTO_COMMIT="${WORKTREE_AUTO_COMMIT:-true}"
 
 # Internal state
@@ -152,9 +152,9 @@ worktree_create() {
         rm -f "$_WT_CURRENT_PATH/.ralph/live.log" 2>/dev/null
     fi
 
-    # Copy .ralphrc.devin if present
-    if [[ -f "${_WT_MAIN_DIR}/.ralphrc.devin" ]]; then
-        cp "${_WT_MAIN_DIR}/.ralphrc.devin" "$_WT_CURRENT_PATH/.ralphrc.devin"
+    # Copy .ralphrc if present
+    if [[ -f "${_WT_MAIN_DIR}/.ralphrc" ]]; then
+        cp "${_WT_MAIN_DIR}/.ralphrc" "$_WT_CURRENT_PATH/.ralphrc"
     fi
 
     echo "$_WT_CURRENT_PATH"
@@ -333,7 +333,7 @@ worktree_run_quality_gates() {
 #   $1 - message: Commit message
 # Returns: 0 if committed or nothing to commit, 1 on error
 worktree_auto_commit() {
-    local message="${1:-ralph-codex: auto-commit work}"
+    local message="${1:-ralph-claude: auto-commit work}"
     local workdir="$_WT_CURRENT_PATH"
 
     if [[ -z "$workdir" || ! -d "$workdir" ]]; then
@@ -374,7 +374,7 @@ worktree_merge() {
 
     # Auto-commit any remaining uncommitted changes
     if [[ "$WORKTREE_AUTO_COMMIT" == "true" ]]; then
-        worktree_auto_commit "ralph-codex: auto-commit from ${branch}" 2>/dev/null || true
+        worktree_auto_commit "ralph-claude: auto-commit from ${branch}" 2>/dev/null || true
     fi
 
     # Count commits ahead of main
@@ -404,12 +404,12 @@ worktree_merge() {
             git merge --squash "$branch" 2>/dev/null
             merge_exit=$?
             if [[ $merge_exit -eq 0 ]]; then
-                git commit -m "ralph-codex: squash merge from ${branch} ($ahead_count commits)" 2>/dev/null
+                git commit -m "ralph-claude: squash merge from ${branch} ($ahead_count commits)" 2>/dev/null
                 merge_exit=$?
             fi
             ;;
         merge)
-            git merge --no-ff "$branch" -m "ralph-codex: merge from ${branch}" 2>/dev/null
+            git merge --no-ff "$branch" -m "ralph-claude: merge from ${branch}" 2>/dev/null
             merge_exit=$?
             ;;
         rebase)
@@ -450,7 +450,7 @@ worktree_cleanup() {
         return 0
     fi
 
-    # Sync .ralph state back to main project (fix_plan.md may have been updated by codex)
+    # Sync .ralph state back to main project (fix_plan.md may have been updated by claude)
     if [[ -f "$workdir/.ralph/fix_plan.md" ]]; then
         cp "$workdir/.ralph/fix_plan.md" "${_WT_MAIN_DIR}/.ralph/fix_plan.md" 2>/dev/null || true
     fi

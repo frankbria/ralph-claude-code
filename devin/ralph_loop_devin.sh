@@ -27,6 +27,7 @@ source "$RALPH_ROOT/lib/circuit_breaker.sh"
 source "$RALPH_ROOT/lib/task_sources.sh"
 source "$SCRIPT_DIR/lib/devin_adapter.sh"
 source "$SCRIPT_DIR/lib/worktree_manager.sh"
+source "$RALPH_ROOT/lib/parallel_spawn.sh"
 
 # Configuration
 RALPH_DIR=".ralph"
@@ -40,6 +41,7 @@ CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 LIVE_OUTPUT=false
+PARALLEL_COUNT=0
 SLEEP_DURATION=3600
 
 # Save environment variable state BEFORE setting defaults
@@ -1136,6 +1138,8 @@ HELPEOF
 # CLI ARGUMENT PARSING
 # =============================================================================
 
+_RALPH_ORIGINAL_ARGS=("$@")
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help)
@@ -1256,6 +1260,14 @@ while [[ $# -gt 0 ]]; do
             WORKTREE_QUALITY_GATES="$2"
             shift 2
             ;;
+        --parallel)
+            if [[ -z "$2" || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: --parallel requires a positive integer (number of agents)"
+                exit 1
+            fi
+            PARALLEL_COUNT="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -1266,6 +1278,25 @@ done
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # If parallel mode requested, spawn iTerm windows and exit
+    if [[ "$PARALLEL_COUNT" -gt 0 ]]; then
+        passthrough_args=()
+        skip_next=false
+        for arg in "${_RALPH_ORIGINAL_ARGS[@]}"; do
+            if [[ "$skip_next" == "true" ]]; then
+                skip_next=false
+                continue
+            fi
+            if [[ "$arg" == "--parallel" ]]; then
+                skip_next=true
+                continue
+            fi
+            passthrough_args+=("$arg")
+        done
+        spawn_parallel_agents "$PARALLEL_COUNT" ralph-devin "${passthrough_args[@]}"
+        exit $?
+    fi
+
     if [[ "$USE_TMUX" == "true" ]]; then
         check_tmux_available
         setup_tmux_session
