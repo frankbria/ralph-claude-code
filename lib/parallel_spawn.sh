@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # =============================================================================
-# Ralph Parallel Spawn - iTerm2 Window Spawner
+# Ralph Parallel Spawn - iTerm2 Tab Spawner
 # =============================================================================
-# Spawns multiple iTerm2 windows in the same working directory, each running
+# Spawns multiple iTerm2 tabs in the same working directory, each running
 # the specified ralph command in interactive (int) mode.
 #
 # Usage (from other scripts):
@@ -38,10 +38,10 @@ check_iterm_available() {
     return 0
 }
 
-# Spawn N parallel iTerm2 windows, each running the given command
+# Spawn N parallel iTerm2 tabs, each running the given command
 # Arguments:
-#   $1 - number of windows to spawn
-#   $2... - the command and arguments to run in each window
+#   $1 - number of tabs to spawn
+#   $2... - the command and arguments to run in each tab
 spawn_parallel_agents() {
     local count="$1"
     shift
@@ -63,10 +63,6 @@ spawn_parallel_agents() {
         return 1
     fi
 
-    # Build the shell command string to execute in each window
-    local shell_cmd
-    shell_cmd="cd $(printf '%q' "$cwd") && ${cmd_args[*]}"
-
     echo -e "${_PS_PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${_PS_NC}"
     echo -e "${_PS_BLUE}  Ralph Parallel Mode${_PS_NC}"
     echo -e "${_PS_PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${_PS_NC}"
@@ -83,9 +79,11 @@ spawn_parallel_agents() {
         osascript <<APPLESCRIPT
 tell application "iTerm2"
     activate
-    set newWindow to (create window with default profile)
-    tell current session of newWindow
-        write text "cd $(printf '%q' "$cwd") && ${cmd_args[*]}"
+    tell current window
+        create tab with default profile
+        tell current session
+            write text "cd $(printf '%q' "$cwd") && ${cmd_args[*]}"
+        end tell
     end tell
 end tell
 APPLESCRIPT
@@ -97,8 +95,8 @@ APPLESCRIPT
     done
 
     echo ""
-    echo -e "${_PS_GREEN}All $count agents spawned successfully in iTerm2 windows.${_PS_NC}"
-    echo -e "${_PS_YELLOW}Tip: Use Cmd+\` to cycle between iTerm windows.${_PS_NC}"
+    echo -e "${_PS_GREEN}All $count agents spawned as iTerm2 tabs.${_PS_NC}"
+    echo -e "${_PS_YELLOW}Tip: Use Cmd+Shift+] / Cmd+Shift+[ to switch between tabs.${_PS_NC}"
 
     return 0
 }
