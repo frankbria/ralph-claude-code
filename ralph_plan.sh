@@ -531,8 +531,8 @@ run_ai_planning() {
     # AI runs in full TUI mode so user can watch it work
     case "$ENGINE" in
         claude)
-            log "PLAN" "Launching: $cli_cmd (interactive) --permission-mode bypass --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
-            if "$cli_cmd" --permission-mode bypass --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" "$prompt_content"; then
+            log "PLAN" "Launching: $cli_cmd (interactive) --permission-mode bypassPermissions --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
+            if "$cli_cmd" --permission-mode bypassPermissions --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" "$prompt_content"; then
                 cli_exit_code=0
             else
                 cli_exit_code=$?
