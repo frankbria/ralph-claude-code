@@ -8,7 +8,7 @@ SCRIPT_DIR="${BATS_TEST_DIRNAME}/../../lib"
 
 setup() {
     # Create temp test directory
-    export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-cb-recovery.XXXXXX)"
+    export TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
 
     export RALPH_DIR=".ralph"
@@ -393,7 +393,7 @@ get_past_timestamp() {
 
     # Create minimal environment for CLI parsing
     local CLI_TEST_DIR
-    CLI_TEST_DIR="$(mktemp -d /tmp/ralph-cli-test.XXXXXX)"
+    CLI_TEST_DIR="$(mktemp -d)"
     cd "$CLI_TEST_DIR"
 
     git init > /dev/null 2>&1
