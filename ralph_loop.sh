@@ -804,6 +804,16 @@ init_claude_session() {
 save_claude_session() {
     local output_file=$1
 
+    # Guard: never persist a session from a response where is_error is true (Issue #134, #199)
+    if [[ -f "$output_file" ]]; then
+        local is_error
+        is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null || echo "false")
+        if [[ "$is_error" == "true" ]]; then
+            log_status "WARN" "Skipping session save — response has is_error:true"
+            return 0
+        fi
+    fi
+
     # Try to extract session ID from JSON output
     if [[ -f "$output_file" ]]; then
         local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
@@ -1394,6 +1404,29 @@ EOF
     if [ $exit_code -eq 0 ]; then
         # Clear progress file
         echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+        # Check for is_error:true — API error despite exit code 0 (Issue #134, #199)
+        # Claude CLI can return exit code 0 with is_error:true for API 400 errors,
+        # OAuth token expiry, and tool use concurrency issues.
+        if [[ -f "$output_file" ]]; then
+            local json_is_error
+            json_is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null || echo "false")
+            if [[ "$json_is_error" == "true" ]]; then
+                local error_msg
+                error_msg=$(jq -r '.result // "unknown API error"' "$output_file" 2>/dev/null || echo "unknown API error")
+                log_status "ERROR" "❌ Claude CLI returned is_error:true despite exit code 0: $error_msg"
+
+                # Reset session to prevent infinite retry with bad session ID
+                if echo "$error_msg" | grep -qi "tool.use.concurrency\|concurrency"; then
+                    reset_session "tool_use_concurrency_error"
+                    log_status "WARN" "Session reset due to tool use concurrency error. Retrying with fresh session."
+                else
+                    reset_session "api_error_is_error_true"
+                    log_status "WARN" "Session reset due to API error (is_error:true). Retrying with fresh session."
+                fi
+                return 1
+            fi
+        fi
 
         log_status "SUCCESS" "✅ Claude Code execution completed successfully"
 
