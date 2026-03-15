@@ -92,9 +92,10 @@ VALID_TOOL_PATTERNS=(
 
 # Exit detection configuration
 EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
-RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
-MAX_CONSECUTIVE_TEST_LOOPS=3
+KEEP_MONITOR_AFTER_EXIT="${KEEP_MONITOR_AFTER_EXIT:-false}"
 MAX_CONSECUTIVE_DONE_SIGNALS=2
+MAX_CONSECUTIVE_TEST_LOOPS=3
+RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
 
 # .ralphrc configuration file
@@ -333,12 +334,14 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
     fi
 
-    # Chain tmux kill-session after the loop command so the entire tmux
-    # session is torn down when the Ralph loop exits (graceful completion,
-    # circuit breaker, error, or manual interrupt). Without this, the
-    # tail -f and ralph_monitor.sh panes keep the session alive forever.
-    # Issue: https://github.com/frankbria/ralph-claude-code/issues/176
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
+    # When the Ralph loop exits (graceful completion, circuit breaker,
+    # error, or manual interrupt), either tear down the tmux session
+    # (default, Issue #176) or keep monitor panes alive (Issue #213).
+    if [[ "$KEEP_MONITOR_AFTER_EXIT" == "true" ]]; then
+        tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; echo '[Ralph exited. Press Ctrl+C or type exit to close.]'" Enter
+    else
+        tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
+    fi
 
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:${base_win}.0"
@@ -1932,6 +1935,9 @@ done
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # Load .ralphrc early so setup_tmux_session can read KEEP_MONITOR_AFTER_EXIT
+    load_ralphrc
+
     # If tmux mode requested, set it up
     if [[ "$USE_TMUX" == "true" ]]; then
         check_tmux_available
