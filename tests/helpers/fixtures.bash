@@ -352,6 +352,65 @@ create_sample_metrics() {
 EOF
 }
 
+# =============================================================================
+# STREAM-JSON NDJSON FIXTURES (for jq filter / build_jq_filter tests)
+# =============================================================================
+
+# Basic stream events: text_delta, tool_use, input_json_delta, tool_result(success),
+# message_delta(stop_reason), result(success)
+create_sample_stream_events_basic() {
+    local file=${1:-"stream_events.ndjson"}
+    printf '%s\n' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello world"}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"Read"}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"file\":\"src/main.js\"}"}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_stop","index":1}}' \
+        '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"file contents here"}]}}' \
+        '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"}}}' \
+        '{"type":"result","subtype":"success","session_id":"sess_abc","result":"Task completed successfully"}' \
+        > "$file"
+}
+
+# Stream events with tool_result error
+create_sample_stream_events_with_error() {
+    local file=${1:-"stream_events_error.ndjson"}
+    printf '%s\n' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me try..."}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_02","name":"Bash"}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_stop","index":1}}' \
+        '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_02","is_error":true,"content":"Permission denied: cannot access /etc/shadow"}]}}' \
+        > "$file"
+}
+
+# Stream events with thinking content block
+create_sample_stream_events_with_thinking() {
+    local file=${1:-"stream_events_thinking.ndjson"}
+    printf '%s\n' \
+        '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"I need to analyze this carefully..."}}}' \
+        '{"type":"stream_event","event":{"type":"content_block_stop","index":0}}' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Based on my analysis..."}}}' \
+        > "$file"
+}
+
+# Stream events with session-level error (result.is_error=true)
+create_sample_stream_events_session_error() {
+    local file=${1:-"stream_events_session_error.ndjson"}
+    printf '%s\n' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Working on it..."}}}' \
+        '{"type":"result","is_error":true,"error":"Session terminated unexpectedly"}' \
+        > "$file"
+}
+
+# Stream events with rate_limit_event (result.subtype="rate_limit_event")
+create_sample_stream_events_rate_limit() {
+    local file=${1:-"stream_events_rate_limit.ndjson"}
+    printf '%s\n' \
+        '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Processing..."}}}' \
+        '{"type":"result","subtype":"rate_limit_event","rate_limit_event":{"message":"Rate limit exceeded, please wait","status":"rejected"}}' \
+        > "$file"
+}
+
 # Create complete test project structure
 # Creates .ralph/ subfolder structure for Ralph-specific files
 create_test_project() {

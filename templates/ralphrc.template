@@ -93,6 +93,10 @@ CB_AUTO_RESET=false
 # Minimum Claude CLI version required
 CLAUDE_MIN_VERSION="2.0.76"
 
+# Live output verbosity level (used with --live or --monitor mode)
+# Options: minimal (text + tool names only), normal (+ errors, stop reasons), verbose (+ thinking, tool results)
+RALPH_LIVE_VERBOSITY="normal"
+
 # Enable verbose logging
 RALPH_VERBOSE=false
 

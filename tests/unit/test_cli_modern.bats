@@ -958,8 +958,9 @@ EOF
     # Find the Layer 1 guard specifically (in the failure path, marked by comment)
     local layer1_line=$(grep -n 'Layer 1.*Timeout guard' "$script" | head -1 | cut -d: -f1)
     local timeout_line=$(awk -F: -v s="$layer1_line" 'NR >= s && /exit_code -eq 124/ { print NR; exit }' "$script")
-    local rate_limit_grep_line=$(grep -n 'rate_limit_event' "$script" | head -1 | cut -d: -f1)
-    local text_fallback_line=$(grep -n '5.*hour.*limit' "$script" | head -1 | cut -d: -f1)
+    # Search for rate_limit_event in the failure path (Layer 2), not in build_jq_filter
+    local rate_limit_grep_line=$(grep -n 'Layer 2.*Structural.*rate_limit_event' "$script" | head -1 | cut -d: -f1)
+    local text_fallback_line=$(grep -n 'Layer 3.*Filtered' "$script" | head -1 | cut -d: -f1)
 
     # Layer 1 guard must exist in the failure path
     [[ -n "$layer1_line" ]]
@@ -1212,4 +1213,300 @@ EOF
     # This comment+write pair was removed — counter is now persisted before execution
     run grep 'Only increment counter on successful execution' "$script"
     assert_failure
+}
+
+# =============================================================================
+# LIVE MONITORING ENHANCEMENT: build_jq_filter + RALPH_LIVE_VERBOSITY
+# =============================================================================
+
+@test "build_jq_filter function exists in ralph_loop.sh" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -c '^build_jq_filter()' "$script"
+    assert_success
+    assert_output "1"
+}
+
+@test "build_jq_filter replaces inline jq_filter definition" {
+    # The old inline 'local jq_filter=...' with the full filter body should be gone
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # New pattern: build_jq_filter call
+    run grep 'jq_filter=\$(build_jq_filter' "$script"
+    assert_success
+
+    # Old pattern: inline filter with stream_event check should not exist outside the function
+    # Count occurrences of the inline pattern - should only appear inside build_jq_filter function
+    local inline_count
+    inline_count=$(sed -n '/^build_jq_filter()/,/^}/!{ /local jq_filter=.*stream_event/p; }' "$script" | wc -l)
+    [[ "$inline_count" -eq 0 ]]
+}
+
+@test "RALPH_LIVE_VERBOSITY defaults to normal" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'RALPH_LIVE_VERBOSITY=.*normal' "$script"
+    assert_success
+}
+
+@test "RALPH_LIVE_VERBOSITY env capture exists" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep '_env_RALPH_LIVE_VERBOSITY=' "$script"
+    assert_success
+}
+
+@test "RALPH_LIVE_VERBOSITY env restore exists in load_ralphrc" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep '_env_RALPH_LIVE_VERBOSITY.*RALPH_LIVE_VERBOSITY' "$script"
+    assert_success
+}
+
+@test "--live-verbosity CLI flag is parsed" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A2 '\-\-live-verbosity)' "$script"
+    assert_success
+    [[ "$output" == *"RALPH_LIVE_VERBOSITY"* ]]
+}
+
+@test "--live-verbosity rejects invalid values" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # The parser checks for minimal|normal|verbose
+    run grep -A3 '\-\-live-verbosity)' "$script"
+    [[ "$output" == *"minimal"* ]]
+    [[ "$output" == *"normal"* ]]
+    [[ "$output" == *"verbose"* ]]
+}
+
+@test "--live-verbosity appears in show_help" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'live-verbosity' "$script"
+    assert_success
+}
+
+@test "setup_tmux_session forwards --live-verbosity" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run bash -c "sed -n '/^setup_tmux_session()/,/^}/p' '$script' | grep 'live-verbosity'"
+    assert_success
+}
+
+@test "build_jq_filter minimal produces valid jq syntax" {
+    # Source the function
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+
+    local filter
+    filter=$(build_jq_filter "minimal")
+    run jq -n "$filter"
+    assert_success
+}
+
+@test "build_jq_filter normal produces valid jq syntax" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+
+    local filter
+    filter=$(build_jq_filter "normal")
+    run jq -n "$filter"
+    assert_success
+}
+
+@test "build_jq_filter verbose produces valid jq syntax" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+
+    local filter
+    filter=$(build_jq_filter "verbose")
+    run jq -n "$filter"
+    assert_success
+}
+
+@test "build_jq_filter unknown falls back to minimal" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+
+    local filter_unknown filter_minimal
+    filter_unknown=$(build_jq_filter "unknown_level")
+    filter_minimal=$(build_jq_filter "minimal")
+    [[ "$filter_unknown" == "$filter_minimal" ]]
+}
+
+@test "build_jq_filter minimal outputs text_delta content" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
+
+    local filter
+    filter=$(build_jq_filter "minimal")
+    local output
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"Hello world"* ]]
+}
+
+@test "build_jq_filter minimal outputs tool names" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "minimal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"Read"* ]]
+}
+
+@test "build_jq_filter minimal does NOT show tool_result errors" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_with_error "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "minimal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" != *"Permission denied"* ]]
+}
+
+@test "build_jq_filter normal shows tool_result errors with ❌" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_with_error "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "normal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"❌"* ]]
+    [[ "$output" == *"Permission denied"* ]]
+}
+
+@test "build_jq_filter normal shows stop_reason with 🏁" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "normal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"🏁"* ]]
+    [[ "$output" == *"end_turn"* ]]
+}
+
+@test "build_jq_filter normal does NOT show successful tool_results" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "normal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" != *"file contents here"* ]]
+}
+
+@test "build_jq_filter normal shows session errors" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_session_error "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "normal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"❌"* ]]
+    [[ "$output" == *"Session terminated"* ]]
+}
+
+@test "build_jq_filter verbose shows thinking with 💭" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_with_thinking "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "verbose")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"💭"* ]]
+    [[ "$output" == *"analyze this carefully"* ]]
+}
+
+@test "build_jq_filter verbose shows successful tool_results with ✅" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "verbose")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"✅"* ]]
+    [[ "$output" == *"file contents here"* ]]
+}
+
+@test "build_jq_filter normal shows rate_limit_event with ⚠️" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_rate_limit "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "normal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"⚠️"* ]]
+    [[ "$output" == *"rate limit"* ]]
+    [[ "$output" == *"Rate limit exceeded"* ]]
+}
+
+@test "build_jq_filter verbose shows rate_limit_event with ⚠️" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_rate_limit "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "verbose")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"⚠️"* ]]
+    [[ "$output" == *"Rate limit exceeded"* ]]
+}
+
+@test "build_jq_filter minimal does NOT show rate_limit_event" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_rate_limit "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "minimal")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" != *"rate limit"* ]]
+}
+
+# =============================================================================
+# LIVE MONITORING ENHANCEMENT: ralph_monitor.sh live.log integration
+# =============================================================================
+
+@test "ralph_monitor.sh references live.log file" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_monitor.sh"
+    run grep 'live\.log' "$script"
+    assert_success
+}
+
+@test "ralph_monitor.sh handles missing live.log gracefully" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_monitor.sh"
+    # Verify there's a file existence check before reading
+    run grep -A1 'LIVE_LOG_FILE' "$script"
+    assert_success
+    # Verify graceful message when file doesn't exist
+    run grep 'No live output' "$script"
+    assert_success
+}
+
+# =============================================================================
+# LIVE MONITORING ENHANCEMENT: tmux fallback for --monitor
+# =============================================================================
+
+@test "check_tmux_available uses return not exit" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local func_body
+    func_body=$(sed -n '/^check_tmux_available()/,/^}/p' "$script")
+    # Must not contain 'exit' — only 'return'
+    [[ "$func_body" != *"exit "* ]]
+    [[ "$func_body" == *"return 1"* ]]
+}
+
+@test "setup_fallback_monitor function exists in ralph_loop.sh" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep '^setup_fallback_monitor()' "$script"
+    assert_success
+}
+
+@test "monitor dispatch has fallback path when tmux unavailable" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Verify the dispatch block contains both setup_tmux_session and setup_fallback_monitor
+    run grep 'setup_fallback_monitor' "$script"
+    assert_success
+    run grep 'if check_tmux_available' "$script"
+    assert_success
+}
+
+@test "build_jq_filter verbose shows input_json_delta fragments" {
+    eval "$(sed -n '/^build_jq_filter()/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
+    create_sample_stream_events_basic "$TEST_DIR/events.ndjson"
+
+    local filter output
+    filter=$(build_jq_filter "verbose")
+    output=$(cat "$TEST_DIR/events.ndjson" | jq -j "$filter" 2>/dev/null)
+    [[ "$output" == *"src/main.js"* ]]
 }

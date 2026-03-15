@@ -5,6 +5,7 @@ set -e
 
 STATUS_FILE=".ralph/status.json"
 LOG_FILE=".ralph/logs/ralph.log"
+LIVE_LOG_FILE=".ralph/live.log"
 REFRESH_INTERVAL=2
 
 # Colors
@@ -105,7 +106,26 @@ display_status() {
         echo -e "${BLUE}│${NC} No log file found"
     fi
     echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────────┘${NC}"
-    
+
+    # Live Claude Output
+    echo
+    echo -e "${PURPLE}┌─ Live Claude Output ────────────────────────────────────────────────────┐${NC}"
+    if [[ -f "$LIVE_LOG_FILE" ]]; then
+        local line_count
+        line_count=$(wc -l < "$LIVE_LOG_FILE" 2>/dev/null || echo "0")
+        if [[ "$line_count" -gt 0 ]]; then
+            tail -n 5 "$LIVE_LOG_FILE" | while IFS= read -r line; do
+                # Truncate long lines for dashboard width
+                echo -e "${PURPLE}│${NC} ${line:0:72}"
+            done
+        else
+            echo -e "${PURPLE}│${NC} Waiting for Claude output..."
+        fi
+    else
+        echo -e "${PURPLE}│${NC} No live output (start Ralph with --live or --monitor)"
+    fi
+    echo -e "${PURPLE}└─────────────────────────────────────────────────────────────────────────┘${NC}"
+
     # Footer
     echo
     echo -e "${YELLOW}Controls: Ctrl+C to exit | Refreshes every ${REFRESH_INTERVAL}s | $(date '+%H:%M:%S')${NC}"
