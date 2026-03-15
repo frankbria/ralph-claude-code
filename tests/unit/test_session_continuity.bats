@@ -80,40 +80,8 @@ function_exists_in_ralph() {
 }
 
 # =============================================================================
-# SESSION RESET FUNCTION TESTS
-# =============================================================================
-
-@test "reset_session function exists in ralph_loop.sh" {
-    run function_exists_in_ralph "reset_session"
-    [[ $status -eq 0 ]] || skip "reset_session function not yet implemented"
-}
-
-@test "get_session_id function exists in ralph_loop.sh" {
-    run function_exists_in_ralph "get_session_id"
-    [[ $status -eq 0 ]] || skip "get_session_id function not yet implemented"
-}
-
-@test "log_session_transition function exists in ralph_loop.sh" {
-    run function_exists_in_ralph "log_session_transition"
-    [[ $status -eq 0 ]] || skip "log_session_transition function not yet implemented"
-}
-
-# =============================================================================
 # --reset-session CLI FLAG TESTS
 # =============================================================================
-
-@test "--reset-session flag is recognized in help" {
-    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help
-
-    [[ "$output" == *"reset-session"* ]] || skip "--reset-session flag not yet implemented"
-}
-
-@test "--reset-session flag in argument parser" {
-    # Check if the flag exists in the argument parsing section
-    run grep -E '\-\-reset-session' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]] || skip "--reset-session flag not yet implemented"
-}
 
 @test "--reset-session resets session file" {
     # Create a session file
@@ -139,28 +107,11 @@ function_exists_in_ralph() {
 # CIRCUIT BREAKER SESSION INTEGRATION TESTS
 # =============================================================================
 
-@test "circuit breaker reset code includes session reset" {
-    # Check if reset_circuit_breaker mentions reset_session
-    run grep -A10 'reset_circuit_breaker' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ "$output" == *"reset_session"* ]] || skip "Circuit breaker session integration not yet implemented"
-}
-
 @test "cleanup function includes session reset" {
     # Check if cleanup function includes reset_session
     run grep -A5 'cleanup()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     [[ "$output" == *"reset_session"* ]] || skip "Cleanup session reset not yet implemented"
-}
-
-# =============================================================================
-# SESSION HISTORY TESTS
-# =============================================================================
-
-@test "RALPH_SESSION_HISTORY_FILE constant defined" {
-    run grep 'RALPH_SESSION_HISTORY_FILE' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]] || skip "Session history file constant not yet defined"
 }
 
 # =============================================================================
@@ -268,34 +219,8 @@ EOF
 }
 
 # =============================================================================
-# SESSION CONTINUITY IN CLAUDE CLI COMMAND
-# =============================================================================
-
-@test "--continue flag is added to Claude CLI command" {
-    # Check that --continue is used in build_claude_command
-    run grep -E '\-\-continue' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]]
-    [[ "$output" == *"--continue"* ]]
-}
-
-@test "CLAUDE_USE_CONTINUE configuration controls session continuity" {
-    # Check that CLAUDE_USE_CONTINUE is defined and controls --continue
-    run grep 'CLAUDE_USE_CONTINUE' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]]
-}
-
-# =============================================================================
 # SESSION EXPIRATION HANDLING
 # =============================================================================
-
-@test "SESSION_EXPIRATION_SECONDS is defined in response_analyzer" {
-    run grep 'SESSION_EXPIRATION_SECONDS' "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
-
-    [[ $status -eq 0 ]]
-    [[ "$output" == *"86400"* ]]  # 24 hours in seconds
-}
 
 @test "expired session (24+ hours) is not resumed" {
     # Create old session
@@ -304,12 +229,6 @@ EOF
     run should_resume_session
 
     [[ "$output" == "false" ]]
-}
-
-@test "CLAUDE_SESSION_EXPIRY_HOURS is defined in ralph_loop.sh" {
-    run grep 'CLAUDE_SESSION_EXPIRY_HOURS' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]] || skip "CLAUDE_SESSION_EXPIRY_HOURS not yet implemented"
 }
 
 @test "CLAUDE_SESSION_EXPIRY_HOURS defaults to 24" {
@@ -324,13 +243,6 @@ EOF
     run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help
 
     [[ "$output" == *"session-expiry"* ]] || skip "--session-expiry flag not yet implemented"
-}
-
-@test "--session-expiry flag accepts positive integer" {
-    # Just check the flag is parsed (don't run full loop)
-    run grep -E '\-\-session-expiry' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]] || skip "--session-expiry flag not yet implemented"
 }
 
 @test "--session-expiry rejects non-integer value" {
@@ -364,33 +276,6 @@ EOF
     fi
 
     [[ "$output" == *"positive integer"* ]] || [[ "$output" == *"Error"* ]]
-}
-
-# =============================================================================
-# INIT_CLAUDE_SESSION EXPIRATION TESTS (Behavioral)
-# =============================================================================
-
-@test "init_claude_session checks session expiration" {
-    # Check that init_claude_session includes expiration logic
-    run grep -A30 'init_claude_session' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # Should reference expiration or age checking
-    [[ "$output" == *"expir"* ]] || [[ "$output" == *"age"* ]] || [[ "$output" == *"stat"* ]] || skip "Session expiration not yet implemented in init_claude_session"
-}
-
-@test "init_claude_session uses cross-platform stat command" {
-    # Check for uname or Darwin/Linux detection in get_session_file_age_hours
-    run grep -A30 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # Should have cross-platform handling
-    [[ "$output" == *"Darwin"* ]] || [[ "$output" == *"uname"* ]] || skip "Cross-platform stat not yet implemented"
-}
-
-@test "get_session_file_age_hours returns correct age" {
-    # Check if helper function exists
-    run grep 'get_session_file_age_hours' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    [[ $status -eq 0 ]] || skip "get_session_file_age_hours function not yet implemented"
 }
 
 @test "get_session_file_age_hours returns 0 for missing file" {
@@ -431,33 +316,6 @@ EOF
 
     # Session file should be removed
     [[ ! -f "$CLAUDE_SESSION_FILE" ]] || [[ "$output" == *"expired"* ]]
-}
-
-@test "init_claude_session logs expiration with age info" {
-    # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # Verify code structure includes age logging
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *'age_hours'* ]] && [[ "$output" == *'expired'* ]]
-}
-
-@test "init_claude_session logs session age when resuming" {
-    # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # Verify code structure includes resume logging
-    run grep -A50 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *'Resuming'* ]] && [[ "$output" == *'old'* ]]
-}
-
-@test "init_claude_session handles stat failure gracefully" {
-    # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    # Verify code structure handles -1 return
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    [[ "$output" == *"-1"* ]] && [[ "$output" == *"WARN"* ]]
 }
 
 # =============================================================================

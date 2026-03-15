@@ -46,6 +46,7 @@ _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+_env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -59,6 +60,7 @@ CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git add *),Ba
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
+CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-true}"  # Auto-update Claude CLI at startup
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -118,6 +120,7 @@ RALPHRC_LOADED=false
 #   - CB_OUTPUT_DECLINE_THRESHOLD
 #   - RALPH_VERBOSE
 #   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
+#   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -155,6 +158,7 @@ load_ralphrc() {
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+    [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
 
     RALPHRC_LOADED=true
     return 0
@@ -591,33 +595,92 @@ should_exit_gracefully() {
 # MODERN CLI HELPER FUNCTIONS (Phase 1.1)
 # =============================================================================
 
+# Compare two semver strings: returns 0 if ver1 >= ver2, 1 if ver1 < ver2
+# Uses sequential major→minor→patch comparison (safe for any patch number)
+compare_semver() {
+    local ver1="$1" ver2="$2"
+    local v1_major v1_minor v1_patch
+    local v2_major v2_minor v2_patch
+
+    IFS='.' read -r v1_major v1_minor v1_patch <<< "$ver1"
+    IFS='.' read -r v2_major v2_minor v2_patch <<< "$ver2"
+
+    v1_major=${v1_major:-0}; v1_minor=${v1_minor:-0}; v1_patch=${v1_patch:-0}
+    v2_major=${v2_major:-0}; v2_minor=${v2_minor:-0}; v2_patch=${v2_patch:-0}
+
+    if [[ $v1_major -gt $v2_major ]]; then return 0; fi
+    if [[ $v1_major -lt $v2_major ]]; then return 1; fi
+    if [[ $v1_minor -gt $v2_minor ]]; then return 0; fi
+    if [[ $v1_minor -lt $v2_minor ]]; then return 1; fi
+    if [[ $v1_patch -lt $v2_patch ]]; then return 1; fi
+    return 0
+}
+
 # Check Claude CLI version for compatibility with modern flags
 check_claude_version() {
-    local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local version
+    version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
         log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
         return 0
     fi
 
-    # Compare versions (simplified semver comparison)
-    local required="$CLAUDE_MIN_VERSION"
-
-    # Convert to comparable integers (major * 10000 + minor * 100 + patch)
-    local ver_parts=(${version//./ })
-    local req_parts=(${required//./ })
-
-    local ver_num=$((${ver_parts[0]:-0} * 10000 + ${ver_parts[1]:-0} * 100 + ${ver_parts[2]:-0}))
-    local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
-
-    if [[ $ver_num -lt $req_num ]]; then
-        log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+    if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
+        log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
         log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
         return 1
     fi
 
-    log_status "INFO" "Claude CLI version $version (>= $required) - modern features enabled"
+    log_status "INFO" "Claude CLI version $version (>= $CLAUDE_MIN_VERSION) - modern features enabled"
     return 0
+}
+
+# Check for Claude CLI updates and attempt auto-update (Issue #190)
+check_claude_updates() {
+    if [[ "${CLAUDE_AUTO_UPDATE:-true}" != "true" ]]; then
+        return 0
+    fi
+
+    local installed_version
+    installed_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [[ -z "$installed_version" ]]; then
+        return 0
+    fi
+
+    # Query latest version from npm registry (with timeout to avoid hanging on flaky networks)
+    local latest_version
+    latest_version=$(portable_timeout 5s npm view @anthropic-ai/claude-code version 2>/dev/null)
+    if [[ -z "$latest_version" ]]; then
+        log_status "INFO" "Could not check for Claude CLI updates (npm registry unreachable)"
+        return 0
+    fi
+
+    if [[ "$installed_version" == "$latest_version" ]]; then
+        log_status "INFO" "Claude CLI is up to date ($installed_version)"
+        return 0
+    fi
+
+    if compare_semver "$installed_version" "$latest_version"; then
+        return 0
+    fi
+
+    # Auto-update attempt
+    log_status "INFO" "Claude CLI update available: $installed_version → $latest_version. Attempting auto-update..."
+    local update_output
+    if update_output=$(npm update -g @anthropic-ai/claude-code 2>&1); then
+        local new_version
+        new_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        log_status "SUCCESS" "Claude CLI updated: $installed_version → ${new_version:-$latest_version}"
+        return 0
+    fi
+
+    # Auto-update failed — warn with environment-specific guidance
+    log_status "WARN" "Claude CLI auto-update failed ($installed_version → $latest_version)"
+    [[ -n "$update_output" ]] && log_status "DEBUG" "npm output: $update_output"
+    log_status "WARN" "Update manually: npm update -g @anthropic-ai/claude-code"
+    log_status "WARN" "In Docker: rebuild your image to include the latest version"
+    return 1
 }
 
 # Validate allowed tools against whitelist
@@ -697,7 +760,16 @@ build_loop_context() {
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null | head -c 200)
         if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
-            context+="Previous: ${prev_summary}"
+            context+="Previous: ${prev_summary} "
+        fi
+    fi
+
+    # If previous loop detected questions, inject corrective guidance (Issue #190 Bug 2)
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local prev_asking_questions
+        prev_asking_questions=$(jq -r '.analysis.asking_questions // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$prev_asking_questions" == "true" ]]; then
+            context+="IMPORTANT: You asked questions in the previous loop. This is a headless automation loop with no human to answer. Do NOT ask questions. Choose the most conservative/safe default and proceed autonomously. "
         fi
     fi
 
@@ -1101,13 +1173,11 @@ execute_claude_code() {
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
-    # Build loop context for session continuity
+    # Build loop context (always, regardless of session mode)
     local loop_context=""
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        loop_context=$(build_loop_context "$loop_count")
-        if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
-            log_status "INFO" "Loop context: $loop_context"
-        fi
+    loop_context=$(build_loop_context "$loop_count")
+    if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "INFO" "Loop context: $loop_context"
     fi
 
     # Initialize or resume session
@@ -1544,6 +1614,10 @@ main() {
         log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
         exit 1
     fi
+
+    # Check CLI version compatibility and auto-update (Issue #190)
+    check_claude_version
+    check_claude_updates
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
