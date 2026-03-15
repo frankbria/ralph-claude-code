@@ -1213,3 +1213,88 @@ EOF
     run grep 'Only increment counter on successful execution' "$script"
     assert_failure
 }
+
+# =============================================================================
+# is_error DETECTION IN SUCCESS PATH (Issue #134, #199)
+# =============================================================================
+
+@test "execute_claude_code success path checks is_error field" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Verify the is_error check exists in the exit_code == 0 branch
+    run grep -A 30 'if \[ \$exit_code -eq 0 \]' "$script"
+    assert_success
+    [[ "$output" == *"is_error"* ]]
+}
+
+@test "is_error check occurs before save_claude_session in success path" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Within execute_claude_code's exit_code==0 branch, the is_error guard must
+    # appear BEFORE the save_claude_session call
+    local is_error_line=$(grep -n 'json_is_error.*jq.*is_error' "$script" | head -1 | cut -d: -f1)
+    local save_session_line=$(grep -n 'save_claude_session.*output_file' "$script" | head -1 | cut -d: -f1)
+
+    [[ -n "$is_error_line" ]]
+    [[ -n "$save_session_line" ]]
+    [[ "$is_error_line" -lt "$save_session_line" ]]
+}
+
+@test "is_error detection resets session on tool_use_concurrency error" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Verify that tool use concurrency triggers session reset
+    run grep -A 5 'tool.use.concurrency\|tool_use_concurrency' "$script"
+    assert_success
+    [[ "$output" == *"reset_session"* ]]
+}
+
+@test "save_claude_session guards against is_error responses" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # The save_claude_session function must check is_error before persisting
+    local func_body
+    func_body=$(sed -n '/^save_claude_session()/,/^}/p' "$script")
+    [[ "$func_body" == *"is_error"* ]]
+}
+
+@test "is_error:true with exit code 0 returns non-zero from execute_claude_code" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Verify the is_error block returns 1 (error) not 0 (success)
+    # Extract the is_error handling block and check it returns 1
+    run grep -A 20 'json_is_error.*==.*true' "$script"
+    assert_success
+    [[ "$output" == *"return 1"* ]]
+}
+
+@test "is_error detection handles flat JSON format" {
+    # Test that jq extraction works on flat JSON with is_error
+    local json='{"type":"result","subtype":"success","is_error":true,"result":"API Error: 400 due to tool use concurrency issues.","session_id":"abc123"}'
+    local is_error
+    is_error=$(echo "$json" | jq -r '.is_error // false')
+    [[ "$is_error" == "true" ]]
+}
+
+@test "is_error detection handles stream-json result line" {
+    # In stream-json mode, the result line is extracted and written as flat JSON
+    local json='{"type":"result","subtype":"success","is_error":true,"result":"not logged in or OAuth token expired","session_id":"def456"}'
+    local is_error
+    is_error=$(echo "$json" | jq -r '.is_error // false')
+    [[ "$is_error" == "true" ]]
+
+    local error_msg
+    error_msg=$(echo "$json" | jq -r '.result // ""')
+    [[ "$error_msg" == *"not logged in"* ]]
+}
+
+@test "is_error:false does not trigger error path" {
+    # Normal success response should not be flagged
+    local json='{"type":"result","subtype":"success","is_error":false,"result":"Task completed","session_id":"ghi789"}'
+    local is_error
+    is_error=$(echo "$json" | jq -r '.is_error // false')
+    [[ "$is_error" == "false" ]]
+}
+
+@test "missing is_error field defaults to false" {
+    # Older Claude CLI versions may not include is_error
+    local json='{"type":"result","subtype":"success","result":"Task completed","session_id":"jkl012"}'
+    local is_error
+    is_error=$(echo "$json" | jq -r '.is_error // false')
+    [[ "$is_error" == "false" ]]
+}
