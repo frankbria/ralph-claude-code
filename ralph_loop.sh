@@ -1402,12 +1402,10 @@ EOF
     fi
 
     if [ $exit_code -eq 0 ]; then
-        # Clear progress file
-        echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-
         # Check for is_error:true — API error despite exit code 0 (Issue #134, #199)
         # Claude CLI can return exit code 0 with is_error:true for API 400 errors,
         # OAuth token expiry, and tool use concurrency issues.
+        # This check MUST happen before progress file write and save_claude_session.
         if [[ -f "$output_file" ]]; then
             local json_is_error
             json_is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null || echo "false")
@@ -1415,6 +1413,7 @@ EOF
                 local error_msg
                 error_msg=$(jq -r '.result // "unknown API error"' "$output_file" 2>/dev/null || echo "unknown API error")
                 log_status "ERROR" "❌ Claude CLI returned is_error:true despite exit code 0: $error_msg"
+                echo '{"status": "failed", "error": "is_error:true", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
                 # Reset session to prevent infinite retry with bad session ID
                 if echo "$error_msg" | grep -qi "tool.use.concurrency\|concurrency"; then
@@ -1427,6 +1426,9 @@ EOF
                 return 1
             fi
         fi
+
+        # Clear progress file (only after is_error check passes)
+        echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
         log_status "SUCCESS" "✅ Claude Code execution completed successfully"
 
