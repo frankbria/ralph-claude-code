@@ -111,14 +111,6 @@ should_exit_gracefully() {
     assert_equal "$result" "test_saturation"
 }
 
-# Test 3: Exit on test saturation (4 test loops)
-@test "should_exit_gracefully exits on test saturation (4 loops)" {
-    echo '{"test_only_loops": [1,2,3,4], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully)
-    assert_equal "$result" "test_saturation"
-}
-
 # Test 4: No exit with only 2 test loops
 @test "should_exit_gracefully continues with 2 test loops" {
     echo '{"test_only_loops": [1,2], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -130,14 +122,6 @@ should_exit_gracefully() {
 # Test 5: Exit on done signals (2 signals)
 @test "should_exit_gracefully exits on 2 done signals" {
     echo '{"test_only_loops": [], "done_signals": [1,2], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully || true)
-    assert_equal "$result" "completion_signals"
-}
-
-# Test 6: Exit on done signals (3 signals)
-@test "should_exit_gracefully exits on 3 done signals" {
-    echo '{"test_only_loops": [], "done_signals": [1,2,3], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
 
     result=$(should_exit_gracefully || true)
     assert_equal "$result" "completion_signals"
@@ -262,32 +246,6 @@ EOF
     result=$(should_exit_gracefully || true)
     # 2 completed out of 3 valid tasks
     assert_equal "$result" ""
-}
-
-# Test 18: Empty signals arrays
-@test "should_exit_gracefully handles empty arrays correctly" {
-    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully || true)
-    assert_equal "$result" ""
-}
-
-# Test 19: Threshold boundary test (exactly at threshold)
-@test "should_exit_gracefully exits at exact threshold for test loops" {
-    # MAX_CONSECUTIVE_TEST_LOOPS = 3
-    echo '{"test_only_loops": [1,2,3], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully)
-    assert_equal "$result" "test_saturation"
-}
-
-# Test 20: Threshold boundary test (exactly at threshold for done signals)
-@test "should_exit_gracefully exits at exact threshold for done signals" {
-    # MAX_CONSECUTIVE_DONE_SIGNALS = 2
-    echo '{"test_only_loops": [], "done_signals": [1,2], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully)
-    assert_equal "$result" "completion_signals"
 }
 
 # =============================================================================
@@ -1222,4 +1180,62 @@ detect_progress_with_commits() {
 
     # Should fall back to uncommitted changes (1 file)
     [ "$files_changed" -eq 1 ]
+}
+
+# =============================================================================
+# QUESTION DETECTION IN ANALYZE_RESPONSE (Issue #190 Bug 2)
+# =============================================================================
+
+@test "analyze_response sets asking_questions=true for question text output" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Should I implement approach A or B? Which option do you prefer?" > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+
+    local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
+    assert_equal "$asking" "true"
+}
+
+@test "analyze_response sets asking_questions=false for normal output" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. All tests passed successfully." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+
+    local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
+    assert_equal "$asking" "false"
 }

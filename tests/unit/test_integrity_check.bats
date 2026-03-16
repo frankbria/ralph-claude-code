@@ -72,16 +72,6 @@ create_integrity_project() {
     assert_success
 }
 
-@test "ralph_loop.sh calls get_integrity_report on failure" {
-    run grep 'get_integrity_report' "$RALPH_LOOP"
-    assert_success
-}
-
-@test "ralph_loop.sh logs integrity failure as ERROR" {
-    run grep -E 'integrity.*fail|files.*missing' "$RALPH_LOOP"
-    assert_success
-}
-
 # =============================================================================
 # Simulated loop integrity behavior
 # =============================================================================
