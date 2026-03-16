@@ -1273,7 +1273,7 @@ execute_claude_code() {
         # These are required for stream-json to work properly
         LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
 
-        # jq filter: show text + tool names + newlines for readability
+        # jq filter: show text + tool names + sub-agent progress + newlines for readability
         local jq_filter='
             if .type == "stream_event" then
                 if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
@@ -1285,6 +1285,10 @@ execute_claude_code() {
                 else
                     empty
                 end
+            elif .type == "system" and .subtype == "task_started" then
+                "\n\n🚀 Agent: " + (.description // "started") + "\n"
+            elif .type == "system" and .subtype == "task_progress" then
+                "📌 " + (.description // "working...") + "\n"
             else
                 empty
             end'
