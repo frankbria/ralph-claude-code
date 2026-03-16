@@ -379,6 +379,10 @@ Ralph uses multiple mechanisms to detect when to exit:
 - `TEST_PERCENTAGE_THRESHOLD=30%` - Flag if testing dominates recent loops
 - Completion detection via .ralph/fix_plan.md checklist items
 
+### Startup State Reset (Issue #194)
+
+Every new `ralph` invocation unconditionally resets `.exit_signals` and removes `.response_analysis` **before** the main loop begins. This prevents stale completion signals from a prior run (crash, SIGKILL, API-limit exit) from triggering `should_exit_gracefully()` on the first iteration before any Claude execution occurs. The API-limit "user chose exit" path also calls `reset_session()` to clean up state.
+
 ### Completion Indicators with EXIT_SIGNAL Gate
 
 The `completion_indicators` exit condition requires dual verification:
@@ -551,16 +555,16 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (573 tests total)
+### Test Files (580 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
-| `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
+| `test_circuit_breaker_recovery.bats` | 22 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) + current_loop init/display fix (#194) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
 | `test_cli_modern.bats` | 107 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) + productive timeout detection + session ID fallback + stale analysis cleanup (#198) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
-| `test_exit_detection.bats` | 50 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |
+| `test_exit_detection.bats` | 54 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) + stale exit signal prevention (#194) |
 | `test_rate_limiting.bats` | 11 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 25 | Edge case handling |
