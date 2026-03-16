@@ -1707,6 +1707,14 @@ EOF
             return 2  # API limit detected via text fallback
         fi
 
+        # Layer 4: Extra Usage quota detection (Issue #100)
+        # Claude Code "Extra Usage" mode uses a different error message:
+        # "You're out of extra usage · resets 9pm"
+        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "out of extra usage"; then
+            log_status "ERROR" "🚫 Claude Extra Usage quota exhausted"
+            return 2  # Extra Usage limit detected
+        fi
+
         log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
         return 1
     fi
@@ -1937,7 +1945,7 @@ main() {
             log_status "WARN" "🛑 Claude API 5-hour limit reached!"
             
             # Ask user whether to wait or exit
-            echo -e "\n${YELLOW}The Claude API 5-hour usage limit has been reached.${NC}"
+            echo -e "\n${YELLOW}A Claude API usage limit has been reached (5-hour plan limit or Extra Usage quota).${NC}"
             echo -e "${YELLOW}You can either:${NC}"
             echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
             echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
