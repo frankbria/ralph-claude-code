@@ -412,7 +412,7 @@ When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` terminates
 
 **Live mode** (`--live`/`--monitor`): The streaming pipeline captures per-command exit codes via `PIPESTATUS`. Timeout events are logged as a WARN:
 
-```
+```text
 [timestamp] [WARN] Claude Code execution timed out after 15 minutes
 ```
 
@@ -434,7 +434,7 @@ In both modes, when exit code 124 is detected, the timeout handler checks git fo
 The API 5-hour limit detection uses a three-layer approach to avoid false positives. In stream-json mode, output files contain echoed file content from tool results (`"type":"user"` lines). If project files mention "5-hour limit", naive grep patterns match those echoed strings, incorrectly triggering the API limit recovery flow.
 
 **Layer 1 — Timeout guard:**
-Exit code 124 (timeout) is checked first. Timeouts return code 1 (generic error), never code 2 (API limit).
+Exit code 124 (timeout) is checked first. Productive timeouts (files changed) return 0; idle timeouts return 1 (generic error). Neither returns code 2 (API limit).
 
 **Layer 2 — Structural JSON detection (primary):**
 Parses `rate_limit_event` JSON in the output for `"status":"rejected"`. This is the definitive signal from the Claude CLI.
@@ -551,13 +551,13 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (570 tests total)
+### Test Files (573 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 104 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) + productive timeout detection + session ID fallback (#198) |
+| `test_cli_modern.bats` | 107 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) + productive timeout detection + session ID fallback + stale analysis cleanup (#198) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 50 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |

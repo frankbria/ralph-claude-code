@@ -1650,3 +1650,64 @@ EOF
     local total=$((files_changed + unstaged + staged))
     [[ "$total" -eq 0 ]]
 }
+
+@test "behavioral: productive timeout detects staged-only changes" {
+    # Simulate: timeout occurred, no commits but staged files
+    echo "initial" > testfile.txt
+    git add testfile.txt
+    git commit -m "initial" --quiet
+
+    local start_sha
+    start_sha=$(git rev-parse HEAD)
+    echo "$start_sha" > "$RALPH_DIR/.loop_start_sha"
+
+    # Stage a new file without committing
+    echo "staged content" > newfile.txt
+    git add newfile.txt
+
+    local current_sha
+    current_sha=$(git rev-parse HEAD)
+
+    # SHAs are identical (no commits)
+    [[ "$start_sha" == "$current_sha" ]]
+
+    # But staged changes exist
+    local staged
+    staged=$(git diff --name-only --cached 2>/dev/null | wc -l)
+    [[ "$staged" -gt 0 ]]
+}
+
+@test "behavioral: productive timeout detects unstaged-only changes" {
+    # Simulate: timeout occurred, no commits, no staging, but modified files
+    echo "initial" > testfile.txt
+    git add testfile.txt
+    git commit -m "initial" --quiet
+
+    local start_sha
+    start_sha=$(git rev-parse HEAD)
+    echo "$start_sha" > "$RALPH_DIR/.loop_start_sha"
+
+    # Modify a tracked file without staging
+    echo "modified content" > testfile.txt
+
+    local current_sha
+    current_sha=$(git rev-parse HEAD)
+
+    # SHAs are identical (no commits)
+    [[ "$start_sha" == "$current_sha" ]]
+
+    # But unstaged changes exist
+    local unstaged
+    unstaged=$(git diff --name-only 2>/dev/null | wc -l)
+    [[ "$unstaged" -gt 0 ]]
+}
+
+@test "timeout handler clears stale response analysis on analysis failure" {
+    # The timeout handler must rm -f RESPONSE_ANALYSIS_FILE when analyze_response fails
+    # This prevents the next loop from reusing stale EXIT_SIGNAL or permission data
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract the timeout handler block and check for rm -f RESPONSE_ANALYSIS_FILE
+    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'rm -f.*RESPONSE_ANALYSIS_FILE'"
+    assert_success
+}

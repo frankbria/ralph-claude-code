@@ -1661,6 +1661,11 @@ EOF
                 if [[ $timeout_analysis_exit -eq 0 ]]; then
                     update_exit_signals
                     log_analysis_summary
+                else
+                    # Clear stale response analysis to prevent next loop from reusing
+                    # old EXIT_SIGNAL, permission-denial, or question-detection state
+                    log_status "WARN" "Timeout response analysis failed (exit $timeout_analysis_exit); clearing stale analysis"
+                    rm -f "$RESPONSE_ANALYSIS_FILE"
                 fi
 
                 # Feed circuit breaker with progress data
