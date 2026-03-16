@@ -406,19 +406,28 @@ fi
 
 **Conflict Resolution:** When `STATUS: COMPLETE` but `EXIT_SIGNAL: false` in RALPH_STATUS, the explicit EXIT_SIGNAL takes precedence. This allows Claude to mark a phase complete while indicating more phases remain.
 
-### Timeout Handling (Issue #175)
+### Timeout Handling (Issues #175, #198)
 
 When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` terminates the process with exit code **124**. The loop handles this differently depending on the execution mode:
 
-**Live mode** (`--live`/`--monitor`): The streaming pipeline uses `set -o pipefail` to capture per-command exit codes via `PIPESTATUS`. Because `set -e` would cause the script to exit silently on the non-zero pipeline status, `set -e` is temporarily disabled (`set +e`) around the pipeline and re-enabled after `PIPESTATUS` is captured. Timeout events are logged as a WARN:
+**Live mode** (`--live`/`--monitor`): The streaming pipeline captures per-command exit codes via `PIPESTATUS`. Timeout events are logged as a WARN:
 
 ```
 [timestamp] [WARN] Claude Code execution timed out after 15 minutes
 ```
 
-**Background mode** (default): The Claude process runs in a background subshell (`&`), so its exit code does not trigger `set -e`. The exit code is captured via `wait $claude_pid`.
+**Background mode** (default): The Claude process runs in a background subshell (`&`). The exit code is captured via `wait $claude_pid`.
 
-In both modes, a timeout results in `exit_code=124`, which flows into the standard error handling path (logged, circuit breaker updated, loop continues to next iteration).
+**Productive Timeout Detection (Issue #198):**
+
+In both modes, when exit code 124 is detected, the timeout handler checks git for actual work done during the execution (comparing HEAD to `.loop_start_sha`). This prevents treating productive timeouts as failures:
+
+| Timeout + Git State | Result |
+|---|---|
+| Files changed (committed/staged/unstaged) | **Productive timeout**: runs full analysis pipeline (`save_claude_session`, `analyze_response`, `update_exit_signals`, `record_loop_result`), writes `timed_out_productive` status, returns 0 |
+| No files changed | **Idle timeout**: returns 1 (generic error) |
+
+**Session ID Fallback:** When the stream is truncated (missing `"type":"result"` message), session ID is extracted from the `"type":"system"` message, which is always written first and survives truncation.
 
 ### API Limit Detection (Issue #183)
 
@@ -542,13 +551,13 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (559 tests total)
+### Test Files (570 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 93 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) |
+| `test_cli_modern.bats` | 104 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) + productive timeout detection + session ID fallback (#198) |
 | `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 50 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) |
