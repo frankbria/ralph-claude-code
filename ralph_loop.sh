@@ -3,8 +3,6 @@
 # Claude Code Ralph Loop with Rate Limiting and Documentation
 # Adaptation of the Ralph technique for Claude Code with usage management
 
-set -e  # Exit on any error
-
 # Note: CLAUDE_CODE_ENABLE_DANGEROUS_PERMISSIONS_IN_SANDBOX and IS_SANDBOX
 # environment variables are NOT exported here. Tool restrictions are handled
 # via --allowedTools flag in CLAUDE_CMD_ARGS, which is the proper approach.
@@ -12,11 +10,11 @@ set -e  # Exit on any error
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
-source "$SCRIPT_DIR/lib/date_utils.sh"
-source "$SCRIPT_DIR/lib/timeout_utils.sh"
-source "$SCRIPT_DIR/lib/response_analyzer.sh"
-source "$SCRIPT_DIR/lib/circuit_breaker.sh"
-source "$SCRIPT_DIR/lib/file_protection.sh"
+source "$SCRIPT_DIR/lib/date_utils.sh" || { echo "FATAL: Failed to source lib/date_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/timeout_utils.sh" || { echo "FATAL: Failed to source lib/timeout_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/response_analyzer.sh" || { echo "FATAL: Failed to source lib/response_analyzer.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source lib/circuit_breaker.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source lib/file_protection.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -571,10 +569,8 @@ should_exit_gracefully() {
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
-        [[ -z "$uncompleted_items" ]] && uncompleted_items=0
-        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
-        [[ -z "$completed_items" ]] && completed_items=0
+        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
@@ -680,8 +676,7 @@ build_loop_context() {
     # Extract incomplete tasks from fix_plan.md
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || true)
-        [[ -z "$incomplete_tasks" ]] && incomplete_tasks=0
+        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
@@ -886,8 +881,8 @@ reset_session() {
     # Clear response analysis to prevent stale EXIT_SIGNAL from previous session
     rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
 
-    # Log the session transition (non-fatal to prevent script exit under set -e)
-    log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true
+    # Log the session transition
+    log_session_transition "active" "reset" "$reason" "${loop_count:-0}"
 
     log_status "INFO" "Session reset: $reason"
 }
@@ -1227,17 +1222,14 @@ execute_claude_code() {
         # Capture all pipeline exit codes for proper error handling
         # stdin must be redirected from /dev/null because newer Claude CLI versions
         # read from stdin even in -p (print) mode, causing the process to hang
-        # Disable errexit for pipeline - timeout returns non-zero exit code 124
-        # which would cause set -e to silently kill the entire script (Issue #175)
-        set +e
-        set -o pipefail
+        # Redirect stderr to separate file to prevent Node.js warnings (e.g., UNDICI)
+        # from corrupting the jq JSON pipeline (Issue #190)
+        local stderr_file="${LOG_DIR}/claude_stderr_$(date '+%Y%m%d_%H%M%S').log"
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+            < /dev/null 2>"$stderr_file" | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
-        set +o pipefail
-        set -e  # Re-enable errexit now that exit codes are captured
 
         # Primary exit code is from Claude/timeout (first command in pipeline)
         exit_code=${pipe_status[0]}
@@ -1245,6 +1237,13 @@ execute_claude_code() {
         # Log timeout events explicitly (exit code 124 from portable_timeout)
         if [[ $exit_code -eq 124 ]]; then
             log_status "WARN" "Claude Code execution timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes"
+        fi
+
+        # Log stderr if non-empty, clean up empty stderr files
+        if [[ -s "$stderr_file" ]]; then
+            log_status "WARN" "Claude CLI wrote to stderr (see: $stderr_file)"
+        else
+            rm -f "$stderr_file" 2>/dev/null
         fi
 
         # Check for tee failures (second command) - could break logging/session
@@ -1442,11 +1441,16 @@ EOF
         analyze_response "$output_file" "$loop_count"
         local analysis_exit_code=$?
 
-        # Update exit signals based on analysis
-        update_exit_signals
+        if [[ $analysis_exit_code -eq 0 ]]; then
+            # Update exit signals based on analysis
+            update_exit_signals
 
-        # Log analysis summary
-        log_analysis_summary
+            # Log analysis summary
+            log_analysis_summary
+        else
+            log_status "WARN" "Response analysis failed (exit $analysis_exit_code); skipping signal updates"
+            rm -f "$RESPONSE_ANALYSIS_FILE"
+        fi
 
         # Get file change count for circuit breaker
         # Fix #141: Detect both uncommitted changes AND committed changes
@@ -1553,10 +1557,20 @@ EOF
 
 # Cleanup function
 cleanup() {
-    log_status "INFO" "Ralph loop interrupted. Cleaning up..."
-    reset_session "manual_interrupt"
-    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
-    exit 0
+    local trap_exit_code=$?
+
+    # Reentrancy guard — prevent double execution from EXIT + signal combination
+    if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
+    _CLEANUP_DONE=true
+
+    # Only record "interrupted" status for abnormal exits (non-zero exit code)
+    # Normal exit (code 0) preserves the status already written by the main loop
+    if [[ $loop_count -gt 0 && $trap_exit_code -ne 0 ]]; then
+        log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+        reset_session "manual_interrupt"
+        update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
+    fi
+    # No exit here — EXIT trap handles natural termination
 }
 
 # Set up signal handlers
@@ -1651,7 +1665,7 @@ main() {
         # Verify Ralph's critical files still exist (Issue #149)
         if ! validate_ralph_integrity; then
             # Ensure log directory exists for logging even if .ralph/ was deleted
-            mkdir -p "$LOG_DIR" 2>/dev/null || true
+            mkdir -p "$LOG_DIR" 2>/dev/null
             log_status "ERROR" "Ralph integrity check failed - critical files missing"
             echo ""
             echo "$(get_integrity_report)"
