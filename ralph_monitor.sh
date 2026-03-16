@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Ralph Status Monitor - Live terminal dashboard for the Ralph loop
-set -e
+# Note: set -e intentionally removed — the monitor is a display-only loop
+# that must be resilient to transient write errors on broken tmux ptys (Issue #188)
 
 STATUS_FILE=".ralph/status.json"
 LOG_FILE=".ralph/logs/ralph.log"
