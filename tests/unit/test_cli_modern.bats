@@ -1026,6 +1026,11 @@ _detect_api_limit() {
         return 2
     fi
 
+    # Layer 4: Extra Usage quota detection (Issue #100)
+    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "out of extra usage"; then
+        return 2
+    fi
+
     return 1
 }
 
@@ -1059,6 +1064,56 @@ _detect_api_limit() {
     # exit_code=1 (non-timeout failure) — should NOT detect API limit
     run _detect_api_limit 1 "$output_file"
     [[ "$status" -eq 1 ]]
+}
+
+# --- Extra Usage Detection Tests (Issue #100) ---
+
+@test "behavioral: Extra Usage quota exhausted returns 2" {
+    # Scenario: Claude Extra Usage quota ran out
+    local output_file="$TEST_DIR/claude_extra_usage.log"
+    cat > "$output_file" << 'EOF'
+{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"assistant","message":"Working on tasks..."}
+You're out of extra usage · resets 9pm
+EOF
+
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 2 ]]
+}
+
+@test "behavioral: Extra Usage in echoed content does not false positive" {
+    # Scenario: "extra usage" text appears inside a tool_result (echoed file content)
+    local output_file="$TEST_DIR/claude_extra_echo.log"
+    cat > "$output_file" << 'EOF'
+{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"user","tool_result":"The docs mention: You're out of extra usage · resets 9pm"}
+{"type":"assistant","message":"I see the docs reference to extra usage limits."}
+EOF
+
+    run _detect_api_limit 1 "$output_file"
+    [[ "$status" -eq 1 ]]
+}
+
+@test "Layer 4 Extra Usage detection exists in ralph_loop.sh" {
+    # Verify that the Layer 4 block exists with the correct pattern
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -i 'extra.usage' "$script"
+    assert_success
+
+    # Should return code 2 (API limit)
+    run grep -A 2 -i 'extra.usage' "$script"
+    echo "$output" | grep -q 'return 2'
+}
+
+@test "user-facing API limit message covers both limit types" {
+    # The user prompt should mention both 5-hour limit and Extra Usage
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -i 'usage limit.*reached\|limit.*reached' "$script"
+    assert_success
+    # Should mention Extra Usage or be generic enough to cover both
+    echo "$output" | grep -qi 'extra.*usage\|usage.*limit'
 }
 
 # --- Claude Code Command Validation Tests (Issue #97) ---
