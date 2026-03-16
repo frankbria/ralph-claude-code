@@ -1356,6 +1356,18 @@ execute_claude_code() {
                 fi
             else
                 log_status "WARN" "Could not find result message in stream output"
+                # Fallback: extract session ID from "type":"system" message (Issue #198)
+                # The system message is always written first and survives truncation
+                local system_line
+                system_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"system"' "$output_file" 2>/dev/null | tail -1)
+                if [[ -n "$system_line" ]] && echo "$system_line" | jq -e . >/dev/null 2>&1; then
+                    local fallback_session_id
+                    fallback_session_id=$(echo "$system_line" | jq -r '.session_id // empty' 2>/dev/null)
+                    if [[ -n "$fallback_session_id" ]]; then
+                        echo "$fallback_session_id" > "$CLAUDE_SESSION_FILE"
+                        log_status "INFO" "Extracted session ID from system message (timeout fallback)"
+                    fi
+                fi
                 # Keep stream output as-is for debugging
             fi
         fi
@@ -1597,10 +1609,78 @@ EOF
         echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
         # Layer 1: Timeout guard — exit code 124 is a timeout, not an API limit
+        # Issue #198: Check for productive work before treating as failure
         if [[ $exit_code -eq 124 ]]; then
             log_status "WARN" "⏱️ Claude Code execution timed out (not an API limit)"
-            return 1  # Generic error, NOT API limit (code 2)
-        fi
+
+            # Check git for actual changes made during the timed-out execution
+            local timeout_loop_start_sha=""
+            local timeout_current_sha=""
+            local timeout_files_changed=0
+
+            if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
+                timeout_loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
+            fi
+
+            if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+                timeout_current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+                if [[ -n "$timeout_loop_start_sha" && -n "$timeout_current_sha" && "$timeout_loop_start_sha" != "$timeout_current_sha" ]]; then
+                    timeout_files_changed=$(
+                        {
+                            git diff --name-only "$timeout_loop_start_sha" "$timeout_current_sha" 2>/dev/null
+                            git diff --name-only HEAD 2>/dev/null
+                            git diff --name-only --cached 2>/dev/null
+                        } | sort -u | wc -l
+                    )
+                else
+                    timeout_files_changed=$(
+                        {
+                            git diff --name-only 2>/dev/null
+                            git diff --name-only --cached 2>/dev/null
+                        } | sort -u | wc -l
+                    )
+                fi
+            fi
+
+            if [[ $timeout_files_changed -gt 0 ]]; then
+                # Productive timeout — work was done despite the timeout
+                log_status "INFO" "⏱️ Timeout but $timeout_files_changed file(s) changed — treating iteration as productive"
+                echo '{"status": "timed_out_productive", "files_changed": '$timeout_files_changed', "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+                # Save session ID (fallback already populated by Step 1 if stream was truncated)
+                if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+                    save_claude_session "$output_file"
+                fi
+
+                # Run analysis pipeline on whatever output exists
+                log_status "INFO" "🔍 Analyzing response from productive timeout..."
+                analyze_response "$output_file" "$loop_count"
+                local timeout_analysis_exit=$?
+
+                if [[ $timeout_analysis_exit -eq 0 ]]; then
+                    update_exit_signals
+                    log_analysis_summary
+                fi
+
+                # Feed circuit breaker with progress data
+                local timeout_output_length
+                timeout_output_length=$(wc -c < "$output_file" 2>/dev/null || echo "0")
+                record_loop_result "$loop_count" "$timeout_files_changed" "false" "$timeout_output_length"
+                local timeout_circuit_result=$?
+
+                if [[ $timeout_circuit_result -ne 0 ]]; then
+                    log_status "WARN" "Circuit breaker opened - halting execution"
+                    return 3
+                fi
+
+                return 0
+            else
+                # Idle timeout — no work detected
+                log_status "WARN" "⏱️ Timeout with no detectable progress"
+                return 1
+            fi
+        fi  # end timeout
 
         # Layer 2: Structural JSON detection — check rate_limit_event for status:"rejected"
         # This is the definitive signal from the Claude CLI

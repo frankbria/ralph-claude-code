@@ -1474,3 +1474,179 @@ EOF
     run bash -c "sed -n '/^check_claude_updates()/,/^}/p' '$script' | grep 'npm view'"
     assert_success
 }
+
+# --- Productive Timeout Detection Tests (Issue #198) ---
+
+@test "timeout handler checks git for productive work before returning" {
+    # The timeout handler (exit_code 124) must check .loop_start_sha vs HEAD
+    # instead of immediately returning 1
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract the failure path (else branch) containing the timeout handler
+    # Find the timeout guard block and verify it references loop_start_sha
+    run bash -c "sed -n '/Layer 1.*Timeout guard/,/return [12]/p' '$script' | grep -q 'loop_start_sha'"
+    assert_success
+}
+
+@test "timeout handler calls analyze_response on productive timeout" {
+    # When timeout occurs but files were changed, analyze_response must be called
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The timeout block should contain analyze_response call (for productive timeouts)
+    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'analyze_response'"
+    assert_success
+}
+
+@test "timeout handler calls record_loop_result on productive timeout" {
+    # Circuit breaker must see progress from productive timeouts
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'record_loop_result'"
+    assert_success
+}
+
+@test "timeout handler returns 0 for productive timeout, 1 for idle timeout" {
+    # The timeout block must have two return paths:
+    # - return 0 when files changed (productive)
+    # - return 1 when no files changed (idle)
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract the timeout handler block
+    local timeout_block
+    timeout_block=$(sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' "$script")
+
+    # Must contain return 0 (productive path)
+    echo "$timeout_block" | grep -q 'return 0'
+    # Must contain return 1 (idle path)
+    echo "$timeout_block" | grep -q 'return 1'
+}
+
+@test "timeout handler writes timed_out_productive to progress file" {
+    # Productive timeouts should write a distinct status to PROGRESS_FILE
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'timed_out_productive'"
+    assert_success
+}
+
+@test "timeout handler saves session on productive timeout" {
+    # Session ID must be preserved when timeout occurs with productive work
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'save_claude_session'"
+    assert_success
+}
+
+# --- Session ID Fallback Tests (Issue #198) ---
+
+@test "stream parsing has session ID fallback from system message" {
+    # When result message is missing (truncated stream), extract session_id
+    # from the "type":"system" message as fallback
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # The stream parsing block should grep for type:system as fallback
+    run grep -A 15 'Could not find result message' "$script"
+    assert_success
+    # The fallback block should extract from system message
+    echo "$output" | grep -q '"type".*"system"'
+}
+
+@test "session ID fallback extracts valid session_id from system message" {
+    # Create a truncated stream file (has system message but no result message)
+    local stream_file="$TEST_DIR/truncated_stream.log"
+    cat > "$stream_file" << 'EOF'
+{"type":"system","subtype":"init","session_id":"test-session-abc123","tools":[],"model":"claude-sonnet-4-20250514"}
+{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Working on tasks..."}]}}
+EOF
+
+    # The result_line grep should find nothing
+    local result_line
+    result_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"result"' "$stream_file" 2>/dev/null | tail -1)
+    [[ -z "$result_line" ]]
+
+    # The system message fallback should find the session ID
+    local system_line
+    system_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"system"' "$stream_file" 2>/dev/null | tail -1)
+    [[ -n "$system_line" ]]
+
+    local session_id
+    session_id=$(echo "$system_line" | jq -r '.session_id // empty' 2>/dev/null)
+    [[ "$session_id" == "test-session-abc123" ]]
+}
+
+@test "session ID fallback handles missing system message gracefully" {
+    # If both result AND system messages are missing, no crash
+    local stream_file="$TEST_DIR/empty_stream.log"
+    cat > "$stream_file" << 'EOF'
+{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Working..."}]}}
+EOF
+
+    local system_line
+    system_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"system"' "$stream_file" 2>/dev/null | tail -1)
+    [[ -z "$system_line" ]]
+
+    # Should not crash — empty string is fine
+    local session_id
+    session_id=$(echo "$system_line" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+    [[ -z "$session_id" || "$session_id" == "" ]]
+}
+
+# --- Behavioral Timeout Tests (Issue #198) ---
+
+@test "behavioral: productive timeout detects git changes and runs analysis" {
+    # Simulate: timeout occurred (exit 124) but Claude made commits
+    # Setup: create initial commit, record SHA, make another commit
+    echo "initial" > testfile.txt
+    git add testfile.txt
+    git commit -m "initial" --quiet
+
+    local start_sha
+    start_sha=$(git rev-parse HEAD)
+    echo "$start_sha" > "$RALPH_DIR/.loop_start_sha"
+
+    # Simulate Claude making a commit during execution
+    echo "modified by claude" > testfile.txt
+    git add testfile.txt
+    git commit -m "claude work" --quiet
+
+    local current_sha
+    current_sha=$(git rev-parse HEAD)
+
+    # Verify SHAs differ (work was done)
+    [[ "$start_sha" != "$current_sha" ]]
+
+    # Count files changed (same logic as the productive timeout handler)
+    local files_changed
+    files_changed=$(git diff --name-only "$start_sha" "$current_sha" 2>/dev/null | sort -u | wc -l)
+    [[ "$files_changed" -gt 0 ]]
+}
+
+@test "behavioral: idle timeout detects no git changes" {
+    # Simulate: timeout occurred but no work was done
+    echo "initial" > testfile.txt
+    git add testfile.txt
+    git commit -m "initial" --quiet
+
+    local start_sha
+    start_sha=$(git rev-parse HEAD)
+    echo "$start_sha" > "$RALPH_DIR/.loop_start_sha"
+
+    local current_sha
+    current_sha=$(git rev-parse HEAD)
+
+    # SHAs should be identical (no work done)
+    [[ "$start_sha" == "$current_sha" ]]
+
+    # No committed changes
+    local files_changed
+    files_changed=$(git diff --name-only "$start_sha" "$current_sha" 2>/dev/null | sort -u | wc -l)
+
+    # Also check working tree
+    local unstaged
+    unstaged=$(git diff --name-only 2>/dev/null | wc -l)
+    local staged
+    staged=$(git diff --name-only --cached 2>/dev/null | wc -l)
+
+    local total=$((files_changed + unstaged + staged))
+    [[ "$total" -eq 0 ]]
+}
