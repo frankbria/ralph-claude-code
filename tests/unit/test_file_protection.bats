@@ -36,24 +36,9 @@ create_complete_ralph_project() {
 # validate_ralph_integrity - success cases
 # =============================================================================
 
-@test "validate_ralph_integrity returns 0 when all required files present" {
+@test "validate_ralph_integrity passes with only required files (optional files absent)" {
     create_complete_ralph_project
-
-    run validate_ralph_integrity
-    assert_success
-}
-
-@test "validate_ralph_integrity returns 0 when optional files (logs/, status.json) are missing" {
-    create_complete_ralph_project
-    # No .ralph/logs/ or .ralph/status.json — should still pass
-
-    run validate_ralph_integrity
-    assert_success
-}
-
-@test "validate_ralph_integrity returns 0 when optional state files are missing" {
-    create_complete_ralph_project
-    # No .ralph/.call_count, .ralph/.exit_signals, etc. — should still pass
+    # No .ralph/logs/, .ralph/status.json, .ralph/.call_count, .ralph/.exit_signals — should still pass
 
     run validate_ralph_integrity
     assert_success
@@ -199,26 +184,11 @@ create_complete_ralph_project() {
 # RALPH_REQUIRED_PATHS array
 # =============================================================================
 
-@test "RALPH_REQUIRED_PATHS contains .ralph directory" {
-    [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " .ralph " ]]
-}
-
-@test "RALPH_REQUIRED_PATHS contains .ralph/PROMPT.md" {
-    [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " .ralph/PROMPT.md " ]]
-}
-
-@test "RALPH_REQUIRED_PATHS contains .ralph/fix_plan.md" {
-    [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " .ralph/fix_plan.md " ]]
-}
-
-@test "RALPH_REQUIRED_PATHS contains .ralph/AGENT.md" {
-    [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " .ralph/AGENT.md " ]]
-}
-
-@test "RALPH_REQUIRED_PATHS contains .ralphrc" {
-    [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " .ralphrc " ]]
-}
-
-@test "RALPH_REQUIRED_PATHS does not contain optional files like status.json" {
-    [[ ! " ${RALPH_REQUIRED_PATHS[*]} " =~ "status.json" ]]
+@test "RALPH_REQUIRED_PATHS contains all critical paths and excludes optional files" {
+    local expected=(".ralph" ".ralph/PROMPT.md" ".ralph/fix_plan.md" ".ralph/AGENT.md" ".ralphrc")
+    for path in "${expected[@]}"; do
+        [[ " ${RALPH_REQUIRED_PATHS[*]} " =~ " $path " ]] || fail "Missing required path: $path"
+    done
+    # Optional paths should NOT be required
+    [[ ! " ${RALPH_REQUIRED_PATHS[*]} " =~ "status.json" ]] || fail "Optional path incorrectly required: status.json"
 }

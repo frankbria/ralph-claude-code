@@ -206,6 +206,12 @@ record_loop_result() {
         consecutive_permission_denials=0
     fi
 
+    # Check if Claude is asking questions (Issue #190 Bug 2)
+    local asking_questions="false"
+    if [[ -f "$response_analysis_file" ]]; then
+        asking_questions=$(jq -r '.analysis.asking_questions // false' "$response_analysis_file" 2>/dev/null || echo "false")
+    fi
+
     # Determine if progress was made
     if [[ $files_changed -gt 0 ]]; then
         # Git shows uncommitted changes - clear progress
@@ -223,6 +229,10 @@ record_loop_result() {
         has_progress=true
         consecutive_no_progress=0
         last_progress_loop=$loop_number
+    elif [[ "$asking_questions" == "true" ]]; then
+        # Claude is asking questions — not progress, but not stagnation either.
+        # Suppress no-progress counter; corrective context will redirect next loop.
+        has_progress=false
     else
         consecutive_no_progress=$((consecutive_no_progress + 1))
     fi

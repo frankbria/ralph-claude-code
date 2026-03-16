@@ -1,0 +1,14 @@
+{
+  "memories": [],
+  "manual_memories": [],
+  "realtime_memories": [
+    {
+      "type": "message",
+      "content": "Can we approve and merge PRs 202 and 208?",
+      "added_at": "2026-03-15T22:06:45.260456",
+      "source": "realtime_capture"
+    }
+  ],
+  "created_at": "2026-03-15T22:06:45.260428",
+  "updated_at": "2026-03-15T22:06:45.260458"
+}

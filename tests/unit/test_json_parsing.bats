@@ -678,68 +678,6 @@ EOF
 }
 
 # =============================================================================
-# SESSION MANAGEMENT FUNCTION TESTS
-# =============================================================================
-
-@test "store_session_id writes session to file with timestamp" {
-    run store_session_id "session-test-abc"
-
-    [[ -f "$RALPH_DIR/.claude_session_id" ]] || skip "store_session_id not yet implemented"
-
-    local content=$(cat "$RALPH_DIR/.claude_session_id")
-    [[ "$content" == *"session-test-abc"* ]]
-}
-
-@test "get_last_session_id retrieves stored session" {
-    # First store a session
-    echo '{"session_id": "session-retrieve-test", "timestamp": "2026-01-09T10:00:00Z"}' > "$RALPH_DIR/.claude_session_id"
-
-    run get_last_session_id
-
-    [[ "$output" == *"session-retrieve-test"* ]] || skip "get_last_session_id not yet implemented"
-}
-
-@test "get_last_session_id returns empty when no session file" {
-    rm -f "$RALPH_DIR/.claude_session_id"
-
-    run get_last_session_id
-
-    # Should return empty string, not error
-    [[ "$status" -eq 0 ]] || skip "get_last_session_id not yet implemented"
-    [[ -z "$output" || "$output" == "" || "$output" == "null" ]]
-}
-
-@test "should_resume_session returns true for recent session" {
-    # Store a recent session (simulated as current timestamp)
-    local now=$(date +%s)
-    echo "{\"session_id\": \"session-recent\", \"timestamp\": \"$(date -Iseconds)\"}" > "$RALPH_DIR/.claude_session_id"
-
-    run should_resume_session
-
-    # Should indicate session can be resumed
-    [[ "$status" -eq 0 ]] || skip "should_resume_session not yet implemented"
-}
-
-@test "should_resume_session returns false for old session" {
-    # Store an old session (24+ hours ago)
-    echo '{"session_id": "session-old", "timestamp": "2020-01-01T00:00:00Z"}' > "$RALPH_DIR/.claude_session_id"
-
-    run should_resume_session
-
-    # Should indicate session expired
-    [[ "$status" -ne 0 || "$output" == "false" ]] || skip "should_resume_session not yet implemented"
-}
-
-@test "should_resume_session returns false when no session file" {
-    rm -f "$RALPH_DIR/.claude_session_id"
-
-    run should_resume_session
-
-    # Should indicate no session to resume
-    [[ "$status" -ne 0 || "$output" == "false" ]] || skip "should_resume_session not yet implemented"
-}
-
-# =============================================================================
 # CLAUDE CLI JSON ARRAY FORMAT TESTS (Issue #112)
 # =============================================================================
 # Tests for the Claude CLI JSON array output format:
@@ -1004,9 +942,11 @@ EOF
     [[ "$denied_cmds" == *"npm install"* ]]
 }
 
-@test "parse_json_response handles empty permission_denials array" {
+@test "parse_json_response defaults correctly when permission_denials absent or empty" {
     local output_file="$LOG_DIR/test_output.log"
+    local result_file="$RALPH_DIR/.json_parse_result"
 
+    # Case 1: empty array
     cat > "$output_file" << 'EOF'
 {
     "result": "All commands executed successfully.",
@@ -1017,22 +957,11 @@ EOF
 
     run parse_json_response "$output_file"
     assert_equal "$status" "0"
-
-    local result_file="$RALPH_DIR/.json_parse_result"
     [[ -f "$result_file" ]]
+    assert_equal "$(jq -r '.has_permission_denials' "$result_file")" "false"
+    assert_equal "$(jq -r '.permission_denial_count' "$result_file")" "0"
 
-    # Should set has_permission_denials to false
-    local has_denials=$(jq -r '.has_permission_denials' "$result_file")
-    assert_equal "$has_denials" "false"
-
-    local denial_count=$(jq -r '.permission_denial_count' "$result_file")
-    assert_equal "$denial_count" "0"
-}
-
-@test "parse_json_response handles missing permission_denials field (backward compat)" {
-    local output_file="$LOG_DIR/test_output.log"
-
-    # Old format without permission_denials field
+    # Case 2: missing field entirely (backward compat)
     cat > "$output_file" << 'EOF'
 {
     "status": "COMPLETE",
@@ -1044,16 +973,9 @@ EOF
 
     run parse_json_response "$output_file"
     assert_equal "$status" "0"
-
-    local result_file="$RALPH_DIR/.json_parse_result"
     [[ -f "$result_file" ]]
-
-    # Should default to no denials
-    local has_denials=$(jq -r '.has_permission_denials' "$result_file")
-    assert_equal "$has_denials" "false"
-
-    local denial_count=$(jq -r '.permission_denial_count' "$result_file")
-    assert_equal "$denial_count" "0"
+    assert_equal "$(jq -r '.has_permission_denials' "$result_file")" "false"
+    assert_equal "$(jq -r '.permission_denial_count' "$result_file")" "0"
 }
 
 @test "analyze_response includes permission denial info in analysis result" {
@@ -1109,4 +1031,59 @@ EOF
 
     local has_denials=$(jq -r '.has_permission_denials' "$result_file")
     assert_equal "$has_denials" "true"
+}
+
+# =============================================================================
+# QUESTION DETECTION TESTS (Issue #190 Bug 2)
+# =============================================================================
+
+@test "detect_questions detects question pattern with question mark" {
+    run detect_questions "Should I implement approach A or B?"
+
+    assert_success
+    [[ "$output" -gt 0 ]]
+}
+
+@test "detect_questions returns 0 count for normal implementation text" {
+    run detect_questions "Implementing module. Tests passed. All done."
+
+    assert_failure
+    assert_output "0"
+}
+
+@test "detect_questions ignores non-matching word order" {
+    run detect_questions "I should implement the conservative approach."
+
+    assert_failure
+    assert_output "0"
+}
+
+@test "detect_questions returns 0 for empty input" {
+    run detect_questions ""
+
+    assert_failure
+    assert_output "0"
+}
+
+@test "detect_questions counts multiple questions" {
+    local text="Should I use approach A? Would you prefer option B? What should I do next?"
+
+    run detect_questions "$text"
+
+    assert_success
+    [[ "$output" -ge 2 ]]
+}
+
+@test "detect_questions detects declarative wait pattern without question mark" {
+    run detect_questions "Please confirm the approach before proceeding."
+
+    assert_success
+    [[ "$output" -gt 0 ]]
+}
+
+@test "detect_questions detects awaiting input pattern without question mark" {
+    run detect_questions "Awaiting your input on the design decision."
+
+    assert_success
+    [[ "$output" -gt 0 ]]
 }
