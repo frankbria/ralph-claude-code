@@ -444,3 +444,45 @@ TUEOF
     cd /
     rm -rf "$CLI_TEST_DIR"
 }
+
+# --- Current Loop Display Fix (Issue #194) ---
+
+@test "init_circuit_breaker includes current_loop in state file" {
+    # Fresh init should include current_loop: 0 so --circuit-status never shows #null
+    rm -f "$CB_STATE_FILE"
+    init_circuit_breaker
+
+    local current_loop
+    current_loop=$(jq -r '.current_loop' "$CB_STATE_FILE")
+    assert_equal "$current_loop" "0"
+}
+
+@test "reset_circuit_breaker includes current_loop in state file" {
+    # After reset, current_loop should be 0 (not missing)
+    reset_circuit_breaker "test reset"
+
+    local current_loop
+    current_loop=$(jq -r '.current_loop' "$CB_STATE_FILE")
+    assert_equal "$current_loop" "0"
+}
+
+@test "show_circuit_status uses fallback for missing current_loop" {
+    # Old state files without current_loop should show "N/A" not "null"
+    cat > "$CB_STATE_FILE" << EOF
+{
+    "state": "$CB_STATE_CLOSED",
+    "last_change": "$(get_iso_timestamp)",
+    "consecutive_no_progress": 0,
+    "consecutive_same_error": 0,
+    "consecutive_permission_denials": 0,
+    "last_progress_loop": 0,
+    "total_opens": 0,
+    "reason": ""
+}
+EOF
+
+    run show_circuit_status
+    assert_success
+    # Should NOT contain "null" — should show "N/A" or "0"
+    [[ "$output" != *"#null"* ]]
+}
