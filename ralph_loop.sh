@@ -410,8 +410,9 @@ log_status() {
     esac
     
     # Write to stderr so log messages don't interfere with function return values
-    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2
-    echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
+    # 2>/dev/null suppresses "Input/output error" when tmux pty is broken (Issue #188)
+    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2 2>/dev/null
+    echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log" 2>/dev/null
 }
 
 # Update status JSON for external monitoring

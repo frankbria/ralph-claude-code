@@ -1766,3 +1766,36 @@ EOF
     run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'rm -f.*RESPONSE_ANALYSIS_FILE'"
     assert_success
 }
+
+# --- Monitor I/O Error Fix (Issue #188) ---
+
+@test "log_status stderr write is guarded against I/O errors" {
+    # When tmux pty becomes unavailable, echo >&2 fails with "Input/output error"
+    # The stderr write must have 2>/dev/null to suppress this
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract log_status function and check stderr write has error suppression
+    local func_body
+    func_body=$(sed -n '/^log_status()/,/^}/p' "$script")
+
+    echo "$func_body" | grep '>&2' | grep -q '2>/dev/null'
+}
+
+@test "log_status log-file write is guarded against errors" {
+    # The log-file append should also be guarded for robustness
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    local func_body
+    func_body=$(sed -n '/^log_status()/,/^}/p' "$script")
+
+    echo "$func_body" | grep 'ralph.log' | grep -q '2>/dev/null'
+}
+
+@test "ralph_monitor.sh does not use set -e" {
+    # set -e in the monitor causes crashes when echo fails on broken pty
+    local script="${BATS_TEST_DIRNAME}/../../ralph_monitor.sh"
+
+    # Should NOT have set -e
+    run grep -c '^set -e' "$script"
+    [[ "$output" == "0" ]]
+}
