@@ -509,7 +509,9 @@ should_exit_gracefully() {
     recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
-    
+
+    # Diagnostic logging for exit signal check (Issue #194)
+    [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "DEBUG" "Exit check: test_loops=$recent_test_loops done_signals=$recent_done_signals completion_indicators=$recent_completion_indicators"
 
     # Check for exit conditions
 
@@ -1808,6 +1810,13 @@ main() {
     # Initialize session tracking before entering the loop
     init_session_tracking
 
+    # Reset exit signals to prevent stale state from prior run causing premature exit (Issue #194)
+    # This is unconditional: regardless of how the previous run ended (crash, SIGKILL, API limit exit),
+    # every new ralph invocation starts with a clean exit-signal slate.
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
+    log_status "INFO" "Reset exit signals for fresh start"
+
     log_status "INFO" "Starting main loop..."
 
     while true; do
@@ -1940,6 +1949,7 @@ main() {
             
             if [[ "$user_choice" == "2" ]]; then
                 log_status "INFO" "User chose to exit. Exiting loop..."
+                reset_session "api_limit_exit"
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
                 break
             else

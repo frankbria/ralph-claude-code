@@ -1239,3 +1239,77 @@ detect_progress_with_commits() {
     local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
     assert_equal "$asking" "false"
 }
+
+# --- Stale Exit Signals Tests (Issue #194) ---
+
+@test "startup resets stale exit signals before main loop" {
+    # Verify ralph_loop.sh resets EXIT_SIGNALS_FILE before the while-true loop
+    # This is the primary fix for #194: stale signals from a prior run
+    # must not cause immediate exit on next invocation
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Find the "Starting main loop" log message (just before while true)
+    local main_loop_line
+    main_loop_line=$(grep -n 'Starting main loop' "$script" | head -1 | cut -d: -f1)
+    [[ -n "$main_loop_line" ]]
+
+    # Find the exit signals reset that should appear BEFORE the main loop
+    local reset_line
+    reset_line=$(grep -n 'Reset exit signals\|reset.*exit.*signal' "$script" | awk -F: -v limit="$main_loop_line" '$1 < limit {print $1}' | tail -1)
+    [[ -n "$reset_line" ]]
+
+    # The reset block must reference EXIT_SIGNALS_FILE
+    local reset_context
+    reset_context=$(sed -n "$((reset_line-3)),$((reset_line+3))p" "$script")
+    echo "$reset_context" | grep -q 'EXIT_SIGNALS_FILE'
+}
+
+@test "stale exit signals do not cause premature exit" {
+    # Simulate: previous run left stale completion_indicators in .exit_signals
+    # A fresh should_exit_gracefully() call after reset should NOT exit
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1, 2, 3, 4, 5]}' > "$EXIT_SIGNALS_FILE"
+
+    # Create stale .response_analysis with exit_signal=true
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{"loop_number": 5, "analysis": {"exit_signal": true, "confidence_score": 90}}
+EOF
+
+    # Before reset: should_exit_gracefully would trigger safety_circuit_breaker
+    run should_exit_gracefully
+    [[ "$output" != "" ]]  # Would exit
+
+    # Simulate startup reset (what main() now does before the loop)
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    rm -f "$RESPONSE_ANALYSIS_FILE"
+
+    # After reset: should_exit_gracefully should NOT trigger
+    run should_exit_gracefully
+    [[ "$output" == "" ]]
+}
+
+@test "should_exit_gracefully logs diagnostic signal counts" {
+    # Verify that should_exit_gracefully() logs signal counts for diagnosability
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract the function body
+    local func_body
+    func_body=$(sed -n '/^should_exit_gracefully()/,/^}/p' "$script")
+
+    # Should contain diagnostic logging of signal counts
+    echo "$func_body" | grep -q 'recent_test_loops\|recent_done_signals\|recent_completion_indicators'
+    # Should have a log_status call that includes signal counts for debugging
+    echo "$func_body" | grep -q 'log_status.*signal\|log_status.*exit.*check\|log_status.*DEBUG.*indicator'
+}
+
+@test "API limit user-exit path calls reset_session" {
+    # The "user chose to exit" path for API limits must call reset_session
+    # to prevent stale .exit_signals from causing premature exit on next run
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Find the API limit user exit block
+    local exit_block
+    exit_block=$(sed -n '/user_choice.*==.*"2"/,/break/p' "$script")
+
+    # Must call reset_session before break
+    echo "$exit_block" | grep -q 'reset_session'
+}

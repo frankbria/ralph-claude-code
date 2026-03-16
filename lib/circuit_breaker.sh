@@ -52,7 +52,8 @@ init_circuit_breaker() {
     "consecutive_permission_denials": 0,
     "last_progress_loop": 0,
     "total_opens": 0,
-    "reason": ""
+    "reason": "",
+    "current_loop": 0
 }
 EOF
     fi
@@ -379,7 +380,7 @@ show_circuit_status() {
     local reason=$(echo "$state_data" | jq -r '.reason')
     local no_progress=$(echo "$state_data" | jq -r '.consecutive_no_progress')
     local last_progress=$(echo "$state_data" | jq -r '.last_progress_loop')
-    local current_loop=$(echo "$state_data" | jq -r '.current_loop')
+    local current_loop=$(echo "$state_data" | jq -r '.current_loop // "N/A"')
     local total_opens=$(echo "$state_data" | jq -r '.total_opens')
 
     local color=""
@@ -425,7 +426,8 @@ reset_circuit_breaker() {
     "consecutive_permission_denials": 0,
     "last_progress_loop": 0,
     "total_opens": 0,
-    "reason": "$reason"
+    "reason": "$reason",
+    "current_loop": 0
 }
 EOF
 
