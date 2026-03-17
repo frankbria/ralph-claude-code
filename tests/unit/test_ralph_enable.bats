@@ -266,3 +266,69 @@ EOF
     assert_success
     [[ -f ".ralph/PROMPT.md" ]]
 }
+
+# =============================================================================
+# VERIFICATION PHASE TESTS (2 tests)
+# =============================================================================
+
+@test "ralph enable verification fails when .ralphrc is missing" {
+    # Source libraries to get phase_verification function dependencies
+    local LIB_DIR="${BATS_TEST_DIRNAME}/../../lib"
+    source "$LIB_DIR/enable_core.sh"
+    source "$LIB_DIR/wizard_utils.sh"
+
+    # Create .ralph/ structure WITHOUT .ralphrc (simulating partial failure)
+    mkdir -p .ralph/specs .ralph/logs
+    echo "prompt content" > .ralph/PROMPT.md
+    echo "fix plan content" > .ralph/fix_plan.md
+    echo "agent content" > .ralph/AGENT.md
+
+    # Ensure .ralphrc does NOT exist
+    rm -f .ralphrc
+
+    # Source ralph_enable.sh's phase_verification by extracting it
+    # We call the function directly to test verification logic in isolation
+    run bash -c '
+        source "'"$LIB_DIR"'/enable_core.sh"
+        source "'"$LIB_DIR"'/wizard_utils.sh"
+        cd "'"$TEST_DIR"'"
+        NON_INTERACTIVE=true
+
+        # Define phase_verification from ralph_enable.sh
+        source <(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")
+
+        phase_verification
+    '
+
+    # Should fail because .ralphrc is missing (critical)
+    assert_failure
+    [[ "$output" =~ "MISSING" ]]
+    [[ "$output" =~ "CRITICAL" ]]
+}
+
+@test "ralph enable verification succeeds when all files including .ralphrc exist" {
+    # Run full enable to create everything properly
+    bash "$RALPH_ENABLE_CI" --from none >/dev/null 2>&1
+
+    # Source libraries
+    local LIB_DIR="${BATS_TEST_DIRNAME}/../../lib"
+
+    # Verify .ralphrc exists (sanity check)
+    [[ -f ".ralphrc" ]]
+
+    # Run phase_verification in isolation
+    run bash -c '
+        source "'"$LIB_DIR"'/enable_core.sh"
+        source "'"$LIB_DIR"'/wizard_utils.sh"
+        cd "'"$TEST_DIR"'"
+        NON_INTERACTIVE=true
+
+        # Define phase_verification from ralph_enable.sh
+        source <(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")
+
+        phase_verification
+    '
+
+    assert_success
+    [[ "$output" =~ "successfully" ]]
+}

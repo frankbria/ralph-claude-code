@@ -8,7 +8,7 @@ SCRIPT_DIR="${BATS_TEST_DIRNAME}/../../lib"
 
 setup() {
     # Create temp test directory
-    export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-cb-recovery.XXXXXX)"
+    export TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
 
     export RALPH_DIR=".ralph"
@@ -93,7 +93,7 @@ get_past_timestamp() {
     if date -d "@$past_epoch" -Iseconds 2>/dev/null; then
         return
     fi
-    date -r "$past_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00"
+    date -u -r "$past_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00"
 }
 
 # =============================================================================
@@ -230,7 +230,7 @@ get_past_timestamp() {
     if future_timestamp=$(date -d "@$future_epoch" -Iseconds 2>/dev/null); then
         : # success
     else
-        future_timestamp=$(date -r "$future_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || skip "Cannot create future timestamp")
+        future_timestamp=$(date -u -r "$future_epoch" +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || skip "Cannot create future timestamp")
     fi
     create_open_state "$future_timestamp"
     export CB_COOLDOWN_MINUTES=30
@@ -393,7 +393,7 @@ get_past_timestamp() {
 
     # Create minimal environment for CLI parsing
     local CLI_TEST_DIR
-    CLI_TEST_DIR="$(mktemp -d /tmp/ralph-cli-test.XXXXXX)"
+    CLI_TEST_DIR="$(mktemp -d)"
     cd "$CLI_TEST_DIR"
 
     git init > /dev/null 2>&1
@@ -443,4 +443,46 @@ TUEOF
     # Cleanup
     cd /
     rm -rf "$CLI_TEST_DIR"
+}
+
+# --- Current Loop Display Fix (Issue #194) ---
+
+@test "init_circuit_breaker includes current_loop in state file" {
+    # Fresh init should include current_loop: 0 so --circuit-status never shows #null
+    rm -f "$CB_STATE_FILE"
+    init_circuit_breaker
+
+    local current_loop
+    current_loop=$(jq -r '.current_loop' "$CB_STATE_FILE")
+    assert_equal "$current_loop" "0"
+}
+
+@test "reset_circuit_breaker includes current_loop in state file" {
+    # After reset, current_loop should be 0 (not missing)
+    reset_circuit_breaker "test reset"
+
+    local current_loop
+    current_loop=$(jq -r '.current_loop' "$CB_STATE_FILE")
+    assert_equal "$current_loop" "0"
+}
+
+@test "show_circuit_status uses fallback for missing current_loop" {
+    # Old state files without current_loop should show "N/A" not "null"
+    cat > "$CB_STATE_FILE" << EOF
+{
+    "state": "$CB_STATE_CLOSED",
+    "last_change": "$(get_iso_timestamp)",
+    "consecutive_no_progress": 0,
+    "consecutive_same_error": 0,
+    "consecutive_permission_denials": 0,
+    "last_progress_loop": 0,
+    "total_opens": 0,
+    "reason": ""
+}
+EOF
+
+    run show_circuit_status
+    assert_success
+    # Should NOT contain "null" — should show "N/A" or "0"
+    [[ "$output" != *"#null"* ]]
 }

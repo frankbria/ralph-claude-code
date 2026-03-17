@@ -36,7 +36,7 @@ confirm() {
     local response
 
     local yn_hint="[y/N]"
-    if [[ "${default,,}" == "y" ]]; then
+    if [[ "$(echo "$default" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
         yn_hint="[Y/n]"
     fi
 
@@ -50,7 +50,7 @@ confirm() {
             response="$default"
         fi
 
-        case "${response,,}" in
+        case "$(echo "$response" | tr '[:upper:]' '[:lower:]')" in
             y|yes)
                 return 0
                 ;;

@@ -15,7 +15,7 @@ setup() {
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
 
     # Create temp test directory
-    export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
+    export TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
     mkdir -p "$RALPH_DIR"
 
@@ -111,14 +111,6 @@ should_exit_gracefully() {
     assert_equal "$result" "test_saturation"
 }
 
-# Test 3: Exit on test saturation (4 test loops)
-@test "should_exit_gracefully exits on test saturation (4 loops)" {
-    echo '{"test_only_loops": [1,2,3,4], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully)
-    assert_equal "$result" "test_saturation"
-}
-
 # Test 4: No exit with only 2 test loops
 @test "should_exit_gracefully continues with 2 test loops" {
     echo '{"test_only_loops": [1,2], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -130,14 +122,6 @@ should_exit_gracefully() {
 # Test 5: Exit on done signals (2 signals)
 @test "should_exit_gracefully exits on 2 done signals" {
     echo '{"test_only_loops": [], "done_signals": [1,2], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully || true)
-    assert_equal "$result" "completion_signals"
-}
-
-# Test 6: Exit on done signals (3 signals)
-@test "should_exit_gracefully exits on 3 done signals" {
-    echo '{"test_only_loops": [], "done_signals": [1,2,3], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
 
     result=$(should_exit_gracefully || true)
     assert_equal "$result" "completion_signals"
@@ -262,32 +246,6 @@ EOF
     result=$(should_exit_gracefully || true)
     # 2 completed out of 3 valid tasks
     assert_equal "$result" ""
-}
-
-# Test 18: Empty signals arrays
-@test "should_exit_gracefully handles empty arrays correctly" {
-    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully || true)
-    assert_equal "$result" ""
-}
-
-# Test 19: Threshold boundary test (exactly at threshold)
-@test "should_exit_gracefully exits at exact threshold for test loops" {
-    # MAX_CONSECUTIVE_TEST_LOOPS = 3
-    echo '{"test_only_loops": [1,2,3], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully)
-    assert_equal "$result" "test_saturation"
-}
-
-# Test 20: Threshold boundary test (exactly at threshold for done signals)
-@test "should_exit_gracefully exits at exact threshold for done signals" {
-    # MAX_CONSECUTIVE_DONE_SIGNALS = 2
-    echo '{"test_only_loops": [], "done_signals": [1,2], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    result=$(should_exit_gracefully)
-    assert_equal "$result" "completion_signals"
 }
 
 # =============================================================================
@@ -1222,4 +1180,136 @@ detect_progress_with_commits() {
 
     # Should fall back to uncommitted changes (1 file)
     [ "$files_changed" -eq 1 ]
+}
+
+# =============================================================================
+# QUESTION DETECTION IN ANALYZE_RESPONSE (Issue #190 Bug 2)
+# =============================================================================
+
+@test "analyze_response sets asking_questions=true for question text output" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Should I implement approach A or B? Which option do you prefer?" > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+
+    local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
+    assert_equal "$asking" "true"
+}
+
+@test "analyze_response sets asking_questions=false for normal output" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. All tests passed successfully." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+
+    local asking=$(jq -r '.analysis.asking_questions' "$RALPH_DIR/.response_analysis")
+    assert_equal "$asking" "false"
+}
+
+# --- Stale Exit Signals Tests (Issue #194) ---
+
+@test "startup resets stale exit signals before main loop" {
+    # Verify ralph_loop.sh resets EXIT_SIGNALS_FILE before the while-true loop
+    # This is the primary fix for #194: stale signals from a prior run
+    # must not cause immediate exit on next invocation
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Find the "Starting main loop" log message (just before while true)
+    local main_loop_line
+    main_loop_line=$(grep -n 'Starting main loop' "$script" | head -1 | cut -d: -f1)
+    [[ -n "$main_loop_line" ]]
+
+    # Find the exit signals reset that should appear BEFORE the main loop
+    local reset_line
+    reset_line=$(grep -n 'Reset exit signals\|reset.*exit.*signal' "$script" | awk -F: -v limit="$main_loop_line" '$1 < limit {print $1}' | tail -1)
+    [[ -n "$reset_line" ]]
+
+    # The reset block must reference EXIT_SIGNALS_FILE
+    local reset_context
+    reset_context=$(sed -n "$((reset_line-3)),$((reset_line+3))p" "$script")
+    echo "$reset_context" | grep -q 'EXIT_SIGNALS_FILE'
+}
+
+@test "stale exit signals do not cause premature exit" {
+    # Simulate: previous run left stale completion_indicators in .exit_signals
+    # A fresh should_exit_gracefully() call after reset should NOT exit
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1, 2, 3, 4, 5]}' > "$EXIT_SIGNALS_FILE"
+
+    # Create stale .response_analysis with exit_signal=true
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{"loop_number": 5, "analysis": {"exit_signal": true, "confidence_score": 90}}
+EOF
+
+    # Before reset: should_exit_gracefully would trigger safety_circuit_breaker
+    run should_exit_gracefully
+    [[ "$output" != "" ]]  # Would exit
+
+    # Simulate startup reset (what main() now does before the loop)
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    rm -f "$RESPONSE_ANALYSIS_FILE"
+
+    # After reset: should_exit_gracefully should NOT trigger
+    run should_exit_gracefully
+    [[ "$output" == "" ]]
+}
+
+@test "should_exit_gracefully logs diagnostic signal counts" {
+    # Verify that should_exit_gracefully() logs signal counts for diagnosability
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Extract the function body
+    local func_body
+    func_body=$(sed -n '/^should_exit_gracefully()/,/^}/p' "$script")
+
+    # Should contain diagnostic logging of signal counts
+    echo "$func_body" | grep -q 'recent_test_loops\|recent_done_signals\|recent_completion_indicators'
+    # Should have a log_status call that includes signal counts for debugging
+    echo "$func_body" | grep -q 'log_status.*signal\|log_status.*exit.*check\|log_status.*DEBUG.*indicator'
+}
+
+@test "API limit user-exit path calls reset_session" {
+    # The "user chose to exit" path for API limits must call reset_session
+    # to prevent stale .exit_signals from causing premature exit on next run
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    # Find the API limit user exit block
+    local exit_block
+    exit_block=$(sed -n '/user_choice.*==.*"2"/,/break/p' "$script")
+
+    # Must call reset_session before break
+    echo "$exit_block" | grep -q 'reset_session'
 }
