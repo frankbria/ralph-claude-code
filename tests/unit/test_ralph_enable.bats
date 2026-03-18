@@ -295,7 +295,7 @@ EOF
         NON_INTERACTIVE=true
 
         # Define phase_verification from ralph_enable.sh
-        source <(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")
+        eval "$(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")"
 
         phase_verification
     '
@@ -324,7 +324,7 @@ EOF
         NON_INTERACTIVE=true
 
         # Define phase_verification from ralph_enable.sh
-        source <(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")
+        eval "$(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")"
 
         phase_verification
     '

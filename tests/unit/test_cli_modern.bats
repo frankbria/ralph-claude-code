@@ -1282,9 +1282,9 @@ EOF
 
 @test "is_error:true with exit code 0 returns non-zero from execute_claude_code" {
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    # Verify the is_error block returns 1 (error) not 0 (success)
-    # Extract the is_error handling block and check it returns 1
-    run grep -A 20 'json_is_error.*==.*true' "$script"
+    # Verify the is_error block in execute_claude_code returns 1 (error) not 0 (success)
+    # Extract the is_error handling block from the API error section and check it returns 1
+    run grep -A 40 'Claude Code returns exit 0 but sets.*is_error' "$script"
     assert_success
     [[ "$output" == *"return 1"* ]]
 }
