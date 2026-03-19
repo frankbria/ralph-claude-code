@@ -1256,7 +1256,7 @@ EOF
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     # Within execute_claude_code's exit_code==0 branch, the is_error guard must
     # appear BEFORE the save_claude_session call
-    local is_error_line=$(grep -n 'json_is_error.*jq.*is_error' "$script" | head -1 | cut -d: -f1)
+    local is_error_line=$(grep -n 'grep.*"is_error"' "$script" | head -1 | cut -d: -f1)
     local save_session_line=$(grep -n 'save_claude_session.*output_file' "$script" | head -1 | cut -d: -f1)
 
     [[ -n "$is_error_line" ]]
