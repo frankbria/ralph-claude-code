@@ -2268,7 +2268,7 @@ Options:
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
     --max-loops NUM         Stop after NUM loops (default: 0 = unlimited)
-    --parallel N            Spawn N parallel ralph agents in separate iTerm2 windows
+    --parallel N            Spawn N parallel ralph agents (iTerm2 tabs or background jobs in IDE terminals)
 
 Modern CLI Options:
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2306,7 +2306,7 @@ Examples:
     ralph --output-format text     # Use legacy text output format
     ralph --no-continue            # Disable session continuity
     ralph --session-expiry 48      # 48-hour session expiration
-    ralph --live --monitor --parallel 3  # Spawn 3 parallel int-mode agents
+    ralph --live --monitor --parallel 3  # Spawn 3 parallel agents (auto-detects terminal)
 
 Bash Aliases (rpc):
     Add to ~/.bashrc or ~/.zshrc: source ~/.ralph/ALIASES.sh
@@ -2471,7 +2471,7 @@ done
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # If parallel mode requested, spawn iTerm windows and exit
+    # If parallel mode requested, spawn agents (iTerm tabs or background jobs)
     if [[ "$PARALLEL_COUNT" -gt 0 ]]; then
         # Rebuild args without --parallel N
         passthrough_args=()

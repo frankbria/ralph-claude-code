@@ -1280,7 +1280,7 @@ done
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # If parallel mode requested, spawn iTerm windows and exit
+    # If parallel mode requested, spawn agents (iTerm tabs or background jobs)
     if [[ "$PARALLEL_COUNT" -gt 0 ]]; then
         passthrough_args=()
         skip_next=false

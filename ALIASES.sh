@@ -47,7 +47,7 @@ alias rpc.wt.full='ralph --live --monitor --merge-strategy squash --quality-gate
 # Interactive mode
 alias rpc.int='ralph --live --monitor'
 
-# Parallel mode (spawns N iTerm2 windows in int mode)
+# Parallel mode (spawns N agents: iTerm2 tabs from iTerm, IDE terminal tabs from Windsurf/VS Code/Cursor)
 # Usage: rpc.int.p 3  -> spawns 3 parallel ralph agents
 rpc.int.p() { ralph --live --monitor --parallel "${1:?Usage: rpc.int.p <number>}"; }
 
