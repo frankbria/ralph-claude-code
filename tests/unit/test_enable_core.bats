@@ -7,11 +7,16 @@ load '../helpers/fixtures'
 
 # Path to enable_core.sh
 ENABLE_CORE="${BATS_TEST_DIRNAME}/../../lib/enable_core.sh"
+ORIGINAL_HOME="$HOME"
 
 setup() {
     # Create temporary test directory
     TEST_DIR="$(mktemp -d)"
     cd "$TEST_DIR"
+
+    # Isolate HOME so tests that write to ~/.ralph don't leak to real home dir
+    export HOME="$TEST_DIR/home"
+    mkdir -p "$HOME"
 
     # Source the library (disable set -e for testing)
     set +e
@@ -20,6 +25,7 @@ setup() {
 }
 
 teardown() {
+    export HOME="$ORIGINAL_HOME"
     if [[ -n "$TEST_DIR" ]] && [[ -d "$TEST_DIR" ]]; then
         cd /
         rm -rf "$TEST_DIR"
@@ -385,4 +391,109 @@ EOF
     local content
     content=$(cat test_file.txt)
     [[ "$content" == "original content" ]]
+}
+
+# =============================================================================
+# PROTECTED FILES SECTION (Issue #149) (2 tests)
+# Verify generate_prompt_md includes "Protected Files" warning before "Testing Guidelines"
+# so Claude sees protection rules early in the prompt.
+# =============================================================================
+
+@test "generate_prompt_md output contains Protected Files section" {
+    output=$(generate_prompt_md "my-project" "typescript")
+
+    [[ "$output" =~ "Protected Files" ]]
+    [[ "$output" =~ ".ralph/" ]]
+    [[ "$output" =~ ".ralphrc" ]]
+    [[ "$output" =~ "NEVER delete" ]]
+}
+
+@test "generate_prompt_md Protected Files section appears before Testing Guidelines" {
+    output=$(generate_prompt_md "my-project" "typescript")
+
+    # Find position of Protected Files and Testing Guidelines
+    local protected_pos testing_pos
+    protected_pos=$(echo "$output" | grep -n "Protected Files" | head -1 | cut -d: -f1)
+    testing_pos=$(echo "$output" | grep -n "Testing Guidelines" | head -1 | cut -d: -f1)
+
+    # Protected Files should come before Testing Guidelines
+    [[ -n "$protected_pos" ]]
+    [[ -n "$testing_pos" ]]
+    [[ "$protected_pos" -lt "$testing_pos" ]]
+}
+
+# =============================================================================
+# .GITIGNORE CREATION (Issue #174) (4 tests)
+# =============================================================================
+
+@test "enable_ralph_in_directory creates .gitignore when template exists" {
+    # HOME is already isolated to TEST_DIR/home by setup()
+    mkdir -p "$HOME/.ralph/templates"
+    cat > "$HOME/.ralph/templates/.gitignore" << 'EOF'
+.ralph/.call_count
+.ralph/.last_reset
+.ralph/status.json
+EOF
+
+    export ENABLE_FORCE="false"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    [[ -f ".gitignore" ]]
+    grep -q ".ralph/.call_count" .gitignore
+}
+
+@test "enable_ralph_in_directory skips .gitignore when one exists and no force" {
+    mkdir -p "$HOME/.ralph/templates"
+    echo ".ralph/.call_count" > "$HOME/.ralph/templates/.gitignore"
+
+    # Pre-existing .gitignore
+    echo "my-custom-ignore" > .gitignore
+
+    export ENABLE_FORCE="false"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    # Should preserve existing .gitignore content
+    grep -q "my-custom-ignore" .gitignore
+}
+
+@test "enable_ralph_in_directory overwrites .gitignore with force" {
+    mkdir -p "$HOME/.ralph/templates"
+    echo ".ralph/.call_count" > "$HOME/.ralph/templates/.gitignore"
+
+    # Pre-existing .gitignore with different content
+    echo "my-custom-ignore" > .gitignore
+
+    export ENABLE_FORCE="true"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    # Should have template content, not old content
+    grep -q ".ralph/.call_count" .gitignore
+    ! grep -q "my-custom-ignore" .gitignore
+}
+
+@test "enable_ralph_in_directory succeeds when templates dir exists but .gitignore is missing" {
+    # Templates dir exists but no .gitignore template inside
+    mkdir -p "$HOME/.ralph/templates"
+
+    export ENABLE_FORCE="false"
+    export ENABLE_SKIP_TASKS="true"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+    # .gitignore should not be created
+    [[ ! -f ".gitignore" ]]
 }

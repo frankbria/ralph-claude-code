@@ -31,6 +31,7 @@ setup() {
     echo "# Mock PROMPT.md" > "$MOCK_SOURCE_DIR/templates/PROMPT.md"
     echo "# Mock fix_plan.md" > "$MOCK_SOURCE_DIR/templates/fix_plan.md"
     echo "# Mock AGENT.md" > "$MOCK_SOURCE_DIR/templates/AGENT.md"
+    echo ".ralph/.call_count" > "$MOCK_SOURCE_DIR/templates/.gitignore"
 
     # Create mock lib files
     cat > "$MOCK_SOURCE_DIR/lib/circuit_breaker.sh" << 'EOF'
@@ -92,6 +93,18 @@ EOF
 #!/bin/bash
 # Mock ralph_enable_ci.sh
 echo "Ralph enable CI running"
+EOF
+
+    cat > "$MOCK_SOURCE_DIR/ralph_plan.sh" << 'EOF'
+#!/bin/bash
+# Mock ralph_plan.sh
+echo "Ralph plan running"
+EOF
+
+    cat > "$MOCK_SOURCE_DIR/ralph_check_beads.sh" << 'EOF'
+#!/bin/bash
+# Mock ralph_check_beads.sh
+echo "Ralph check beads running"
 EOF
 
     # Create mock lib files for new enable functionality
@@ -252,6 +265,13 @@ run_install() {
     diff -q "$MOCK_SOURCE_DIR/templates/PROMPT.md" "$TEST_RALPH_HOME/templates/PROMPT.md"
     diff -q "$MOCK_SOURCE_DIR/templates/fix_plan.md" "$TEST_RALPH_HOME/templates/fix_plan.md"
     diff -q "$MOCK_SOURCE_DIR/templates/AGENT.md" "$TEST_RALPH_HOME/templates/AGENT.md"
+}
+
+@test "install.sh copies dotfile templates like .gitignore" {
+    run run_install
+
+    assert_file_exists "$TEST_RALPH_HOME/templates/.gitignore"
+    diff -q "$MOCK_SOURCE_DIR/templates/.gitignore" "$TEST_RALPH_HOME/templates/.gitignore"
 }
 
 @test "install.sh copies lib/ directory" {

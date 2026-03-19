@@ -57,13 +57,14 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Analyzes Claude Code output for completion signals
    - **JSON output format detection and parsing** (with text fallback)
    - Supports both flat JSON format and Claude CLI format (`result`, `sessionId`, `metadata`)
-   - Extracts structured fields: status, exit_signal, work_type, files_modified
+   - Extracts structured fields: status, exit_signal, work_type, files_modified, asking_questions, question_count
+   - **Question detection**: `detect_questions()` with `QUESTION_PATTERNS` array — detects when Claude asks questions instead of acting autonomously (Issue #190)
    - **Session management**: `store_session_id()`, `get_last_session_id()`, `should_resume_session()`
    - Automatic session persistence to `.ralph/.claude_session_id` file with 24-hour expiration
    - Session lifecycle: `get_session_id()`, `reset_session()`, `log_session_transition()`, `init_session_tracking()`
    - Session history tracked in `.ralph/.ralph_session_history` (last 50 transitions)
    - Session auto-reset on: circuit breaker open, manual interrupt, project completion
-   - Detects test-only loops and stuck error patterns
+   - Detects test-only loops, stuck error patterns, and question-only loops
    - Two-stage error filtering to eliminate false positives
    - Multi-line error matching for accurate stuck loop detection
    - Confidence scoring for exit decisions
@@ -90,12 +91,19 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - User prompts: `confirm()`, `prompt_text()`, `prompt_number()`
    - Selection utilities: `select_option()`, `select_multiple()`, `select_with_default()`
    - Output formatting: `print_header()`, `print_bullet()`, `print_success/warning/error/info()`
+   - POSIX-compatible: Uses `tr '[:upper:]' '[:lower:]'` instead of `${,,}` for bash 3.x support (Issue #187)
 
 7. **lib/task_sources.sh** - Task import from external sources
    - Beads integration: `check_beads_available()`, `fetch_beads_tasks()`, `get_beads_count()`
    - GitHub integration: `check_github_available()`, `fetch_github_tasks()`, `get_github_issue_count()`
    - PRD extraction: `extract_prd_tasks()`, supports checkbox and numbered list formats
    - Task normalization: `normalize_tasks()`, `prioritize_tasks()`, `import_tasks_from_sources()`
+
+8. **lib/file_protection.sh** - File integrity validation for Ralph projects (Issue #149)
+   - `RALPH_REQUIRED_PATHS` array: critical files needed for the loop to function
+   - `validate_ralph_integrity()`: checks all required paths exist, sets `RALPH_MISSING_FILES`
+   - `get_integrity_report()`: human-readable report with missing files and recovery instructions
+   - Lightweight validation that runs every loop iteration
 
 ## Key Commands
 
@@ -207,7 +215,7 @@ tmux attach -t <session-name>
 
 ### Running Tests
 ```bash
-# Run all tests (490 tests)
+# Run all tests
 npm test
 
 # Run specific test suites
@@ -222,6 +230,8 @@ bats tests/unit/test_enable_core.bats
 bats tests/unit/test_task_sources.bats
 bats tests/unit/test_ralph_enable.bats
 bats tests/unit/test_circuit_breaker_recovery.bats
+bats tests/unit/test_file_protection.bats
+bats tests/unit/test_integrity_check.bats
 ```
 
 ## Ralph Loop Configuration
@@ -245,11 +255,29 @@ Ralph uses modern Claude Code CLI flags for structured communication:
 
 **Configuration Variables:**
 ```bash
+CLAUDE_CODE_CMD="claude"              # Claude Code CLI command (configurable via .ralphrc, Issue #97)
 CLAUDE_OUTPUT_FORMAT="json"           # Output format: json (default) or text
 CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(which *),Bash(bd *),Bash(cd *)"  # Allowed tool permissions
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
+CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set false for air-gapped environments)
 ```
+
+**Auto-Update Configuration:**
+- `CLAUDE_AUTO_UPDATE` controls whether Ralph checks npm registry and attempts `npm update -g` at startup
+- **Local workstation / home server**: Keep `true` (default) — CLI updates include bug fixes and new features that improve Ralph's effectiveness. The 200-500ms startup overhead is negligible for loops that run hours
+- **Docker container**: Set `false` in `.ralphrc` — container is ephemeral and version is pinned at image build time. The npm registry query and potential update are pure overhead
+- **Air-gapped environment**: Set `false` — npm registry is unreachable, the check will timeout and log a warning
+- Update failure is non-blocking: Ralph logs a warning and continues the loop normally
+
+**Claude Code CLI Command (Issue #97):**
+- `CLAUDE_CODE_CMD` defaults to `"claude"` (global install)
+- Configurable via `.ralphrc` for alternative installations (e.g., `"npx @anthropic-ai/claude-code"`)
+- Auto-detected during `ralph-enable` and `ralph-setup` (prefers `claude` if available, falls back to npx)
+- Validated at startup with `validate_claude_command()` — displays clear error with installation instructions if not found
+- After validation, `check_claude_version()` verifies minimum version compatibility and `check_claude_updates()` queries npm registry for latest version with auto-update attempt (Issue #190)
+- Both functions use `compare_semver()` for proper major→minor→patch sequential comparison (safe for any patch number, unlike integer arithmetic)
+- Environment variable `CLAUDE_CODE_CMD` takes precedence over `.ralphrc`
 
 **CLI Options:**
 - `--output-format json|text` - Set Claude output format (default: json). Note: `--live` mode requires JSON and will auto-switch from text to json.
@@ -262,6 +290,7 @@ Each loop iteration injects context via `build_loop_context()`:
 - Remaining tasks from fix_plan.md
 - Circuit breaker state (if not CLOSED)
 - Previous loop work summary
+- Corrective guidance if previous loop detected questions (Issue #190)
 
 **Session Continuity:**
 - Sessions are preserved in `.ralph/.claude_session_id`
@@ -357,7 +386,7 @@ Ralph installs to:
 - **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci)
 - **Templates**: `~/.ralph/templates/`
 - **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh)
-- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh)
+- **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh, file_protection.sh)
 
 After installation, the following global commands are available:
 - `ralph` - Start the autonomous development loop
@@ -388,6 +417,10 @@ Ralph uses multiple mechanisms to detect when to exit:
 - `TEST_PERCENTAGE_THRESHOLD=30%` - Flag if testing dominates recent loops
 - Completion detection via .ralph/fix_plan.md checklist items
 
+### Startup State Reset (Issue #194)
+
+Every new `ralph` invocation unconditionally resets `.exit_signals` and removes `.response_analysis` **before** the main loop begins. This prevents stale completion signals from a prior run (crash, SIGKILL, API-limit exit) from triggering `should_exit_gracefully()` on the first iteration before any Claude execution occurs. The API-limit "user chose exit" path also calls `reset_session()` to clean up state.
+
 ### Completion Indicators with EXIT_SIGNAL Gate
 
 The `completion_indicators` exit condition requires dual verification:
@@ -415,11 +448,53 @@ fi
 
 **Conflict Resolution:** When `STATUS: COMPLETE` but `EXIT_SIGNAL: false` in RALPH_STATUS, the explicit EXIT_SIGNAL takes precedence. This allows Claude to mark a phase complete while indicating more phases remain.
 
+### Timeout Handling (Issues #175, #198)
+
+When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` terminates the process with exit code **124**. The loop handles this differently depending on the execution mode:
+
+**Live mode** (`--live`/`--monitor`): The streaming pipeline captures per-command exit codes via `PIPESTATUS`. Timeout events are logged as a WARN:
+
+```text
+[timestamp] [WARN] Claude Code execution timed out after 15 minutes
+```
+
+**Background mode** (default): The Claude process runs in a background subshell (`&`). The exit code is captured via `wait $claude_pid`.
+
+**Productive Timeout Detection (Issue #198):**
+
+In both modes, when exit code 124 is detected, the timeout handler checks git for actual work done during the execution (comparing HEAD to `.loop_start_sha`). This prevents treating productive timeouts as failures:
+
+| Timeout + Git State | Result |
+|---|---|
+| Files changed (committed/staged/unstaged) | **Productive timeout**: runs full analysis pipeline (`save_claude_session`, `analyze_response`, `update_exit_signals`, `record_loop_result`), writes `timed_out_productive` status, returns 0 |
+| No files changed | **Idle timeout**: returns 1 (generic error) |
+
+**Session ID Fallback:** When the stream is truncated (missing `"type":"result"` message), session ID is extracted from the `"type":"system"` message, which is always written first and survives truncation.
+
+### API Limit Detection (Issues #183, #100)
+
+The API limit detection uses a four-layer approach to avoid false positives. In stream-json mode, output files contain echoed file content from tool results (`"type":"user"` lines). If project files mention "5-hour limit", naive grep patterns match those echoed strings, incorrectly triggering the API limit recovery flow.
+
+**Layer 1 — Timeout guard:**
+Exit code 124 (timeout) is checked first. Productive timeouts (files changed) return 0; idle timeouts return 1 (generic error). Neither returns code 2 (API limit).
+
+**Layer 2 — Structural JSON detection (primary):**
+Parses `rate_limit_event` JSON in the output for `"status":"rejected"`. This is the definitive signal from the Claude CLI.
+
+**Layer 3 — Filtered text fallback:**
+Only searches `tail -30` of the output file, filtering out `"type":"user"`, `"tool_result"`, and `"tool_use_id"` lines before matching text patterns for standard 5-hour limit messages.
+
+**Layer 4 — Extra Usage quota (Issue #100):**
+Detects Claude Code "Extra Usage" mode exhaustion (`"You're out of extra usage · resets 9pm"`). Uses the same noise filtering as Layer 3.
+
+**Unattended mode:** When the API limit prompt times out (no user response within 30s), Ralph auto-waits instead of exiting, supporting unattended operation.
+
 ### Circuit Breaker Thresholds
 - `CB_NO_PROGRESS_THRESHOLD=3` - Open circuit after 3 loops with no file changes
 - `CB_SAME_ERROR_THRESHOLD=5` - Open circuit after 5 loops with repeated errors
 - `CB_OUTPUT_DECLINE_THRESHOLD=70%` - Open circuit if output declines by >70%
 - `CB_PERMISSION_DENIAL_THRESHOLD=2` - Open circuit after 2 loops with permission denials (Issue #101)
+- **Question loop suppression** (Issue #190): When `asking_questions=true`, the `consecutive_no_progress` counter is held steady (not incremented). This prevents the circuit breaker from opening prematurely when Claude asks questions in headless mode. A corrective message is injected via `build_loop_context()` in the next loop iteration.
 
 ### Circuit Breaker Auto-Recovery (Issue #160)
 
@@ -460,6 +535,16 @@ ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pnpm *),Bash(yarn *)
 ALLOWED_TOOLS="Write,Read,Edit,Bash(git commit),Bash(npm install)"
 ```
 
+### API Error Detection via `is_error` Field (Issues #134, #199)
+
+The Claude CLI can exit with code 0 but set `is_error: true` in the JSON output for API-level failures (400 concurrency errors, 401 OAuth token expiry). Ralph detects this before persisting any session state:
+
+1. **Detection**: In `execute_claude_code()`, after exit code 0, `jq` reads `.is_error` from the output JSON
+2. **Session protection**: If `is_error` is true, the session is NOT persisted (prevents infinite retry with bad session ID)
+3. **Session reset**: The session is explicitly reset so the next loop starts fresh
+4. **Specific handling**: "tool use concurrency" errors get a targeted reset reason for logging clarity
+5. **Defense in depth**: `save_claude_session()` independently checks `is_error` as a guard, preventing bad sessions even if call order changes in refactors
+
 ### Error Detection
 
 Ralph uses advanced error detection with two-stage filtering to eliminate false positives:
@@ -481,28 +566,58 @@ Ralph uses advanced error detection with two-stage filtering to eliminate false 
 - Uses literal fixed-string matching (`grep -qF`) to avoid regex edge cases
 - Prevents false negatives when multiple distinct errors occur simultaneously
 
+### File Protection (Issue #149)
+
+Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting its own configuration files:
+
+**Layer 1: ALLOWED_TOOLS Restriction**
+- The default `CLAUDE_ALLOWED_TOOLS` uses granular `Bash(git add *)`, `Bash(git commit *)` etc. instead of `Bash(git *)`, preventing `git clean`, `git rm`, and other destructive git commands
+- Users can override in `.ralphrc` but the defaults are safe
+
+**Layer 2: PROMPT.md Warning**
+- The PROMPT.md template includes a "Protected Files (DO NOT MODIFY)" section listing `.ralph/` and `.ralphrc`
+- This instructs Claude to never delete, move, rename, or overwrite these files
+
+**Layer 3: Pre-Loop Integrity Check**
+- `validate_ralph_integrity()` from `lib/file_protection.sh` runs at startup and before every loop iteration
+- Checks for required paths: `.ralph/`, `.ralph/PROMPT.md`, `.ralph/fix_plan.md`, `.ralph/AGENT.md`, `.ralphrc`
+- On failure: logs error, displays recovery report, resets session, and halts the loop
+- Recovery: `ralph-enable --force` restores missing files
+
+**Required vs Optional Files:**
+
+| Required (validation fails) | Optional (no validation) |
+|---|---|
+| `.ralph/` directory | `.ralph/logs/` |
+| `.ralph/PROMPT.md` | `.ralph/status.json` |
+| `.ralph/fix_plan.md` | `.ralph/.call_count` |
+| `.ralph/AGENT.md` | `.ralph/.exit_signals` |
+| `.ralphrc` | `.ralph/.circuit_breaker_state` |
+
 ## Test Suite
 
-### Test Files (490 tests total)
+### Test Files (584 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
-| `test_circuit_breaker_recovery.bats` | 19 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) |
+| `test_circuit_breaker_recovery.bats` | 22 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) + current_loop init/display fix (#194) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
-| `test_cli_modern.bats` | 39 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) |
-| `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format |
-| `test_session_continuity.bats` | 44 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
-| `test_exit_detection.bats` | 53 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection |
-| `test_rate_limiting.bats` | 15 | Rate limiting behavior |
+| `test_cli_modern.bats` | 111 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) + productive timeout detection + session ID fallback + stale analysis cleanup (#198) + Extra Usage quota detection (#100) |
+| `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
+| `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
+| `test_exit_detection.bats` | 54 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) + stale exit signal prevention (#194) |
+| `test_rate_limiting.bats` | 11 | Rate limiting behavior |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 25 | Edge case handling |
-| `test_installation.bats` | 14 | Global installation/uninstall workflows |
-| `test_project_setup.bats` | 44 | Project setup (setup.sh) validation + .ralphrc permissions |
+| `test_installation.bats` | 15 | Global installation/uninstall workflows + dotfile template copying (#174) |
+| `test_project_setup.bats` | 50 | Project setup (setup.sh) validation + .ralphrc permissions + .gitignore (#174) |
 | `test_prd_import.bats` | 33 | PRD import (ralph_import.sh) workflows + modern CLI tests |
-| `test_enable_core.bats` | 32 | Enable core library (idempotency, project detection, template generation) |
+| `test_enable_core.bats` | 38 | Enable core library (idempotency, project detection, template generation, .gitignore #174) |
 | `test_task_sources.bats` | 23 | Task sources (beads, GitHub, PRD extraction, normalization) |
-| `test_ralph_enable.bats` | 22 | Ralph enable integration tests (wizard, CI version, JSON output) |
+| `test_ralph_enable.bats` | 24 | Ralph enable integration tests (wizard, CI version, JSON output, .ralphrc validation #149) |
 | `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
+| `test_file_protection.bats` | 15 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
+| `test_integrity_check.bats` | 10 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
 
 ### Running Tests
 ```bash

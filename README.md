@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.11.4-blue)
-![Tests](https://img.shields.io/badge/tests-484%20passing-green)
+![Version](https://img.shields.io/badge/version-0.11.5-blue)
+![Tests](https://img.shields.io/badge/tests-556%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,9 +16,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ## Project Status
 
-**Version**: v0.11.4 - Active Development
+**Version**: v0.11.5 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 484 tests, 100% pass rate
+**Test Coverage**: 566 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -42,7 +42,14 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ### Recent Improvements
 
-**v0.11.4 - Bug Fixes & Compatibility** (latest)
+**v0.11.5 - Community Bug Fixes** (latest)
+- Fixed API limit false positive: Timeout (exit code 124) no longer misidentified as API 5-hour limit (#183)
+- Three-layer API limit detection: timeout guard → structural JSON (`rate_limit_event`) → filtered text fallback
+- Unattended mode: API limit prompt now auto-waits on timeout instead of exiting
+- Fixed bash 3.x compatibility: `${,,}` lowercase substitution replaced with POSIX `tr` (#187)
+- Added 8 new tests for API limit detection (548 → 566 tests)
+
+**v0.11.4 - Bug Fixes & Compatibility**
 - Fixed progress detection: Git commits within a loop now count as progress (#141)
 - Fixed checkbox regex: Date entries `[2026-01-29]` no longer counted as checkboxes (#144)
 - Fixed session hijacking: Use `--resume <session_id>` instead of `--continue` (#151)
@@ -132,7 +139,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Session Continuity** - Preserves context across loop iterations with automatic session management
 - **Session Expiration** - Configurable timeout (default: 24 hours) with automatic session reset
 - **Rate Limiting** - Built-in API call management with hourly limits and countdown timers
-- **5-Hour API Limit Handling** - Detects Claude's 5-hour usage limit and offers wait/exit options
+- **5-Hour API Limit Handling** - Three-layer detection (timeout guard, JSON parsing, filtered text) with auto-wait for unattended mode
 - **Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
 - **Task Management** - Structured approach with prioritized task lists and progress tracking
 - **Project Templates** - Quick setup for new projects with best-practice structure
@@ -393,6 +400,10 @@ Each Ralph project can have a `.ralphrc` configuration file:
 PROJECT_NAME="my-project"
 PROJECT_TYPE="typescript"
 
+# Claude Code CLI command (auto-detected, override if needed)
+CLAUDE_CODE_CMD="claude"
+# CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"  # Alternative: use npx
+
 # Loop settings
 MAX_CALLS_PER_HOUR=100
 CLAUDE_TIMEOUT_MINUTES=15
@@ -447,11 +458,12 @@ ralph --auto-reset-circuit
 ### Claude API 5-Hour Limit
 
 When Claude's 5-hour usage limit is reached, Ralph:
-1. Detects the limit error automatically
+1. Detects the limit using three-layer verification (timeout guard → structural JSON → filtered text fallback)
 2. Prompts you to choose:
    - **Option 1**: Wait 60 minutes for the limit to reset (with countdown timer)
-   - **Option 2**: Exit gracefully (or auto-exits after 30-second timeout)
-3. Prevents endless retry loops that waste time
+   - **Option 2**: Exit gracefully
+3. **Unattended mode**: Auto-waits on prompt timeout (30s) instead of exiting
+4. Prevents false positives from echoed file content mentioning "5-hour limit"
 
 ### Custom Prompts
 
@@ -605,7 +617,7 @@ my-project/
 ## System Requirements
 
 - **Bash 4.0+** - For script execution
-- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code`
+- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code` (or use npx — set `CLAUDE_CODE_CMD` in `.ralphrc`)
 - **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
@@ -624,7 +636,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (484 tests)
+# Run all tests (566 tests)
 npm test
 
 # Run specific test suites
@@ -650,8 +662,8 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **484 tests** across 16 test files
-- **100% pass rate** (484/484 passing)
+- **566 tests** across 18 test files
+- **100% pass rate** (556/556 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
 
@@ -720,6 +732,7 @@ tail -f .ralph/logs/ralph.log
 
 ### Common Issues
 
+- **Ralph exits silently on first loop** - Claude Code CLI may not be installed or not in PATH. Ralph validates the command at startup and shows installation instructions. If using npx, add `CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"` to `.ralphrc`
 - **Rate Limits** - Ralph automatically waits and displays countdown
 - **5-Hour API Limit** - Ralph detects and prompts for user action (wait or exit)
 - **Stuck Loops** - Check `fix_plan.md` for unclear or conflicting tasks
@@ -757,7 +770,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 484 tests must pass
+npm test  # All 566 tests must pass
 ```
 
 ### Priority Contribution Areas
@@ -1092,14 +1105,14 @@ See `codex/README.md` and `codex/ALIASES.sh` for complete documentation.
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.11.4
+### Current Status: v0.11.5
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- **484 comprehensive tests** (100% pass rate)
+- **556 comprehensive tests** (100% pass rate)
 - **Live streaming output mode** for real-time Claude Code visibility
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing
@@ -1113,9 +1126,9 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Dedicated uninstall script
 
 **Test Coverage Breakdown:**
-- Unit Tests: 348 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard, live streaming, circuit breaker recovery)
+- Unit Tests: 420 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard, live streaming, circuit breaker recovery, file protection, integrity checks)
 - Integration Tests: 136 (loop execution, edge cases, installation, project setup, PRD import)
-- Test Files: 16
+- Test Files: 18
 
 ### Path to v1.0.0 (~4 weeks)
 

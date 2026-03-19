@@ -533,6 +533,17 @@ ${objectives_section}
 - Update fix_plan.md with your learnings
 - Commit working changes with descriptive messages
 
+## Protected Files (DO NOT MODIFY)
+The following files and directories are part of Ralph's infrastructure.
+NEVER delete, move, rename, or overwrite these under any circumstances:
+- .ralph/ (entire directory and all contents)
+- .ralphrc (project configuration)
+
+When performing cleanup, refactoring, or restructuring tasks:
+- These files are NOT part of your project code
+- They are Ralph's internal control files that keep the development loop running
+- Deleting them will break Ralph and halt all autonomous development
+
 ## Testing Guidelines
 - LIMIT testing to ~20% of your total effort per loop
 - PRIORITIZE: Implementation > Documentation > Tests
@@ -670,6 +681,14 @@ generate_ralphrc() {
     local project_type="${2:-unknown}"
     local task_sources="${3:-local}"
 
+    # Auto-detect Claude Code CLI command
+    local claude_cmd="claude"
+    if ! command -v claude &>/dev/null; then
+        if command -v npx &>/dev/null; then
+            claude_cmd="npx @anthropic-ai/claude-code"
+        fi
+    fi
+
     # Build ALLOWED_TOOLS based on project type
     local base_tools="Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *)"
     local lang_tools=""
@@ -703,6 +722,12 @@ generate_ralphrc() {
 PROJECT_NAME="${project_name}"
 PROJECT_TYPE="${project_type}"
 
+# Claude Code CLI command
+# If "claude" is not in your PATH, set to your installation:
+#   "npx @anthropic-ai/claude-code"  (uses npx, no global install needed)
+#   "/path/to/claude"                (custom path)
+CLAUDE_CODE_CMD="${claude_cmd}"
+
 # Loop settings
 MAX_CALLS_PER_HOUR=100
 CLAUDE_TIMEOUT_MINUTES=15
@@ -727,6 +752,9 @@ BEADS_FILTER="status:open"
 CB_NO_PROGRESS_THRESHOLD=3
 CB_SAME_ERROR_THRESHOLD=5
 CB_OUTPUT_DECLINE_THRESHOLD=70
+
+# Auto-update Claude CLI at startup
+CLAUDE_AUTO_UPDATE=true
 RALPHRCEOF
 }
 
@@ -801,6 +829,17 @@ enable_ralph_in_directory() {
     local fix_plan_content
     fix_plan_content=$(generate_fix_plan_md "$task_content")
     safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
+
+    # Copy .gitignore template to project root (if available)
+    local templates_dir
+    templates_dir=$(get_templates_dir 2>/dev/null) || true
+    if [[ -n "$templates_dir" ]] && [[ -f "$templates_dir/.gitignore" ]]; then
+        local gitignore_content
+        gitignore_content=$(<"$templates_dir/.gitignore")
+        safe_create_file ".gitignore" "$gitignore_content"
+    else
+        enable_log "WARN" ".gitignore template not found, skipping"
+    fi
 
     # Detect task sources for .ralphrc
     detect_task_sources

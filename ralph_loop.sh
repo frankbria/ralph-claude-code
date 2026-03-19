@@ -3,8 +3,6 @@
 # Claude Code Ralph Loop with Rate Limiting and Documentation
 # Adaptation of the Ralph technique for Claude Code with usage management
 
-set -e  # Exit on any error
-
 # Note: CLAUDE_CODE_ENABLE_DANGEROUS_PERMISSIONS_IN_SANDBOX and IS_SANDBOX
 # environment variables are NOT exported here. Tool restrictions are handled
 # via --allowedTools flag in CLAUDE_CMD_ARGS, which is the proper approach.
@@ -12,13 +10,14 @@ set -e  # Exit on any error
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
-source "$SCRIPT_DIR/lib/date_utils.sh"
-source "$SCRIPT_DIR/lib/timeout_utils.sh"
-source "$SCRIPT_DIR/lib/response_analyzer.sh"
-source "$SCRIPT_DIR/lib/circuit_breaker.sh"
-source "$SCRIPT_DIR/lib/task_sources.sh"
-source "$SCRIPT_DIR/lib/parallel_spawn.sh"
-source "$SCRIPT_DIR/lib/worktree_manager.sh"
+source "$SCRIPT_DIR/lib/date_utils.sh" || { echo "FATAL: Failed to source lib/date_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/timeout_utils.sh" || { echo "FATAL: Failed to source lib/timeout_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/response_analyzer.sh" || { echo "FATAL: Failed to source lib/response_analyzer.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source lib/circuit_breaker.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source lib/file_protection.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/task_sources.sh" || { echo "FATAL: Failed to source lib/task_sources.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/parallel_spawn.sh" || { echo "FATAL: Failed to source lib/parallel_spawn.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/worktree_manager.sh" || { echo "FATAL: Failed to source lib/worktree_manager.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -52,6 +51,8 @@ _env_MAX_LOOPS="${MAX_LOOPS:-}"
 _env_WORKTREE_ENABLED="${WORKTREE_ENABLED:-}"
 _env_WORKTREE_MERGE_STRATEGY="${WORKTREE_MERGE_STRATEGY:-}"
 _env_WORKTREE_QUALITY_GATES="${WORKTREE_QUALITY_GATES:-}"
+_env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+_env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -61,10 +62,11 @@ CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
 
 # Modern Claude CLI configuration (Phase 1.1)
 CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
-CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *)}"
+CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
 CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
+CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-true}"  # Auto-update Claude CLI at startup
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -123,6 +125,8 @@ RALPHRC_LOADED=false
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
 #   - RALPH_VERBOSE
+#   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
+#   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -163,8 +167,67 @@ load_ralphrc() {
     [[ -n "$_env_WORKTREE_ENABLED" ]] && WORKTREE_ENABLED="$_env_WORKTREE_ENABLED"
     [[ -n "$_env_WORKTREE_MERGE_STRATEGY" ]] && WORKTREE_MERGE_STRATEGY="$_env_WORKTREE_MERGE_STRATEGY"
     [[ -n "$_env_WORKTREE_QUALITY_GATES" ]] && WORKTREE_QUALITY_GATES="$_env_WORKTREE_QUALITY_GATES"
+    [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+    [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
 
     RALPHRC_LOADED=true
+    return 0
+}
+
+# validate_claude_command - Verify the Claude Code CLI is available
+#
+# Checks that CLAUDE_CODE_CMD resolves to an executable command.
+# For npx-based commands, validates that npx is available.
+# Returns 0 if valid, 1 if not found (with helpful error message).
+#
+validate_claude_command() {
+    local cmd="$CLAUDE_CODE_CMD"
+
+    # For npx-based commands, check that npx itself is available
+    if [[ "$cmd" == npx\ * ]] || [[ "$cmd" == "npx" ]]; then
+        if ! command -v npx &>/dev/null; then
+            echo ""
+            echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${RED}║  NPX NOT FOUND                                            ║${NC}"
+            echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            echo -e "${YELLOW}CLAUDE_CODE_CMD is set to use npx, but npx is not installed.${NC}"
+            echo ""
+            echo -e "${YELLOW}To fix this:${NC}"
+            echo "  1. Install Node.js (includes npx): https://nodejs.org"
+            echo "  2. Or install Claude Code globally:"
+            echo "     npm install -g @anthropic-ai/claude-code"
+            echo "     Then set in .ralphrc: CLAUDE_CODE_CMD=\"claude\""
+            echo ""
+            return 1
+        fi
+        return 0
+    fi
+
+    # For direct commands, check that the command exists
+    if ! command -v "$cmd" &>/dev/null; then
+        echo ""
+        echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  CLAUDE CODE CLI NOT FOUND                                ║${NC}"
+        echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}The Claude Code CLI command '${cmd}' is not available.${NC}"
+        echo ""
+        echo -e "${YELLOW}Installation options:${NC}"
+        echo "  1. Install globally (recommended):"
+        echo "     npm install -g @anthropic-ai/claude-code"
+        echo ""
+        echo "  2. Use npx (no global install needed):"
+        echo "     Add to .ralphrc: CLAUDE_CODE_CMD=\"npx @anthropic-ai/claude-code\""
+        echo ""
+        echo -e "${YELLOW}Current configuration:${NC} CLAUDE_CODE_CMD=\"${cmd}\""
+        echo ""
+        echo -e "${YELLOW}After installation or configuration:${NC}"
+        echo "  ralph --monitor  # Restart Ralph"
+        echo ""
+        return 1
+    fi
+
     return 0
 }
 
@@ -267,7 +330,7 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
     fi
     # Forward --allowed-tools if non-default
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *)" ]]; then
+    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(which *),Bash(bd *),Bash(cd *),Bash(npm *),Bash(pnpm *),Bash(yarn *),Bash(bun *),Bash(pytest)" ]]; then
         ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
@@ -293,7 +356,12 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --quality-gates '$WORKTREE_QUALITY_GATES'"
     fi
 
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
+    # Chain tmux kill-session after the loop command so the entire tmux
+    # session is torn down when the Ralph loop exits (graceful completion,
+    # circuit breaker, error, or manual interrupt). Without this, the
+    # tail -f and ralph_monitor.sh panes keep the session alive forever.
+    # Issue: https://github.com/frankbria/ralph-claude-code/issues/176
+    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:${base_win}.0"
@@ -363,8 +431,9 @@ log_status() {
     esac
     
     # Write to stderr so log messages don't interfere with function return values
-    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2
-    echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
+    # 2>/dev/null suppresses "Input/output error" when tmux pty is broken (Issue #188)
+    echo -e "${color}[$timestamp] [$level] $message${NC}" >&2 2>/dev/null
+    echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log" 2>/dev/null
 }
 
 # Update status JSON for external monitoring
@@ -466,7 +535,9 @@ should_exit_gracefully() {
     recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
-    
+
+    # Diagnostic logging for exit signal check (Issue #194)
+    [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "DEBUG" "Exit check: test_loops=$recent_test_loops done_signals=$recent_done_signals completion_indicators=$recent_completion_indicators"
 
     # Check for exit conditions
 
@@ -550,33 +621,92 @@ should_exit_gracefully() {
 # MODERN CLI HELPER FUNCTIONS (Phase 1.1)
 # =============================================================================
 
+# Compare two semver strings: returns 0 if ver1 >= ver2, 1 if ver1 < ver2
+# Uses sequential major→minor→patch comparison (safe for any patch number)
+compare_semver() {
+    local ver1="$1" ver2="$2"
+    local v1_major v1_minor v1_patch
+    local v2_major v2_minor v2_patch
+
+    IFS='.' read -r v1_major v1_minor v1_patch <<< "$ver1"
+    IFS='.' read -r v2_major v2_minor v2_patch <<< "$ver2"
+
+    v1_major=${v1_major:-0}; v1_minor=${v1_minor:-0}; v1_patch=${v1_patch:-0}
+    v2_major=${v2_major:-0}; v2_minor=${v2_minor:-0}; v2_patch=${v2_patch:-0}
+
+    if [[ $v1_major -gt $v2_major ]]; then return 0; fi
+    if [[ $v1_major -lt $v2_major ]]; then return 1; fi
+    if [[ $v1_minor -gt $v2_minor ]]; then return 0; fi
+    if [[ $v1_minor -lt $v2_minor ]]; then return 1; fi
+    if [[ $v1_patch -lt $v2_patch ]]; then return 1; fi
+    return 0
+}
+
 # Check Claude CLI version for compatibility with modern flags
 check_claude_version() {
-    local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local version
+    version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
         log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
         return 0
     fi
 
-    # Compare versions (simplified semver comparison)
-    local required="$CLAUDE_MIN_VERSION"
-
-    # Convert to comparable integers (major * 10000 + minor * 100 + patch)
-    local ver_parts=(${version//./ })
-    local req_parts=(${required//./ })
-
-    local ver_num=$((${ver_parts[0]:-0} * 10000 + ${ver_parts[1]:-0} * 100 + ${ver_parts[2]:-0}))
-    local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
-
-    if [[ $ver_num -lt $req_num ]]; then
-        log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+    if ! compare_semver "$version" "$CLAUDE_MIN_VERSION"; then
+        log_status "WARN" "Claude CLI version $version < $CLAUDE_MIN_VERSION. Some modern features may not work."
         log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
         return 1
     fi
 
-    log_status "INFO" "Claude CLI version $version (>= $required) - modern features enabled"
+    log_status "INFO" "Claude CLI version $version (>= $CLAUDE_MIN_VERSION) - modern features enabled"
     return 0
+}
+
+# Check for Claude CLI updates and attempt auto-update (Issue #190)
+check_claude_updates() {
+    if [[ "${CLAUDE_AUTO_UPDATE:-true}" != "true" ]]; then
+        return 0
+    fi
+
+    local installed_version
+    installed_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [[ -z "$installed_version" ]]; then
+        return 0
+    fi
+
+    # Query latest version from npm registry (with timeout to avoid hanging on flaky networks)
+    local latest_version
+    latest_version=$(portable_timeout 5s npm view @anthropic-ai/claude-code version 2>/dev/null)
+    if [[ -z "$latest_version" ]]; then
+        log_status "INFO" "Could not check for Claude CLI updates (npm registry unreachable)"
+        return 0
+    fi
+
+    if [[ "$installed_version" == "$latest_version" ]]; then
+        log_status "INFO" "Claude CLI is up to date ($installed_version)"
+        return 0
+    fi
+
+    if compare_semver "$installed_version" "$latest_version"; then
+        return 0
+    fi
+
+    # Auto-update attempt
+    log_status "INFO" "Claude CLI update available: $installed_version → $latest_version. Attempting auto-update..."
+    local update_output
+    if update_output=$(npm update -g @anthropic-ai/claude-code 2>&1); then
+        local new_version
+        new_version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        log_status "SUCCESS" "Claude CLI updated: $installed_version → ${new_version:-$latest_version}"
+        return 0
+    fi
+
+    # Auto-update failed — warn with environment-specific guidance
+    log_status "WARN" "Claude CLI auto-update failed ($installed_version → $latest_version)"
+    [[ -n "$update_output" ]] && log_status "DEBUG" "npm output: $update_output"
+    log_status "WARN" "Update manually: npm update -g @anthropic-ai/claude-code"
+    log_status "WARN" "In Docker: rebuild your image to include the latest version"
+    return 1
 }
 
 # Validate allowed tools against whitelist
@@ -656,7 +786,16 @@ build_loop_context() {
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local prev_summary=$(jq -r '.analysis.work_summary // ""' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null | head -c 200)
         if [[ -n "$prev_summary" && "$prev_summary" != "null" ]]; then
-            context+="Previous: ${prev_summary}"
+            context+="Previous: ${prev_summary} "
+        fi
+    fi
+
+    # If previous loop detected questions, inject corrective guidance (Issue #190 Bug 2)
+    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
+        local prev_asking_questions
+        prev_asking_questions=$(jq -r '.analysis.asking_questions // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        if [[ "$prev_asking_questions" == "true" ]]; then
+            context+="IMPORTANT: You asked questions in the previous loop. This is a headless automation loop with no human to answer. Do NOT ask questions. Choose the most conservative/safe default and proceed autonomously. "
         fi
     fi
 
@@ -763,6 +902,16 @@ init_claude_session() {
 save_claude_session() {
     local output_file=$1
 
+    # Guard: never persist a session from a response where is_error is true (Issue #134, #199)
+    if [[ -f "$output_file" ]]; then
+        local is_error
+        is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null || echo "false")
+        if [[ "$is_error" == "true" ]]; then
+            log_status "WARN" "Skipping session save — response has is_error:true"
+            return 0
+        fi
+    fi
+
     # Try to extract session ID from JSON output
     if [[ -f "$output_file" ]]; then
         local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
@@ -835,8 +984,8 @@ reset_session() {
     # Clear response analysis to prevent stale EXIT_SIGNAL from previous session
     rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
 
-    # Log the session transition (non-fatal to prevent script exit under set -e)
-    log_session_transition "active" "reset" "$reason" "${loop_count:-0}" || true
+    # Log the session transition
+    log_session_transition "active" "reset" "$reason" "${loop_count:-0}"
 
     log_status "INFO" "Session reset: $reason"
 }
@@ -1066,8 +1215,8 @@ execute_claude_code() {
     main_dir="$(pwd)"
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="${main_dir}/${LOG_DIR}/claude_output_${timestamp}.log"
-    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-    calls_made=$((calls_made + 1))
+    local calls_made
+    calls_made=$(increment_call_counter)
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
     # Store in file for access by progress detection after Claude execution
@@ -1085,13 +1234,11 @@ execute_claude_code() {
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
-    # Build loop context for session continuity
+    # Build loop context (always, regardless of session mode)
     local loop_context=""
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        loop_context=$(build_loop_context "$loop_count")
-        if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
-            log_status "INFO" "Loop context: $loop_context"
-        fi
+    loop_context=$(build_loop_context "$loop_count")
+    if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "INFO" "Loop context: $loop_context"
     fi
 
     # When in worktree mode, build a standalone directive that will be
@@ -1203,7 +1350,7 @@ You are operating inside an **isolated git worktree**.
         # These are required for stream-json to work properly
         LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
 
-        # jq filter: show text + tool names + newlines for readability
+        # jq filter: show text + tool names + sub-agent progress + newlines for readability
         local jq_filter='
             if .type == "stream_event" then
                 if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
@@ -1215,6 +1362,10 @@ You are operating inside an **isolated git worktree**.
                 else
                     empty
                 end
+            elif .type == "system" and .subtype == "task_started" then
+                "\n\n🚀 Agent: " + (.description // "started") + "\n"
+            elif .type == "system" and .subtype == "task_progress" then
+                "📌 " + (.description // "working...") + "\n"
             else
                 empty
             end'
@@ -1225,22 +1376,29 @@ You are operating inside an **isolated git worktree**.
         # Capture all pipeline exit codes for proper error handling
         # stdin must be redirected from /dev/null because newer Claude CLI versions
         # read from stdin even in -p (print) mode, causing the process to hang
-        # CRITICAL: Disable set -e around the pipeline. When Claude returns a
-        # non-stream-json response (e.g., rate limit error), jq fails and with
-        # set -o pipefail + set -e the ENTIRE script dies silently before we
-        # can display any error message to the user.
-        set +e
-        set -o pipefail
+        # Redirect stderr to separate file to prevent Node.js warnings (e.g., UNDICI)
+        # from corrupting the jq JSON pipeline (Issue #190)
+        local stderr_file="${LOG_DIR}/claude_stderr_$(date '+%Y%m%d_%H%M%S').log"
         portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+            < /dev/null 2>"$stderr_file" | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
-        set +o pipefail
-        set -e
 
         # Primary exit code is from Claude/timeout (first command in pipeline)
         exit_code=${pipe_status[0]}
+
+        # Log timeout events explicitly (exit code 124 from portable_timeout)
+        if [[ $exit_code -eq 124 ]]; then
+            log_status "WARN" "Claude Code execution timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes"
+        fi
+
+        # Log stderr if non-empty, clean up empty stderr files
+        if [[ -s "$stderr_file" ]]; then
+            log_status "WARN" "Claude CLI wrote to stderr (see: $stderr_file)"
+        else
+            rm -f "$stderr_file" 2>/dev/null
+        fi
 
         # Check for tee failures (second command) - could break logging/session
         if [[ ${pipe_status[1]} -ne 0 ]]; then
@@ -1282,6 +1440,18 @@ You are operating inside an **isolated git worktree**.
                 fi
             else
                 log_status "WARN" "Could not find result message in stream output"
+                # Fallback: extract session ID from "type":"system" message (Issue #198)
+                # The system message is always written first and survives truncation
+                local system_line
+                system_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"system"' "$output_file" 2>/dev/null | tail -1)
+                if [[ -n "$system_line" ]] && echo "$system_line" | jq -e . >/dev/null 2>&1; then
+                    local fallback_session_id
+                    fallback_session_id=$(echo "$system_line" | jq -r '.session_id // empty' 2>/dev/null)
+                    if [[ -n "$fallback_session_id" ]]; then
+                        echo "$fallback_session_id" > "$CLAUDE_SESSION_FILE"
+                        log_status "INFO" "Extracted session ID from system message (timeout fallback)"
+                    fi
+                fi
                 # Keep stream output as-is for debugging
             fi
         fi
@@ -1320,6 +1490,35 @@ You are operating inside an **isolated git worktree**.
         # Get PID and monitor progress
         local claude_pid=$!
         local progress_counter=0
+
+        # Early failure detection: if the command doesn't exist or fails immediately,
+        # the backgrounded process dies before the monitoring loop starts (Issue #97)
+        sleep 1
+        if ! kill -0 $claude_pid 2>/dev/null; then
+            wait $claude_pid 2>/dev/null
+            local early_exit=$?
+            local early_output=""
+            if [[ -f "$output_file" && -s "$output_file" ]]; then
+                early_output=$(tail -5 "$output_file" 2>/dev/null)
+            fi
+            log_status "ERROR" "❌ Claude Code process exited immediately (exit code: $early_exit)"
+            if [[ -n "$early_output" ]]; then
+                log_status "ERROR" "Output: $early_output"
+            fi
+            echo ""
+            echo -e "${RED}Claude Code failed to start.${NC}"
+            echo ""
+            echo -e "${YELLOW}Possible causes:${NC}"
+            echo "  - '${CLAUDE_CODE_CMD}' command not found or not executable"
+            echo "  - Claude Code CLI not installed"
+            echo "  - Authentication or configuration issue"
+            echo ""
+            echo -e "${YELLOW}To fix:${NC}"
+            echo "  1. Verify Claude Code works: ${CLAUDE_CODE_CMD} --version"
+            echo "  2. Or set a different command in .ralphrc: CLAUDE_CODE_CMD=\"npx @anthropic-ai/claude-code\""
+            echo ""
+            return 1
+        fi
 
         # Show progress while Claude Code is running
         while kill -0 $claude_pid 2>/dev/null; do
@@ -1393,6 +1592,16 @@ EOF
                 echo -e "\n${RED}━━━ Claude API Error ━━━${NC}"
                 echo -e "${YELLOW}$api_error${NC}"
                 echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+                echo '{"status": "failed", "error": "is_error:true", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+                # Reset session to prevent infinite retry with bad session ID
+                if echo "$api_error" | grep -qi "tool.use.concurrency\|concurrency"; then
+                    reset_session "tool_use_concurrency_error"
+                    log_status "WARN" "Session reset due to tool use concurrency error. Retrying with fresh session."
+                else
+                    reset_session "api_error_is_error_true"
+                    log_status "WARN" "Session reset due to API error (is_error:true). Retrying with fresh session."
+                fi
 
                 set -e
                 if echo "$api_error" | grep -qiE '(rate.limit|hit your limit|resets|quota|too many)'; then
@@ -1403,10 +1612,7 @@ EOF
         fi
         set -e
 
-        # Only increment counter on successful execution
-        echo "$calls_made" > "$CALL_COUNT_FILE"
-
-        # Clear progress file
+        # Clear progress file (only after is_error check passes)
         echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
         log_status "SUCCESS" "✅ Claude Code execution completed successfully"
@@ -1421,11 +1627,16 @@ EOF
         analyze_response "$output_file" "$loop_count"
         local analysis_exit_code=$?
 
-        # Update exit signals based on analysis
-        update_exit_signals
+        if [[ $analysis_exit_code -eq 0 ]]; then
+            # Update exit signals based on analysis
+            update_exit_signals
 
-        # Log analysis summary
-        log_analysis_summary
+            # Log analysis summary
+            log_analysis_summary
+        else
+            log_status "WARN" "Response analysis failed (exit $analysis_exit_code); skipping signal updates"
+            rm -f "$RESPONSE_ANALYSIS_FILE"
+        fi
 
         # Get file change count for circuit breaker
         # Fix #141: Detect both uncommitted changes AND committed changes
@@ -1501,27 +1712,136 @@ EOF
         # Clear progress file on failure
         echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
-        # Check if the failure is due to API 5-hour limit
-        if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
-            log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
-            return 2  # Special return code for API limit
-        else
-            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
-            return 1
+        # Layer 1: Timeout guard — exit code 124 is a timeout, not an API limit
+        # Issue #198: Check for productive work before treating as failure
+        if [[ $exit_code -eq 124 ]]; then
+            log_status "WARN" "⏱️ Claude Code execution timed out (not an API limit)"
+
+            # Check git for actual changes made during the timed-out execution
+            local timeout_loop_start_sha=""
+            local timeout_current_sha=""
+            local timeout_files_changed=0
+
+            if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
+                timeout_loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
+            fi
+
+            if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+                timeout_current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+                if [[ -n "$timeout_loop_start_sha" && -n "$timeout_current_sha" && "$timeout_loop_start_sha" != "$timeout_current_sha" ]]; then
+                    timeout_files_changed=$(
+                        {
+                            git diff --name-only "$timeout_loop_start_sha" "$timeout_current_sha" 2>/dev/null
+                            git diff --name-only HEAD 2>/dev/null
+                            git diff --name-only --cached 2>/dev/null
+                        } | sort -u | wc -l
+                    )
+                else
+                    timeout_files_changed=$(
+                        {
+                            git diff --name-only 2>/dev/null
+                            git diff --name-only --cached 2>/dev/null
+                        } | sort -u | wc -l
+                    )
+                fi
+            fi
+
+            if [[ $timeout_files_changed -gt 0 ]]; then
+                # Productive timeout — work was done despite the timeout
+                log_status "INFO" "⏱️ Timeout but $timeout_files_changed file(s) changed — treating iteration as productive"
+                echo '{"status": "timed_out_productive", "files_changed": '$timeout_files_changed', "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+                # Save session ID (fallback already populated by Step 1 if stream was truncated)
+                if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+                    save_claude_session "$output_file"
+                fi
+
+                # Run analysis pipeline on whatever output exists
+                log_status "INFO" "🔍 Analyzing response from productive timeout..."
+                analyze_response "$output_file" "$loop_count"
+                local timeout_analysis_exit=$?
+
+                if [[ $timeout_analysis_exit -eq 0 ]]; then
+                    update_exit_signals
+                    log_analysis_summary
+                else
+                    # Clear stale response analysis to prevent next loop from reusing
+                    # old EXIT_SIGNAL, permission-denial, or question-detection state
+                    log_status "WARN" "Timeout response analysis failed (exit $timeout_analysis_exit); clearing stale analysis"
+                    rm -f "$RESPONSE_ANALYSIS_FILE"
+                fi
+
+                # Feed circuit breaker with progress data
+                local timeout_output_length
+                timeout_output_length=$(wc -c < "$output_file" 2>/dev/null || echo "0")
+                record_loop_result "$loop_count" "$timeout_files_changed" "false" "$timeout_output_length"
+                local timeout_circuit_result=$?
+
+                if [[ $timeout_circuit_result -ne 0 ]]; then
+                    log_status "WARN" "Circuit breaker opened - halting execution"
+                    return 3
+                fi
+
+                return 0
+            else
+                # Idle timeout — no work detected
+                log_status "WARN" "⏱️ Timeout with no detectable progress"
+                return 1
+            fi
+        fi  # end timeout
+
+        # Layer 2: Structural JSON detection — check rate_limit_event for status:"rejected"
+        # This is the definitive signal from the Claude CLI
+        if grep -q '"rate_limit_event"' "$output_file" 2>/dev/null; then
+            local last_rate_event
+            last_rate_event=$(grep '"rate_limit_event"' "$output_file" | tail -1)
+            if echo "$last_rate_event" | grep -qE '"status"\s*:\s*"rejected"'; then
+                log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+                return 2  # Real API limit
+            fi
         fi
+
+        # Layer 3: Filtered text fallback — only check tail, excluding tool result lines
+        # Filters out type:user, tool_result, and tool_use_id lines which contain echoed file content
+        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+            log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+            return 2  # API limit detected via text fallback
+        fi
+
+        # Layer 4: Extra Usage quota detection (Issue #100)
+        # Claude Code "Extra Usage" mode uses a different error message:
+        # "You're out of extra usage · resets 9pm"
+        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "out of extra usage"; then
+            log_status "ERROR" "🚫 Claude Extra Usage quota exhausted"
+            return 2  # Extra Usage limit detected
+        fi
+
+        log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+        return 1
     fi
 }
 
 # Cleanup function
 cleanup() {
-    log_status "INFO" "Ralph loop interrupted. Cleaning up..."
-    if worktree_is_active 2>/dev/null; then
-        log_status "INFO" "Cleaning up active worktree..."
-        worktree_cleanup "true" 2>/dev/null || true
+    local trap_exit_code=$?
+
+    # Reentrancy guard — prevent double execution from EXIT + signal combination
+    if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
+    _CLEANUP_DONE=true
+
+    # Only record "interrupted" status for abnormal exits (non-zero exit code)
+    # Normal exit (code 0) preserves the status already written by the main loop
+    if [[ $loop_count -gt 0 && $trap_exit_code -ne 0 ]]; then
+        log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+        if worktree_is_active 2>/dev/null; then
+            log_status "INFO" "Cleaning up active worktree..."
+            worktree_cleanup "true" 2>/dev/null || true
+        fi
+        reset_session "manual_interrupt"
+        update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     fi
-    reset_session "manual_interrupt"
-    update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
-    exit 0
+    # No exit here — EXIT trap handles natural termination
 }
 
 # Set up signal handlers
@@ -1538,6 +1858,16 @@ main() {
             log_status "INFO" "Loaded configuration from .ralphrc"
         fi
     fi
+
+    # Validate Claude Code CLI is available before starting
+    if ! validate_claude_command; then
+        log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
+        exit 1
+    fi
+
+    # Check CLI version compatibility and auto-update (Issue #190)
+    check_claude_version
+    check_claude_updates
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
@@ -1583,6 +1913,15 @@ main() {
         exit 1
     fi
 
+    # Verify Ralph file integrity on startup (Issue #149)
+    if ! validate_ralph_integrity; then
+        log_status "ERROR" "Ralph integrity check failed - critical files missing"
+        echo ""
+        echo "$(get_integrity_report)"
+        echo ""
+        exit 1
+    fi
+
     # Initialize session tracking before entering the loop
     init_session_tracking
 
@@ -1596,8 +1935,15 @@ main() {
         fi
     fi
 
+    # Reset exit signals to prevent stale state from prior run causing premature exit (Issue #194)
+    # This is unconditional: regardless of how the previous run ended (crash, SIGKILL, API limit exit),
+    # every new ralph invocation starts with a clean exit-signal slate.
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+    rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
+    log_status "INFO" "Reset exit signals for fresh start"
+
     log_status "INFO" "Starting main loop..."
-    
+
     while true; do
         loop_count=$((loop_count + 1))
 
@@ -1617,6 +1963,19 @@ main() {
             break
         fi
         
+        # Verify Ralph's critical files still exist (Issue #149)
+        if ! validate_ralph_integrity; then
+            # Ensure log directory exists for logging even if .ralph/ was deleted
+            mkdir -p "$LOG_DIR" 2>/dev/null
+            log_status "ERROR" "Ralph integrity check failed - critical files missing"
+            echo ""
+            echo "$(get_integrity_report)"
+            echo ""
+            reset_session "integrity_failure"
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)" "integrity_failure" "halted" "files_deleted"
+            break
+        fi
+
         # Check circuit breaker before attempting execution
         if should_halt_execution; then
             reset_session "circuit_breaker_open"
@@ -1838,22 +2197,24 @@ main() {
             log_status "WARN" "🛑 Claude API 5-hour limit reached!"
             
             # Ask user whether to wait or exit
-            echo -e "\n${YELLOW}The Claude API 5-hour usage limit has been reached.${NC}"
+            echo -e "\n${YELLOW}A Claude API usage limit has been reached (5-hour plan limit or Extra Usage quota).${NC}"
             echo -e "${YELLOW}You can either:${NC}"
             echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
             echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
             echo -e "\n${BLUE}Choose an option (1 or 2):${NC} "
             
             # Read user input with timeout
-            read -t 30 -n 1 user_choice
+            read -t 30 -n 1 user_choice || true
             echo  # New line after input
             
-            if [[ "$user_choice" == "2" ]] || [[ -z "$user_choice" ]]; then
-                log_status "INFO" "User chose to exit (or timed out). Exiting loop..."
+            if [[ "$user_choice" == "2" ]]; then
+                log_status "INFO" "User chose to exit. Exiting loop..."
+                reset_session "api_limit_exit"
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
                 break
             else
-                log_status "INFO" "User chose to wait. Waiting for API limit reset..."
+                # Auto-wait on timeout (empty choice) or explicit "1" — supports unattended operation
+                log_status "INFO" "Waiting for API limit reset (auto-wait for unattended mode)..."
                 # Wait for longer period when API limit is hit
                 local wait_minutes=60
                 log_status "INFO" "Waiting $wait_minutes minutes before retrying..."

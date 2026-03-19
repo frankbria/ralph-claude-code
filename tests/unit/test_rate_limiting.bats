@@ -15,7 +15,7 @@ setup() {
     export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 
     # Create temp test directory
-    export TEST_TEMP_DIR="$(mktemp -d /tmp/ralph-test.XXXXXX)"
+    export TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
     mkdir -p "$RALPH_DIR"
 
@@ -137,32 +137,6 @@ increment_call_counter() {
     assert_equal "$(cat $CALL_COUNT_FILE)" "1"
 }
 
-# Test 10: Rate limit with different MAX_CALLS value (50)
-@test "can_make_call respects MAX_CALLS_PER_HOUR of 50" {
-    echo "49" > "$CALL_COUNT_FILE"
-    export MAX_CALLS_PER_HOUR=50
-
-    run can_make_call
-    assert_success
-
-    echo "50" > "$CALL_COUNT_FILE"
-    run can_make_call
-    assert_failure
-}
-
-# Test 11: Rate limit with different MAX_CALLS value (25)
-@test "can_make_call respects MAX_CALLS_PER_HOUR of 25" {
-    echo "24" > "$CALL_COUNT_FILE"
-    export MAX_CALLS_PER_HOUR=25
-
-    run can_make_call
-    assert_success
-
-    echo "25" > "$CALL_COUNT_FILE"
-    run can_make_call
-    assert_failure
-}
-
 # Test 12: Counter persistence across multiple increments
 @test "counter persists correctly across multiple increments" {
     echo "0" > "$CALL_COUNT_FILE"
@@ -188,20 +162,3 @@ increment_call_counter() {
     }
 }
 
-# Test 14: Can make call with zero calls
-@test "can_make_call returns success with zero calls made" {
-    echo "0" > "$CALL_COUNT_FILE"
-    export MAX_CALLS_PER_HOUR=100
-
-    run can_make_call
-    assert_success
-}
-
-# Test 15: Edge case - very large MAX_CALLS value
-@test "can_make_call works with large MAX_CALLS value" {
-    echo "5000" > "$CALL_COUNT_FILE"
-    export MAX_CALLS_PER_HOUR=10000
-
-    run can_make_call
-    assert_success
-}

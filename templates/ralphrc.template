@@ -24,6 +24,7 @@ PROJECT_TYPE="${PROJECT_TYPE:-unknown}"
 MAX_CALLS_PER_HOUR=100
 
 # Timeout for each Claude Code invocation (in minutes)
+# When timeout is reached, the loop logs the event and continues to the next iteration
 CLAUDE_TIMEOUT_MINUTES=15
 
 # Output format: json (structured) or text (legacy)
@@ -86,6 +87,12 @@ CB_AUTO_RESET=false
 # =============================================================================
 # ADVANCED SETTINGS
 # =============================================================================
+
+# Auto-update Claude CLI at startup (checks npm registry, attempts npm update -g)
+# Recommended: true for local workstations and home servers (keeps CLI current automatically)
+# Recommended: false for Docker containers (version is pinned at image build, container is ephemeral)
+# Also set false for air-gapped environments without npm registry access
+CLAUDE_AUTO_UPDATE=true
 
 # Minimum Claude CLI version required
 CLAUDE_MIN_VERSION="2.0.76"
