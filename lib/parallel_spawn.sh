@@ -154,8 +154,11 @@ spawn_ide_terminals() {
         return 1
     fi
 
-    # Build the command string to type into each terminal
-    local cmd_text="cd $(printf '%q' "$cwd") && ${cmd_args[*]}"
+    # Build the command string to type into each terminal.
+    # Prefix with 'sleep 2' to let the IDE terminal fully initialize its PTY
+    # dimensions — TUI apps (e.g. Devin CLI) panic if they query terminal size
+    # before the PTY is ready and get 0 cols/rows.
+    local cmd_text="sleep 2 && cd $(printf '%q' "$cwd") && ${cmd_args[*]}"
     # Escape for AppleScript string literal: \ -> \\, " -> \"
     local as_cmd
     as_cmd=$(printf '%s' "$cmd_text" | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -175,7 +178,7 @@ tell application "System Events"
     tell process "$ide_app"
         -- Ctrl+Shift+\` → "Terminal: Create New Terminal" in VS Code / forks
         key code 50 using {control down, shift down}
-        delay 1.5
+        delay 2.0
         keystroke "$as_cmd"
         delay 0.3
         keystroke return
@@ -260,6 +263,7 @@ spawn_background_agents() {
 #   - iTerm2 → new iTerm tabs (AppleScript → iTerm2 API)
 #   - IDE    → new integrated terminal tabs (AppleScript → System Events keystroke)
 #   - other  → background processes (fallback)
+# Set PARALLEL_BG=true to force background mode regardless of terminal.
 # Arguments:
 #   $1 - number of agents to spawn
 #   $2... - the command and arguments to run in each agent
@@ -280,8 +284,15 @@ spawn_parallel_agents() {
         return 1
     fi
 
+    # Force background mode when PARALLEL_BG is set
+    local force_bg="${PARALLEL_BG:-false}"
+
     local term_env
-    term_env="$(detect_terminal_env)"
+    if [[ "$force_bg" == "true" ]]; then
+        term_env="background"
+    else
+        term_env="$(detect_terminal_env)"
+    fi
 
     local spawn_method="$term_env"
     # For IDE, verify we can detect the app name; fall back to background if not
@@ -319,7 +330,7 @@ spawn_parallel_agents() {
                 spawn_background_agents "$count" "${cmd_args[@]}"
             fi
             ;;
-        other)
+        background|other)
             spawn_background_agents "$count" "${cmd_args[@]}"
             ;;
     esac

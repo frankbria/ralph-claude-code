@@ -51,6 +51,10 @@ alias rpc.int='ralph --live --monitor'
 # Usage: rpc.int.p 3  -> spawns 3 parallel ralph agents
 rpc.int.p() { ralph --live --monitor --parallel "${1:?Usage: rpc.int.p <number>}"; }
 
+# Parallel background mode (spawns N agents as background processes in any terminal)
+# Usage: rpc.int.p.b 3  -> spawns 3 parallel ralph agents in background
+rpc.int.p.b() { ralph --live --monitor --parallel-bg "${1:?Usage: rpc.int.p.b <number>}"; }
+
 # Combined common workflows
 alias rpc.dev='ralph --live --monitor --verbose'
 alias rpc.prod='ralph --calls 50 --auto-reset-circuit'

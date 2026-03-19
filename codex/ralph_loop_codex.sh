@@ -42,6 +42,7 @@ TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 LIVE_OUTPUT=false
 PARALLEL_COUNT=0
+PARALLEL_BG=false
 SLEEP_DURATION=3600
 
 # Save environment variable state BEFORE setting defaults
@@ -1271,6 +1272,15 @@ while [[ $# -gt 0 ]]; do
             PARALLEL_COUNT="$2"
             shift 2
             ;;
+        --parallel-bg)
+            if [[ -z "$2" || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: --parallel-bg requires a positive integer (number of agents)"
+                exit 1
+            fi
+            PARALLEL_COUNT="$2"
+            PARALLEL_BG=true
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -1283,6 +1293,7 @@ done
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # If parallel mode requested, spawn agents (iTerm tabs or background jobs)
     if [[ "$PARALLEL_COUNT" -gt 0 ]]; then
+        # Rebuild args without --parallel N / --parallel-bg N
         passthrough_args=()
         skip_next=false
         for arg in "${_RALPH_ORIGINAL_ARGS[@]}"; do
@@ -1290,12 +1301,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
                 skip_next=false
                 continue
             fi
-            if [[ "$arg" == "--parallel" ]]; then
+            if [[ "$arg" == "--parallel" || "$arg" == "--parallel-bg" ]]; then
                 skip_next=true
                 continue
             fi
             passthrough_args+=("$arg")
         done
+        export PARALLEL_BG
         spawn_parallel_agents "$PARALLEL_COUNT" ralph-codex "${passthrough_args[@]}"
         exit $?
     fi

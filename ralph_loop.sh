@@ -31,6 +31,7 @@ CLAUDE_CODE_CMD="claude"
 SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
 PARALLEL_COUNT=0       # Number of parallel agents to spawn (0 = disabled)
+PARALLEL_BG=false      # Force background mode for parallel agents
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
@@ -2268,7 +2269,8 @@ Options:
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
     --max-loops NUM         Stop after NUM loops (default: 0 = unlimited)
-    --parallel N            Spawn N parallel ralph agents (iTerm2 tabs or background jobs in IDE terminals)
+    --parallel N            Spawn N parallel ralph agents (iTerm2 tabs or IDE terminal tabs, auto-detected)
+    --parallel-bg N         Spawn N parallel ralph agents as background processes (any terminal)
 
 Modern CLI Options:
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2461,6 +2463,15 @@ while [[ $# -gt 0 ]]; do
             PARALLEL_COUNT="$2"
             shift 2
             ;;
+        --parallel-bg)
+            if [[ -z "$2" || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: --parallel-bg requires a positive integer (number of agents)"
+                exit 1
+            fi
+            PARALLEL_COUNT="$2"
+            PARALLEL_BG=true
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -2473,7 +2484,7 @@ done
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # If parallel mode requested, spawn agents (iTerm tabs or background jobs)
     if [[ "$PARALLEL_COUNT" -gt 0 ]]; then
-        # Rebuild args without --parallel N
+        # Rebuild args without --parallel N / --parallel-bg N
         passthrough_args=()
         skip_next=false
         for arg in "${_RALPH_ORIGINAL_ARGS[@]}"; do
@@ -2481,12 +2492,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
                 skip_next=false
                 continue
             fi
-            if [[ "$arg" == "--parallel" ]]; then
+            if [[ "$arg" == "--parallel" || "$arg" == "--parallel-bg" ]]; then
                 skip_next=true
                 continue
             fi
             passthrough_args+=("$arg")
         done
+        export PARALLEL_BG
         spawn_parallel_agents "$PARALLEL_COUNT" ralph "${passthrough_args[@]}"
         exit $?
     fi
