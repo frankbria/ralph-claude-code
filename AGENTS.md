@@ -35,6 +35,8 @@ The system consists of four main bash scripts and a modular library system:
    - Does NOT execute tasks - planning only
    - Interactive PRD directory selection with memory (stored in constitution.md)
    - `--engine` flag to select AI engine: claude (default), codex, devin
+   - `--yolo` flag: uses `--dangerously-skip-permissions` (Claude only, bypasses ALL permission checks)
+   - `--superpowers` / `--sup` flag: loads [obra/superpowers](https://github.com/obra/superpowers) plugin via `--plugin-dir` (Claude only, auto-cloned on first use to `~/.claude/plugins/repos/superpowers`)
    - Shared across all Ralph flavors (wrappers pass correct engine)
    - **PM-OS / DoE-OS auto-detection**: When Ralph is not enabled (no `.ralph/`), auto-detects
      sibling/cousin `*-pm-os` and `*-doe-os` directories, bootstraps `.ralph/`, and runs AI-only
@@ -165,6 +167,11 @@ ralph-plan --engine devin
 
 # Combined: specific engine + directory
 ralph-plan --prd-dir ./specs --engine codex
+
+# Yolo mode + superpowers plugin (Claude only)
+ralph-plan --yolo --superpowers
+# Or use the alias:
+# rpc.plan.sup
 
 # PM-OS / DoE-OS auto-detection (run from app dir without .ralph/)
 # Auto-detects sibling/cousin *-pm-os and *-doe-os directories

@@ -67,6 +67,7 @@ alias rpc.uninstall='(cd ~/Projects/Tools-Utilities/ai-ralph && ./uninstall.sh)'
 
 # Planning mode (AI-powered, always uses claude engine)
 alias rpc.plan='ralph-plan'
+alias rpc.plan.sup='ralph-plan --yolo --superpowers'
 
 # Shared commands (work for all engines)
 alias ralph.setup='ralph-setup'

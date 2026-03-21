@@ -42,6 +42,14 @@ DEVIN_CMD="devin"
 # Claude-specific: allowed tools for --allowedTools flag
 declare -a CLAUDE_ALLOWED_TOOLS=('Read' 'Write' 'Glob' 'Grep')
 
+# Yolo mode: --dangerously-skip-permissions (bypasses ALL permission checks)
+YOLO_MODE=false
+
+# Superpowers plugin: obra/superpowers Claude plugin
+SUPERPOWERS=false
+SUPERPOWERS_PLUGIN_DIR="${HOME}/.claude/plugins/repos/superpowers"
+SUPERPOWERS_REPO="https://github.com/obra/superpowers"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -81,6 +89,9 @@ Options:
     --pm-os <dir>      PM OS directory (contains PRDs, analyses, specs in outputs/)
     --doe-os <dir>     DoE OS directory (contains TDDs, tech specs in outputs/)
     --engine <name>    AI engine: claude (default), codex, devin
+    --yolo             Yolo mode: --dangerously-skip-permissions (Claude only)
+    --superpowers      Load obra/superpowers plugin (Claude only, auto-cloned)
+    --sup              Alias for --superpowers
     -h, --help         Show this help
 
 Examples:
@@ -89,6 +100,7 @@ Examples:
     ralph-plan --engine codex                   # Use Codex for analysis
     ralph-plan --engine devin                   # Use Devin for analysis
     ralph-plan --prd-dir ./specs --engine codex # Codex on specific directory
+    ralph-plan --yolo --superpowers             # Claude yolo + superpowers (rpc.plan.sup)
     ralph-plan --pm-os ../product/my-pm-os --doe-os ../engineering/my-doe-os
 
 PM-OS / DoE-OS Auto-Detection:
@@ -419,6 +431,29 @@ prompt_prd_directory() {
 }
 
 # =============================================================================
+# SUPERPOWERS PLUGIN MANAGEMENT
+# =============================================================================
+
+# Ensure the superpowers plugin is cloned locally
+# Uses shallow clone for speed; cached for subsequent runs
+ensure_superpowers_plugin() {
+    if [[ -d "$SUPERPOWERS_PLUGIN_DIR" ]]; then
+        log "INFO" "Superpowers plugin found: $SUPERPOWERS_PLUGIN_DIR"
+        return 0
+    fi
+
+    log "INFO" "Cloning superpowers plugin (one-time)..."
+    mkdir -p "$(dirname "$SUPERPOWERS_PLUGIN_DIR")"
+    if git clone --depth 1 "$SUPERPOWERS_REPO" "$SUPERPOWERS_PLUGIN_DIR" 2>/dev/null; then
+        log "SUCCESS" "Superpowers plugin cloned to $SUPERPOWERS_PLUGIN_DIR"
+        return 0
+    else
+        log "ERROR" "Failed to clone superpowers plugin from $SUPERPOWERS_REPO"
+        return 1
+    fi
+}
+
+# =============================================================================
 # AI PLANNING
 # =============================================================================
 
@@ -531,8 +566,28 @@ run_ai_planning() {
     # AI runs in full TUI mode so user can watch it work
     case "$ENGINE" in
         claude)
-            log "PLAN" "Launching: $cli_cmd (interactive) --permission-mode bypassPermissions --allowedTools ${CLAUDE_ALLOWED_TOOLS[*]}"
-            if "$cli_cmd" --permission-mode bypassPermissions --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" "$prompt_content"; then
+            # Build Claude-specific flags based on mode
+            local -a claude_flags=()
+
+            if [[ "$YOLO_MODE" == true ]]; then
+                claude_flags+=("--dangerously-skip-permissions")
+                log "PLAN" "Yolo mode: --dangerously-skip-permissions"
+            else
+                claude_flags+=("--permission-mode" "bypassPermissions")
+                claude_flags+=("--allowedTools" "${CLAUDE_ALLOWED_TOOLS[@]}")
+            fi
+
+            if [[ "$SUPERPOWERS" == true ]]; then
+                if ! ensure_superpowers_plugin; then
+                    log "ERROR" "Cannot proceed without superpowers plugin"
+                    return 1
+                fi
+                claude_flags+=("--plugin-dir" "$SUPERPOWERS_PLUGIN_DIR")
+                log "PLAN" "Superpowers plugin: $SUPERPOWERS_PLUGIN_DIR"
+            fi
+
+            log "PLAN" "Launching: $cli_cmd (interactive) ${claude_flags[*]}"
+            if "$cli_cmd" "${claude_flags[@]}" "$prompt_content"; then
                 cli_exit_code=0
             else
                 cli_exit_code=$?
@@ -593,6 +648,14 @@ parse_args() {
             --engine)
                 ENGINE="$2"
                 shift 2
+                ;;
+            --yolo)
+                YOLO_MODE=true
+                shift
+                ;;
+            --superpowers|--sup)
+                SUPERPOWERS=true
+                shift
                 ;;
             -h|--help)
                 show_help
