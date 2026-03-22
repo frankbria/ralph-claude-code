@@ -2158,6 +2158,10 @@ main() {
                         if [[ $merge_result -eq 0 ]]; then
                             log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
                             worktree_cleanup "true"
+                            # Mark the picked task complete in fix_plan.md
+                            if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                                mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
+                            fi
                         else
                             log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
                             worktree_cleanup "false"
@@ -2170,6 +2174,21 @@ main() {
                     log_status "WARN" "Quality gates failed. Branch preserved: $(worktree_get_branch)"
                     worktree_cleanup "false"
                 fi
+            elif [[ "$WORKTREE_ENABLED" == "true" ]] && [[ -n "$_WT_CURRENT_PATH" ]] && [[ ! -d "$_WT_CURRENT_PATH" ]]; then
+                # Worktree was removed externally (e.g. via a merge command run by Claude).
+                # Sync fix_plan.md from the committed state so the [~] marker is replaced.
+                if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                    git checkout HEAD -- "$RALPH_DIR/fix_plan.md" 2>/dev/null || true
+                fi
+                # If the branch was deleted (merge committed), mark the task complete
+                if [[ -n "$_WT_CURRENT_BRANCH" ]] && ! git rev-parse --verify "$_WT_CURRENT_BRANCH" &>/dev/null 2>&1; then
+                    if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                        mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
+                        log_status "INFO" "Marked task complete after external worktree merge"
+                    fi
+                fi
+                _WT_CURRENT_PATH=""
+                _WT_CURRENT_BRANCH=""
             fi
 
             # Beads post-sync: close completed beads
@@ -2178,6 +2197,17 @@ main() {
                 beads_post_sync "$RALPH_DIR/fix_plan.md" "$loop_count" "Ralph Claude" 2>&1 | while IFS= read -r sync_msg; do
                     log_status "INFO" "$sync_msg"
                 done
+            fi
+
+            # Commit tracked .ralph/ state files (fix_plan.md, AGENT.md) to avoid
+            # leaving them as uncommitted changes at the end of the loop.
+            if git rev-parse --git-dir &>/dev/null 2>&1; then
+                local ralph_staged=""
+                git add "$RALPH_DIR/fix_plan.md" "$RALPH_DIR/AGENT.md" 2>/dev/null || true
+                ralph_staged=$(git diff --cached --name-only 2>/dev/null)
+                if [[ -n "$ralph_staged" ]]; then
+                    git commit -m "ralph: sync .ralph state after loop #${loop_count}" 2>/dev/null || true
+                fi
             fi
 
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"

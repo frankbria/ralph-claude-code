@@ -826,6 +826,28 @@ mark_fix_plan_in_progress() {
 #   $1 - bead_id: The bead ID to claim
 # Returns:
 #   0 on success, 1 if bead_id empty or bd unavailable
+# mark_fix_plan_complete - Mark a specific task as complete in fix_plan.md
+# Changes "- [~]" to "- [x]" on the given line number.
+#
+# Args:
+#   $1 - fix_plan_file: Path to fix_plan.md
+#   $2 - line_num: 1-based line number to mark
+# Returns:
+#   0 on success, 1 on error
+mark_fix_plan_complete() {
+    local fix_plan_file="${1:-.ralph/fix_plan.md}"
+    local line_num="${2}"
+
+    if [[ -z "$line_num" || ! -f "$fix_plan_file" ]]; then
+        return 1
+    fi
+
+    local tmp_file="${fix_plan_file}.tmp.$$"
+    awk -v ln="$line_num" 'NR==ln { sub(/- \[~\]/, "- [x]") } 1' "$fix_plan_file" > "$tmp_file" \
+        && mv "$tmp_file" "$fix_plan_file"
+    return $?
+}
+
 mark_single_bead_in_progress() {
     local bead_id="${1}"
 
@@ -868,4 +890,5 @@ export -f _acquire_task_lock
 export -f _release_task_lock
 export -f pick_next_task
 export -f mark_fix_plan_in_progress
+export -f mark_fix_plan_complete
 export -f mark_single_bead_in_progress

@@ -625,8 +625,9 @@ You are operating inside an **isolated git worktree**.
 2. If there are uncommitted changes, commit them with a descriptive message
 3. Run quality checks: \`npm test\` and \`npm run lint\` (or equivalent for this project)
 4. If all checks pass, merge this worktree branch into the main branch using the squash strategy
-5. After successful merge, delete this worktree
+5. After successful merge, delete this worktree and its branch
 6. Clean up any other stale worktrees that have no uncommitted changes
+7. In the main branch directory, update \`.ralph/fix_plan.md\`: find the line with \`- [~]\` that corresponds to the work you just completed and change it to \`- [x]\`. Then commit that change with message 'ralph-devin: mark task complete'.
 
 After completing these steps, type 'exit' to end the session."
 
@@ -1032,6 +1033,10 @@ main() {
                         if [[ $merge_result -eq 0 ]]; then
                             log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
                             worktree_cleanup "true"
+                            # Mark the picked task complete in fix_plan.md
+                            if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                                mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
+                            fi
                         else
                             log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
                             worktree_cleanup "false"
@@ -1044,6 +1049,22 @@ main() {
                     log_status "WARN" "Quality gates failed. Branch preserved: $(worktree_get_branch)"
                     worktree_cleanup "false"
                 fi
+            elif [[ "$WORKTREE_ENABLED" == "true" ]] && [[ -n "$_WT_CURRENT_PATH" ]] && [[ ! -d "$_WT_CURRENT_PATH" ]]; then
+                # Worktree was removed externally (e.g. via dewtm or the cleanup injection).
+                # Sync fix_plan.md from the committed state so the [~] marker written by
+                # pick_next_task is replaced with whatever the merge committed (typically [x]).
+                if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                    git checkout HEAD -- "$RALPH_DIR/fix_plan.md" 2>/dev/null || true
+                fi
+                # If the branch was deleted (merge committed), mark the task complete
+                if [[ -n "$_WT_CURRENT_BRANCH" ]] && ! git rev-parse --verify "$_WT_CURRENT_BRANCH" &>/dev/null 2>&1; then
+                    if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                        mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
+                        log_status "INFO" "Marked task complete after external worktree merge"
+                    fi
+                fi
+                _WT_CURRENT_PATH=""
+                _WT_CURRENT_BRANCH=""
             fi
 
             # Beads post-sync: close completed beads
@@ -1052,6 +1073,17 @@ main() {
                 beads_post_sync "$RALPH_DIR/fix_plan.md" "$loop_count" 2>&1 | while IFS= read -r sync_msg; do
                     log_status "INFO" "$sync_msg"
                 done
+            fi
+
+            # Commit tracked .ralph/ state files (fix_plan.md, AGENT.md) to avoid
+            # leaving them as uncommitted changes at the end of the loop.
+            if git rev-parse --git-dir &>/dev/null 2>&1; then
+                local ralph_staged=""
+                git add "$RALPH_DIR/fix_plan.md" "$RALPH_DIR/AGENT.md" 2>/dev/null || true
+                ralph_staged=$(git diff --cached --name-only 2>/dev/null)
+                if [[ -n "$ralph_staged" ]]; then
+                    git commit -m "ralph-devin: sync .ralph state after loop #${loop_count}" 2>/dev/null || true
+                fi
             fi
 
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"

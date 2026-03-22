@@ -398,6 +398,13 @@ worktree_merge() {
         }
     fi
 
+    # Reset .ralph/fix_plan.md to HEAD to avoid merge conflicts caused by the
+    # in-progress marker [~] written by pick_next_task before worktree creation.
+    # worktree_cleanup will sync the updated fix_plan.md back from the worktree.
+    if [[ -f ".ralph/fix_plan.md" ]] && ! git diff --quiet HEAD -- .ralph/fix_plan.md 2>/dev/null; then
+        git checkout HEAD -- .ralph/fix_plan.md 2>/dev/null || true
+    fi
+
     local merge_exit=0
     case "$strategy" in
         squash)

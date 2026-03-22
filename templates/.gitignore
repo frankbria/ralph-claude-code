@@ -9,6 +9,8 @@
 .ralph/.response_analysis
 .ralph/.circuit_breaker_state
 .ralph/.circuit_breaker_history
+.ralph/.loop_start_sha
+.ralph/.quality_gate_results
 
 # Ralph logs and generated docs
 .ralph/logs/*
