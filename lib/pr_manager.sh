@@ -30,6 +30,53 @@ _pr_warn_block() {
     echo "╚══════════════════════════════════════════════════════╝"
 }
 
+# ── _pr_remote_to_web_url ────────────────────────────────────────────────────
+# Normalises git remote URL → HTTPS web base URL for browser links.
+# Handles HTTPS, SSH (git@), and embedded credentials in URL.
+# Prints web URL to stdout (no trailing slash, no .git). Returns 1 if remote
+# is unavailable or URL cannot be determined.
+_pr_remote_to_web_url() {
+    local url
+    url=$(git remote get-url origin 2>/dev/null) || { echo ""; return 1; }
+    [[ -z "$url" ]] && { echo ""; return 1; }
+
+    # SSH: git@github.com:owner/repo.git → https://github.com/owner/repo
+    if [[ "$url" =~ ^git@ ]]; then
+        url="${url#git@}"      # drop "git@"
+        url="${url/://}"       # replace first ":" with "/"
+        url="https://${url}"
+    fi
+
+    # Strip embedded credentials (https://token@host/... → https://host/...)
+    url=$(printf '%s' "$url" | sed 's|https://[^@]*@|https://|')
+
+    # Strip .git suffix and trailing slash
+    url="${url%.git}"
+    url="${url%/}"
+
+    echo "$url"
+    return 0
+}
+
+# ── _pr_print_compare_url ────────────────────────────────────────────────────
+# Prints a clickable GitHub compare URL so the user can open a PR in the browser.
+# No-op if the remote URL cannot be determined.
+# Args: $1=branch  $2=base_branch
+_pr_print_compare_url() {
+    local branch="$1"
+    local base_branch="$2"
+    local web_url
+    web_url=$(_pr_remote_to_web_url) || return 0
+    [[ -z "$web_url" ]] && return 0
+
+    local compare_url="${web_url}/compare/${base_branch}...${branch}?expand=1"
+    log_status "INFO" "Open in browser to create PR → $compare_url"
+    echo ""
+    echo "  Open to create PR → $compare_url"
+    echo ""
+    return 0
+}
+
 # ── pr_preflight_check ────────────────────────────────────────────────────────
 # Check git remote, gh CLI, gh auth. Sets RALPH_PR_PUSH_CAPABLE and
 # RALPH_PR_GH_CAPABLE. Always returns 0.
@@ -48,16 +95,16 @@ pr_preflight_check() {
 
     # Check 2: gh CLI installed
     if ! command -v gh &>/dev/null; then
-        _pr_warn_block "gh CLI not found"
-        log_status "WARN" "PR: gh CLI not found — install from https://cli.github.com"
+        log_status "WARN" "PR: gh CLI not found — will push branch and print compare URL"
+        log_status "INFO" "    Install gh to enable automatic PR creation: https://cli.github.com"
         RALPH_PR_GH_CAPABLE="false"
         return 0
     fi
 
     # Check 3: gh authenticated
     if ! gh auth status &>/dev/null; then
-        _pr_warn_block "gh not authenticated"
-        log_status "WARN" "PR: gh is not authenticated — run: gh auth login"
+        log_status "WARN" "PR: gh not authenticated — will push branch and print compare URL"
+        log_status "INFO" "    Run 'gh auth login' to enable automatic PR creation"
         RALPH_PR_GH_CAPABLE="false"
         return 0
     fi
@@ -272,7 +319,8 @@ worktree_commit_and_pr() {
         fi
 
     else
-        log_status "WARN" "PR skipped — gh not available. Branch committed and pushed: $_WT_CURRENT_BRANCH"
+        log_status "INFO" "gh not available — branch pushed: $_WT_CURRENT_BRANCH"
+        _pr_print_compare_url "$_WT_CURRENT_BRANCH" "$base_branch"
     fi
 
     # ── Step 4: Add failure label ────────────────────────────────────────────
@@ -389,7 +437,8 @@ worktree_fallback_branch_pr() {
             log_status "SUCCESS" "Fallback PR created: $pr_url"
         fi
     else
-        log_status "WARN" "Fallback PR skipped — gh not available. Branch: $FALLBACK_BRANCH"
+        log_status "INFO" "gh not available — fallback branch pushed: $FALLBACK_BRANCH"
+        _pr_print_compare_url "$FALLBACK_BRANCH" "$base_branch"
     fi
 
     # ── Step 7: Add failure label ─────────────────────────────────────────────

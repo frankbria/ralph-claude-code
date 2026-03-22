@@ -384,6 +384,58 @@ run_test "PR_ENABLED=false creates no branch" "0" "$branch_count2"
 PR_ENABLED="true"
 rm -rf "$FB_DIR2"
 
+# ── _pr_remote_to_web_url ─────────────────────────────────────────────────────
+
+WEBURL_DIR=$(mktemp -d)
+(
+    cd "$WEBURL_DIR"
+    git init -q
+    git remote add origin "https://github.com/owner/repo.git"
+)
+https_result=$(cd "$WEBURL_DIR" && _pr_remote_to_web_url)
+run_test "_pr_remote_to_web_url strips .git from HTTPS" "https://github.com/owner/repo" "$https_result"
+rm -rf "$WEBURL_DIR"
+
+WEBURL_DIR2=$(mktemp -d)
+(
+    cd "$WEBURL_DIR2"
+    git init -q
+    git remote add origin "git@github.com:owner/repo.git"
+)
+ssh_result=$(cd "$WEBURL_DIR2" && _pr_remote_to_web_url)
+run_test "_pr_remote_to_web_url converts SSH to HTTPS" "https://github.com/owner/repo" "$ssh_result"
+rm -rf "$WEBURL_DIR2"
+
+# ── worktree_commit_and_pr: GH_CAPABLE=false prints compare URL ───────────────
+
+CMP_DIR=$(mktemp -d)
+(
+    cd "$CMP_DIR"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "work" > work.txt && git add . && git commit -q -m "init"
+    git remote add origin "https://github.com/owner/ralph-test.git"
+)
+_WT_CURRENT_PATH="$CMP_DIR"
+_WT_CURRENT_BRANCH="ralph-claude/T-cmp"
+_WT_MAIN_DIR="$CMP_DIR"
+RALPH_PR_PUSH_CAPABLE="true"
+RALPH_PR_GH_CAPABLE="false"
+PR_ENABLED="true"
+git() {
+    if [[ "$1" == "push" ]]; then return 0
+    elif [[ "$1" == "remote" && "$2" == "get-url" ]]; then echo "https://github.com/owner/ralph-test.git"; return 0
+    fi
+    command git "$@"
+}
+cmp_out=$(cd "$CMP_DIR" && worktree_commit_and_pr "T-cmp" "compare test" "true" "1")
+unset -f git
+contains_url=$(echo "$cmp_out" | grep -c "github.com/owner/ralph-test/compare" || echo "0")
+run_test "GH_CAPABLE=false prints compare URL" "1" "$contains_url"
+RALPH_PR_PUSH_CAPABLE="false"
+rm -rf "$CMP_DIR"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"
