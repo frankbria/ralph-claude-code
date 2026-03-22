@@ -228,7 +228,6 @@ worktree_commit_and_pr "T-1" "Fix login" "true" "6"
 run_test "nothing to commit still returns 0" "0" "$?"
 
 rm -rf "$WT_DIR" "$WT_MAIN_DIR"
-cd "$SCRIPT_DIR/.."   # return to project root
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
