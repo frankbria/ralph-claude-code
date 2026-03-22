@@ -1036,8 +1036,8 @@ main() {
                     QG_RETRY_COUNT=0
                     local wt_branch_for_log
                     wt_branch_for_log="$(worktree_get_branch)"
-                    worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "true" "$loop_count"
-                    local pr_result=$?
+                    local pr_result=0
+                    worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "true" "$loop_count" || pr_result=$?
                     worktree_cleanup "false"    # worktree directory removed; branch preserved as PR head
                     if [[ $pr_result -eq 0 ]]; then
                         if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
@@ -1052,7 +1052,7 @@ main() {
                     log_status "WARN" "Quality gates failed (attempt $QG_RETRY_COUNT/$MAX_QG_RETRIES)."
                     if [[ $QG_RETRY_COUNT -ge $MAX_QG_RETRIES ]]; then
                         log_status "WARN" "Max QG retries reached. Creating PR with failure details."
-                        worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count"
+                        worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count" || true
                         worktree_cleanup "false"    # worktree directory removed; branch preserved
                         QG_RETRY_COUNT=0
                     else
@@ -1064,7 +1064,7 @@ main() {
 
             # Non-worktree PR: create branch + push + PR when not using worktrees
             if [[ "$WORKTREE_ENABLED" != "true" ]]; then
-                worktree_fallback_branch_pr "$picked_task_id" "$picked_task_name" "$loop_count" "true"
+                worktree_fallback_branch_pr "$picked_task_id" "$picked_task_name" "$loop_count" "true" || true
             fi
 
             # Beads post-sync: close completed beads
@@ -1081,7 +1081,7 @@ main() {
             # Circuit breaker opened — create failure PR before cleanup
             if worktree_is_active; then
                 log_status "WARN" "Circuit breaker opened — creating failure PR before cleanup."
-                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count"
+                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count" || true
                 worktree_cleanup "false"    # worktree directory removed; branch preserved
             fi
             QG_RETRY_COUNT=0
