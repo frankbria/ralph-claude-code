@@ -84,10 +84,19 @@ pr_preflight_check() {
     RALPH_PR_PUSH_CAPABLE="true"
     RALPH_PR_GH_CAPABLE="true"
 
-    # Check 1: git origin remote
+    # Check 1: git origin remote URL exists
     if ! git remote get-url origin &>/dev/null; then
         _pr_warn_block "No git remote named 'origin'"
         log_status "WARN" "PR: No git remote 'origin' — push and PR disabled"
+        RALPH_PR_PUSH_CAPABLE="false"
+        RALPH_PR_GH_CAPABLE="false"
+        return 0
+    fi
+
+    # Check 1b: remote is actually reachable (catches missing SSH keys / bad credentials)
+    if ! git ls-remote origin HEAD &>/dev/null; then
+        log_status "WARN" "PR: Cannot reach remote 'origin' — push and PR disabled"
+        log_status "WARN" "    Check SSH keys or credentials: git ls-remote origin"
         RALPH_PR_PUSH_CAPABLE="false"
         RALPH_PR_GH_CAPABLE="false"
         return 0
@@ -266,7 +275,7 @@ worktree_commit_and_pr() {
                 log_status "ERROR" "git add -A failed in worktree $_WT_CURRENT_PATH"
                 exit 1
             fi
-            if ! git commit -m "ralph-${RALPH_ENGINE:-ralph}: auto-commit run #${loop_count}" 2>/dev/null; then
+            if ! git commit -m "ralph-${RALPH_ENGINE:-ralph}: auto-commit run #${loop_count}"; then
                 log_status "ERROR" "Commit failed in worktree $_WT_CURRENT_PATH"
                 exit 1
             fi
@@ -284,8 +293,8 @@ worktree_commit_and_pr() {
     else
         (
             cd "$_WT_MAIN_DIR" || exit 1
-            if ! git push origin "$_WT_CURRENT_BRANCH" --set-upstream 2>/dev/null; then
-                log_status "ERROR" "Push failed for $_WT_CURRENT_BRANCH"
+            if ! git push origin "$_WT_CURRENT_BRANCH" --set-upstream; then
+                log_status "ERROR" "Push failed for $_WT_CURRENT_BRANCH — check credentials/remote"
                 exit 1
             fi
             log_status "SUCCESS" "Branch pushed: $_WT_CURRENT_BRANCH"
