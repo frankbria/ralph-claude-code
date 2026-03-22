@@ -229,6 +229,67 @@ run_test "nothing to commit still returns 0" "0" "$?"
 
 rm -rf "$WT_DIR" "$WT_MAIN_DIR"
 
+# Test: existing PR detected — creation skipped (idempotency)
+RALPH_PR_PUSH_CAPABLE="true"
+RALPH_PR_GH_CAPABLE="true"
+# Set up temp dirs again for this test
+WT_DIR2=$(mktemp -d)
+(
+    cd "$WT_DIR2"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "work" > work.txt && git add . && git commit -q -m "initial work"
+)
+_WT_CURRENT_PATH="$WT_DIR2"
+_WT_CURRENT_BRANCH="ralph-claude/T-1-1234"
+_WT_MAIN_DIR="$WT_DIR2"
+PR_ENABLED="true"
+PR_BASE_BRANCH="main"
+# Mock gh: pr view returns URL (PR exists), pr create must NOT be called
+PR_CREATE_CALLED=0
+gh() {
+    if [[ "$1" == "pr" && "$2" == "view" ]]; then echo "https://github.com/owner/repo/pull/42"; return 0; fi
+    if [[ "$1" == "pr" && "$2" == "create" ]]; then PR_CREATE_CALLED=1; return 0; fi
+    if [[ "$1" == "pr" && "$2" == "edit" ]]; then return 0; fi
+    return 0
+}
+# Mock git push
+git() { [[ "$1" == "push" ]] && return 0; command git "$@"; }
+worktree_commit_and_pr "T-1" "Fix login" "true" "7"
+run_test "existing PR skips gh pr create" "0" "$PR_CREATE_CALLED"
+unset -f gh git
+RALPH_PR_PUSH_CAPABLE="false"
+RALPH_PR_GH_CAPABLE="false"
+rm -rf "$WT_DIR2"
+
+# Test: gh pr create failure → function returns 1
+WT_DIR3=$(mktemp -d)
+(
+    cd "$WT_DIR3"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "work" > work.txt && git add . && git commit -q -m "initial work"
+)
+_WT_CURRENT_PATH="$WT_DIR3"
+_WT_CURRENT_BRANCH="ralph-claude/T-1-fail"
+_WT_MAIN_DIR="$WT_DIR3"
+RALPH_PR_PUSH_CAPABLE="true"
+RALPH_PR_GH_CAPABLE="true"
+gh() {
+    if [[ "$1" == "pr" && "$2" == "view" ]]; then return 1; fi  # no existing PR
+    if [[ "$1" == "pr" && "$2" == "create" ]]; then echo "error: API error"; return 1; fi
+    return 0
+}
+git() { [[ "$1" == "push" ]] && return 0; command git "$@"; }
+worktree_commit_and_pr "T-1" "Fail test" "true" "1"
+run_test "gh pr create failure returns 1" "1" "$?"
+unset -f gh git
+RALPH_PR_PUSH_CAPABLE="false"
+RALPH_PR_GH_CAPABLE="false"
+rm -rf "$WT_DIR3"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"

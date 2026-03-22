@@ -215,7 +215,10 @@ worktree_commit_and_pr() {
     (
         cd "$_WT_CURRENT_PATH" || { log_status "ERROR" "Cannot cd to worktree: $_WT_CURRENT_PATH"; exit 1; }
         if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-            git add -A 2>/dev/null
+            if ! git add -A; then
+                log_status "ERROR" "git add -A failed in worktree $_WT_CURRENT_PATH"
+                exit 1
+            fi
             if ! git commit -m "ralph-${RALPH_ENGINE:-ralph}: auto-commit run #${loop_count}" 2>/dev/null; then
                 log_status "ERROR" "Commit failed in worktree $_WT_CURRENT_PATH"
                 exit 1
@@ -261,8 +264,7 @@ worktree_commit_and_pr() {
             [[ "${PR_DRAFT:-false}" == "true" ]] && gh_args+=(--draft)
 
             local pr_url
-            pr_url=$(gh pr create "${gh_args[@]}" 2>&1)
-            if [[ $? -ne 0 ]]; then
+            if ! pr_url=$(gh pr create "${gh_args[@]}" 2>&1); then
                 log_status "ERROR" "PR creation failed: $pr_url"
                 return 1
             fi
