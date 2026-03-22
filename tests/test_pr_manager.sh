@@ -361,6 +361,29 @@ run_test "fallback branch has 2 commits" "2" "$commit_count"
 
 rm -rf "$FB_DIR"
 
+# Test: PR_ENABLED=false skips fallback branch PR
+FB_DIR2=$(mktemp -d)
+(
+    cd "$FB_DIR2"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > f.txt && git add . && git commit -q -m "init"
+    echo "work" >> f.txt
+)
+RALPH_ENGINE="claude"
+RALPH_PR_PUSH_CAPABLE="false"
+RALPH_PR_GH_CAPABLE="false"
+PR_ENABLED="false"
+fb2_result=$(cd "$FB_DIR2" && worktree_fallback_branch_pr "T-3" "Test" "1" "true"; echo "EXIT:$?")
+fb2_exit=$(echo "$fb2_result" | grep -o 'EXIT:[0-9]*' | cut -d: -f2)
+run_test "PR_ENABLED=false fallback returns 0" "0" "$fb2_exit"
+# Confirm NO branch was created (still on original branch)
+branch_count2=$(cd "$FB_DIR2" && git branch | grep -c "ralph-claude"; true)
+run_test "PR_ENABLED=false creates no branch" "0" "$branch_count2"
+PR_ENABLED="true"
+rm -rf "$FB_DIR2"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"

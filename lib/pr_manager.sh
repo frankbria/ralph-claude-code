@@ -286,12 +286,13 @@ worktree_commit_and_pr() {
 
 # ── worktree_fallback_branch_pr ───────────────────────────────────────────────
 # Used when WORKTREE_ENABLED=false. Creates a temp branch, commits, pushes, opens PR.
-# Args: $1=task_id  $2=task_name  $3=loop_count
+# Args: $1=task_id  $2=task_name  $3=loop_count  $4=gate_passed("true"|"false")
 # Returns: 0 on success or intentional skip; 1 on failure.
 worktree_fallback_branch_pr() {
     local task_id="$1"
     local task_name="$2"
     local loop_count="$3"
+    local gate_passed="${4:-true}"
     local engine="${RALPH_ENGINE:-ralph}"
     local FALLBACK_BRANCH="ralph-${engine}/${task_id:-run}-$(date +%s)"
 
@@ -314,6 +315,9 @@ worktree_fallback_branch_pr() {
     fi
 
     # ── Step 2: Create and checkout fallback branch ──────────────────────────
+    local original_branch
+    original_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
     if ! git checkout -b "$FALLBACK_BRANCH" 2>/dev/null; then
         [[ "$stash_was_empty" == "false" ]] && git stash pop 2>/dev/null
         log_status "ERROR" "Failed to create fallback branch: $FALLBACK_BRANCH"
@@ -322,8 +326,10 @@ worktree_fallback_branch_pr() {
 
     # ── Step 3: Pop stash ────────────────────────────────────────────────────
     if [[ "$stash_was_empty" == "false" ]]; then
-        if ! git stash pop 2>/dev/null; then
-            log_status "ERROR" "git stash pop failed. Work is saved in stash."
+        local pop_output
+        if ! pop_output=$(git stash pop 2>&1); then
+            log_status "ERROR" "git stash pop failed: $pop_output. Work is saved in stash."
+            [[ -n "$original_branch" ]] && git checkout "$original_branch" 2>/dev/null
             return 1
         fi
     fi
@@ -371,7 +377,7 @@ worktree_fallback_branch_pr() {
             local pr_title pr_body
             pr_title=$(pr_build_title "$task_id" "$task_name")
             pr_body=$(pr_build_description "$task_id" "$task_name" "$FALLBACK_BRANCH" \
-                      "true" "${RALPH_DIR}/.quality_gate_results" "$loop_count")
+                      "$gate_passed" "${RALPH_DIR}/.quality_gate_results" "$loop_count")
             local gh_args=(--base "$base_branch" --head "$FALLBACK_BRANCH" \
                            --title "$pr_title" --body "$pr_body")
             [[ "${PR_DRAFT:-false}" == "true" ]] && gh_args+=(--draft)
@@ -384,6 +390,12 @@ worktree_fallback_branch_pr() {
         fi
     else
         log_status "WARN" "Fallback PR skipped — gh not available. Branch: $FALLBACK_BRANCH"
+    fi
+
+    # ── Step 7: Add failure label ─────────────────────────────────────────────
+    if [[ "$gate_passed" == "false" && "$RALPH_PR_GH_CAPABLE" == "true" ]]; then
+        gh pr edit "$FALLBACK_BRANCH" --add-label "quality-gates-failed" 2>/dev/null \
+            || log_status "WARN" "Could not add 'quality-gates-failed' label (may not exist in repo)"
     fi
 
     return 0
