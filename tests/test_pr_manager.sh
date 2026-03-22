@@ -167,17 +167,20 @@ run_test "empty task_id and task_name omits Task line" \
 # Setup: create a temp git repo as mock worktree
 WT_DIR=$(mktemp -d)
 WT_MAIN_DIR=$(mktemp -d)
-cd "$WT_MAIN_DIR"
-git init -q
-git config user.email "test@test.com"
-git config user.name "Test"
-touch README.md && git add . && git commit -q -m "init"
-
-cd "$WT_DIR"
-git init -q
-git config user.email "test@test.com"
-git config user.name "Test"
-echo "work" > work.txt && git add . && git commit -q -m "initial work"
+(
+    cd "$WT_MAIN_DIR"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    touch README.md && git add . && git commit -q -m "init"
+)
+(
+    cd "$WT_DIR"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "work" > work.txt && git add . && git commit -q -m "initial work"
+)
 
 # Set globals that worktree_manager.sh would set
 _WT_CURRENT_PATH="$WT_DIR"
@@ -211,13 +214,21 @@ run_test "PR_ENABLED=false calls worktree_merge" "1" "$(echo "$merge_out" | grep
 PR_ENABLED="true"
 unset -f worktree_merge
 
+# Test: PR_ENABLED=false propagates worktree_merge exit code
+worktree_merge() { return 1; }
+PR_ENABLED="false"
+worktree_commit_and_pr "T-1" "Fix login" "true" "5"
+run_test "PR_ENABLED=false propagates merge failure exit code" "1" "$?"
+PR_ENABLED="true"
+unset -f worktree_merge
+
 # Test: nothing to commit — should still return 0
 PR_ENABLED="true"
 worktree_commit_and_pr "T-1" "Fix login" "true" "6"
 run_test "nothing to commit still returns 0" "0" "$?"
 
-cd "$SCRIPT_DIR/.."   # return to project root
 rm -rf "$WT_DIR" "$WT_MAIN_DIR"
+cd "$SCRIPT_DIR/.."   # return to project root
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""

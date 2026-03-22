@@ -269,13 +269,14 @@ worktree_commit_and_pr() {
             log_status "SUCCESS" "PR created: $pr_url"
         fi
 
-        # ── Step 4: Add failure label ────────────────────────────────────────
-        if [[ "$gate_passed" == "false" ]]; then
-            gh pr edit "$_WT_CURRENT_BRANCH" --add-label "quality-gates-failed" 2>/dev/null \
-                || log_status "WARN" "Could not add 'quality-gates-failed' label (may not exist in repo)"
-        fi
     else
         log_status "WARN" "PR skipped — gh not available. Branch committed and pushed: $_WT_CURRENT_BRANCH"
+    fi
+
+    # ── Step 4: Add failure label ────────────────────────────────────────────
+    if [[ "$gate_passed" == "false" && "$RALPH_PR_GH_CAPABLE" == "true" ]]; then
+        gh pr edit "$_WT_CURRENT_BRANCH" --add-label "quality-gates-failed" 2>/dev/null \
+            || log_status "WARN" "Could not add 'quality-gates-failed' label (may not exist in repo)"
     fi
 
     return 0
