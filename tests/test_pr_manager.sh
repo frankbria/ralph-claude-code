@@ -162,6 +162,63 @@ desc_empty=$(pr_build_description "" "" "ralph-claude/run-1" "true" "/nonexisten
 run_test "empty task_id and task_name omits Task line" \
     "0" "$(echo "$desc_empty" | grep -c "^Task:")"
 
+# ── worktree_commit_and_pr ────────────────────────────────────────────────────
+
+# Setup: create a temp git repo as mock worktree
+WT_DIR=$(mktemp -d)
+WT_MAIN_DIR=$(mktemp -d)
+cd "$WT_MAIN_DIR"
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+touch README.md && git add . && git commit -q -m "init"
+
+cd "$WT_DIR"
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+echo "work" > work.txt && git add . && git commit -q -m "initial work"
+
+# Set globals that worktree_manager.sh would set
+_WT_CURRENT_PATH="$WT_DIR"
+_WT_CURRENT_BRANCH="ralph-claude/T-1-1234"
+_WT_MAIN_DIR="$WT_MAIN_DIR"
+RALPH_DIR=".ralph"
+RALPH_PR_PUSH_CAPABLE="false"   # no real remote in test
+RALPH_PR_GH_CAPABLE="false"
+PR_ENABLED="true"
+PR_BASE_BRANCH="main"
+PR_DRAFT="false"
+RALPH_ENGINE="claude"
+
+# Add uncommitted changes to test auto-commit
+echo "new work" >> "$WT_DIR/work.txt"
+
+worktree_commit_and_pr "T-1" "Fix login" "true" "5"
+wcp_result=$?
+
+run_test "worktree_commit_and_pr succeeds (no push/PR in test)" "0" "$wcp_result"
+
+# Verify commit was made in worktree
+commit_count=$(cd "$WT_DIR" && git log --oneline | wc -l | tr -d ' ')
+run_test "auto-commit created a commit" "2" "$commit_count"
+
+# Test: PR_ENABLED=false calls worktree_merge (mock it)
+worktree_merge() { echo "merge_called"; }
+PR_ENABLED="false"
+merge_out=$(worktree_commit_and_pr "T-1" "Fix login" "true" "5" 2>/dev/null)
+run_test "PR_ENABLED=false calls worktree_merge" "1" "$(echo "$merge_out" | grep -c "merge_called")"
+PR_ENABLED="true"
+unset -f worktree_merge
+
+# Test: nothing to commit — should still return 0
+PR_ENABLED="true"
+worktree_commit_and_pr "T-1" "Fix login" "true" "6"
+run_test "nothing to commit still returns 0" "0" "$?"
+
+cd "$SCRIPT_DIR/.."   # return to project root
+rm -rf "$WT_DIR" "$WT_MAIN_DIR"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"
