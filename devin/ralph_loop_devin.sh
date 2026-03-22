@@ -28,9 +28,11 @@ source "$RALPH_ROOT/lib/task_sources.sh"
 source "$SCRIPT_DIR/lib/devin_adapter.sh"
 source "$SCRIPT_DIR/lib/worktree_manager.sh"
 source "$RALPH_ROOT/lib/parallel_spawn.sh"
+source "$RALPH_ROOT/lib/pr_manager.sh"
 
 # Configuration
 RALPH_DIR=".ralph"
+RALPH_ENGINE="devin"           # identifier used by pr_manager.sh
 PROMPT_FILE="$RALPH_DIR/PROMPT.md"
 LOG_DIR="$RALPH_DIR/logs"
 DOCS_DIR="$RALPH_DIR/docs/generated"
@@ -66,6 +68,8 @@ DEVIN_TIMEOUT_MINUTES="${DEVIN_TIMEOUT_MINUTES:-30}"
 DEVIN_USE_CONTINUE="${DEVIN_USE_CONTINUE:-true}"
 DEVIN_AUTO_EXIT="${DEVIN_AUTO_EXIT:-true}"  # true = use -p flag (auto-exit), false = interactive
 MAX_LOOPS="${MAX_LOOPS:-0}"  # 0 = unlimited
+QG_RETRY_COUNT=0
+MAX_QG_RETRIES="${MAX_QG_RETRIES:-3}"
 
 # Session management
 DEVIN_SESSION_EXPIRY_HOURS="${DEVIN_SESSION_EXPIRY_HOURS:-24}"
@@ -901,6 +905,9 @@ main() {
         fi
     fi
 
+    # Run PR preflight checks once before entering the loop
+    pr_preflight_check
+
     log_status "INFO" "Starting main loop..."
 
     while true; do
@@ -962,10 +969,12 @@ main() {
         local picked_line_num=""
         local picked_bead_id=""
         local task_info=""
+        local picked_task_name=""
         if task_info=$(pick_next_task "$RALPH_DIR/fix_plan.md"); then
             picked_task_id=$(echo "$task_info" | cut -d'|' -f1)
             picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
             picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
+            picked_task_name=$(sed -n "${picked_line_num}p" "$RALPH_DIR/fix_plan.md" 2>/dev/null | sed 's/.*\[.\] //' | tr -d '\n' || echo "")
 
             log_status "SUCCESS" "Picked and locked task: $picked_task_id (line $picked_line_num)"
 
@@ -988,12 +997,19 @@ main() {
         local work_dir
         work_dir="$(pwd)"
         if [[ "$WORKTREE_ENABLED" == "true" ]]; then
-            local wt_task_id="${picked_task_id:-loop-${loop_count}-$(date +%s)}"
-            if worktree_create "$loop_count" "$wt_task_id" > /dev/null; then
+            if worktree_is_active; then
+                # QG retry — reuse existing worktree (do not create a new one)
                 work_dir="$(worktree_get_path)"
-                log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
+                log_status "INFO" "QG retry #${QG_RETRY_COUNT}: reusing worktree $work_dir (branch: $(worktree_get_branch))"
             else
-                log_status "WARN" "Worktree creation failed, using main directory"
+                QG_RETRY_COUNT=0   # reset counter when starting fresh with a new worktree
+                local wt_task_id="${picked_task_id:-loop-${loop_count}-$(date +%s)}"
+                if worktree_create "$loop_count" "$wt_task_id" > /dev/null; then
+                    work_dir="$(worktree_get_path)"
+                    log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
+                else
+                    log_status "WARN" "Worktree creation failed, using main directory"
+                fi
             fi
         fi
 
@@ -1007,7 +1023,7 @@ main() {
         local exec_result=$?
 
         if [[ $exec_result -eq 0 ]]; then
-            # Worktree: quality gates + interactive merge prompt + cleanup
+            # Worktree: quality gates + commit + push + PR + cleanup
             if [[ "$WORKTREE_ENABLED" == "true" ]] && worktree_is_active; then
                 log_status "INFO" "Running quality gates in worktree..."
                 local gate_output
@@ -1016,38 +1032,34 @@ main() {
                 while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$gate_output"
 
                 if [[ $gate_result -eq 0 ]]; then
+                    # Quality gates passed — commit + push + open PR
                     log_status "SUCCESS" "Quality gates passed."
-                    echo ""
-                    echo -e "${GREEN}Quality gates passed for branch: ${CYAN}$(worktree_get_branch)${NC}"
-                    echo -e "Merge into ${CYAN}$(worktree_get_main_branch)${NC}? (yes/no)"
-                    local merge_answer=""
-                    read -r merge_answer < /dev/tty 2>/dev/null || merge_answer="no"
-
-                    if [[ "$merge_answer" == "yes" ]]; then
-                        log_status "INFO" "User approved merge. Merging..."
-                        local merge_output
-                        merge_output=$(worktree_merge 2>&1)
-                        local merge_result=$?
-                        while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$merge_output"
-
-                        if [[ $merge_result -eq 0 ]]; then
-                            log_status "SUCCESS" "Merged $(worktree_get_branch) into $(worktree_get_main_branch)"
-                            worktree_cleanup "true"
-                            # Mark the picked task complete in fix_plan.md
-                            if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-                                mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
-                            fi
-                        else
-                            log_status "ERROR" "Merge failed. Branch preserved: $(worktree_get_branch)"
-                            worktree_cleanup "false"
+                    QG_RETRY_COUNT=0
+                    local wt_branch_for_log
+                    wt_branch_for_log="$(worktree_get_branch)"
+                    worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "true" "$loop_count"
+                    local pr_result=$?
+                    worktree_cleanup "false"    # worktree directory removed; branch preserved as PR head
+                    if [[ $pr_result -eq 0 ]]; then
+                        if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
+                            mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
                         fi
                     else
-                        log_status "INFO" "Merge skipped by user. Branch preserved: $(worktree_get_branch)"
-                        worktree_cleanup "false"
+                        log_status "ERROR" "PR workflow failed. Branch preserved for manual recovery: $wt_branch_for_log"
                     fi
                 else
-                    log_status "WARN" "Quality gates failed. Branch preserved: $(worktree_get_branch)"
-                    worktree_cleanup "false"
+                    # Quality gates failed — increment retry counter, keep worktree alive
+                    QG_RETRY_COUNT=$((QG_RETRY_COUNT + 1))
+                    log_status "WARN" "Quality gates failed (attempt $QG_RETRY_COUNT/$MAX_QG_RETRIES)."
+                    if [[ $QG_RETRY_COUNT -ge $MAX_QG_RETRIES ]]; then
+                        log_status "WARN" "Max QG retries reached. Creating PR with failure details."
+                        worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count"
+                        worktree_cleanup "false"    # worktree directory removed; branch preserved
+                        QG_RETRY_COUNT=0
+                    else
+                        log_status "INFO" "Keeping worktree alive for QG retry in next loop iteration."
+                        # do NOT call worktree_cleanup — worktree stays active for next iteration
+                    fi
                 fi
             elif [[ "$WORKTREE_ENABLED" == "true" ]] && [[ -n "$_WT_CURRENT_PATH" ]] && [[ ! -d "$_WT_CURRENT_PATH" ]]; then
                 # Worktree was removed externally (e.g. via dewtm or the cleanup injection).
@@ -1065,6 +1077,11 @@ main() {
                 fi
                 _WT_CURRENT_PATH=""
                 _WT_CURRENT_BRANCH=""
+            fi
+
+            # Non-worktree PR: create branch + push + PR when not using worktrees
+            if [[ "$WORKTREE_ENABLED" != "true" ]]; then
+                worktree_fallback_branch_pr "$picked_task_id" "$picked_task_name" "$loop_count" "true"
             fi
 
             # Beads post-sync: close completed beads
@@ -1089,7 +1106,13 @@ main() {
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
             sleep 5
         elif [[ $exec_result -eq 3 ]]; then
-            if worktree_is_active; then worktree_cleanup "true"; fi
+            # Circuit breaker opened — create failure PR before cleanup
+            if worktree_is_active; then
+                log_status "WARN" "Circuit breaker opened — creating failure PR before cleanup."
+                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count"
+                worktree_cleanup "false"    # worktree directory removed; branch preserved
+            fi
+            QG_RETRY_COUNT=0
             reset_session "circuit_breaker_trip"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "Circuit breaker has opened - halting loop"

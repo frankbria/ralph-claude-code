@@ -87,6 +87,12 @@ BEADS_FILTER="status:open"
 CB_NO_PROGRESS_THRESHOLD=3
 CB_SAME_ERROR_THRESHOLD=5
 CB_OUTPUT_DECLINE_THRESHOLD=70
+
+# PR integration (ralph auto-raises PRs at end of each loop)
+PR_ENABLED=true
+PR_BASE_BRANCH=main
+PR_DRAFT=false
+MAX_QG_RETRIES=3
 RALPHRCEOF
 
 # Initialize git (skip if already initialized)

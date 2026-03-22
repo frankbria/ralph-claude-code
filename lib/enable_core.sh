@@ -755,6 +755,12 @@ CB_OUTPUT_DECLINE_THRESHOLD=70
 
 # Auto-update Claude CLI at startup
 CLAUDE_AUTO_UPDATE=true
+
+# PR integration (ralph auto-raises PRs at end of each loop)
+PR_ENABLED=true
+PR_BASE_BRANCH=main
+PR_DRAFT=false
+MAX_QG_RETRIES=3
 RALPHRCEOF
 }
 
