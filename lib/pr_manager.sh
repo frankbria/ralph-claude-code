@@ -24,6 +24,7 @@ _pr_warn_block() {
     local reason="$1"
     echo "╔══════════════════════════════════════════════════════╗"
     echo "║  WARNING: PR CREATION DISABLED                       ║"
+    # reason must be ≤36 chars to fit the box; callers must enforce this
     echo "║  Reason: ${reason}$(printf '%*s' $((36 - ${#reason})) '')║"
     echo "║  Ralph will commit and push branches only.           ║"
     echo "╚══════════════════════════════════════════════════════╝"

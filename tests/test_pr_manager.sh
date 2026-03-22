@@ -1,6 +1,5 @@
 #!/bin/bash
 # Tests for lib/pr_manager.sh
-set -e
 
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -32,49 +31,61 @@ log_status() { :; }
 source "$SCRIPT_DIR/../lib/pr_manager.sh"
 
 # ── pr_preflight_check: no remote → both flags false ─────────────────────────
-(
+result=$(
     git() { return 1; }   # all git calls fail — simulates no remote
     RALPH_PR_PUSH_CAPABLE=""
     RALPH_PR_GH_CAPABLE=""
     pr_preflight_check
-    run_test "no remote sets PUSH_CAPABLE=false" "false" "$RALPH_PR_PUSH_CAPABLE"
-    run_test "no remote sets GH_CAPABLE=false"   "false" "$RALPH_PR_GH_CAPABLE"
+    echo "PUSH=$RALPH_PR_PUSH_CAPABLE GH=$RALPH_PR_GH_CAPABLE"
 )
+push_val=$(echo "$result" | grep -o 'PUSH=[^ ]*' | cut -d= -f2)
+gh_val=$(echo "$result"   | grep -o 'GH=[^ ]*'   | cut -d= -f2)
+run_test "no remote sets PUSH_CAPABLE=false" "false" "$push_val"
+run_test "no remote sets GH_CAPABLE=false"   "false" "$gh_val"
 
 # ── pr_preflight_check: gh missing → only GH_CAPABLE false ───────────────────
-(
+result=$(
     git() { return 0; }
     command() { [[ "$2" == "gh" ]] && return 1; builtin command "$@"; }
     RALPH_PR_PUSH_CAPABLE=""
     RALPH_PR_GH_CAPABLE=""
     pr_preflight_check
-    run_test "gh missing sets GH_CAPABLE=false"    "false" "$RALPH_PR_GH_CAPABLE"
-    run_test "gh missing leaves PUSH_CAPABLE=true" "true"  "$RALPH_PR_PUSH_CAPABLE"
+    echo "PUSH=$RALPH_PR_PUSH_CAPABLE GH=$RALPH_PR_GH_CAPABLE"
 )
+push_val=$(echo "$result" | grep -o 'PUSH=[^ ]*' | cut -d= -f2)
+gh_val=$(echo "$result"   | grep -o 'GH=[^ ]*'   | cut -d= -f2)
+run_test "gh missing sets GH_CAPABLE=false"    "false" "$gh_val"
+run_test "gh missing leaves PUSH_CAPABLE=true" "true"  "$push_val"
 
 # ── pr_preflight_check: gh not authenticated → only GH_CAPABLE false ─────────
-(
+result=$(
     git() { return 0; }
     command() { return 0; }  # gh exists
     gh() { [[ "$1" == "auth" ]] && return 1; return 0; }
     RALPH_PR_PUSH_CAPABLE=""
     RALPH_PR_GH_CAPABLE=""
     pr_preflight_check
-    run_test "gh not authed sets GH_CAPABLE=false"    "false" "$RALPH_PR_GH_CAPABLE"
-    run_test "gh not authed leaves PUSH_CAPABLE=true" "true"  "$RALPH_PR_PUSH_CAPABLE"
+    echo "PUSH=$RALPH_PR_PUSH_CAPABLE GH=$RALPH_PR_GH_CAPABLE"
 )
+push_val=$(echo "$result" | grep -o 'PUSH=[^ ]*' | cut -d= -f2)
+gh_val=$(echo "$result"   | grep -o 'GH=[^ ]*'   | cut -d= -f2)
+run_test "gh not authed sets GH_CAPABLE=false"    "false" "$gh_val"
+run_test "gh not authed leaves PUSH_CAPABLE=true" "true"  "$push_val"
 
 # ── pr_preflight_check: all present (mocked) ─────────────────────────────────
-(
+result=$(
     git() { return 0; }
     command() { return 0; }
     gh() { return 0; }
     RALPH_PR_PUSH_CAPABLE=""
     RALPH_PR_GH_CAPABLE=""
     pr_preflight_check
-    run_test "all present sets PUSH_CAPABLE=true" "true" "$RALPH_PR_PUSH_CAPABLE"
-    run_test "all present sets GH_CAPABLE=true"   "true" "$RALPH_PR_GH_CAPABLE"
+    echo "PUSH=$RALPH_PR_PUSH_CAPABLE GH=$RALPH_PR_GH_CAPABLE"
 )
+push_val=$(echo "$result" | grep -o 'PUSH=[^ ]*' | cut -d= -f2)
+gh_val=$(echo "$result"   | grep -o 'GH=[^ ]*'   | cut -d= -f2)
+run_test "all present sets PUSH_CAPABLE=true" "true" "$push_val"
+run_test "all present sets GH_CAPABLE=true"   "true" "$gh_val"
 
 # ── pr_build_title ────────────────────────────────────────────────────────────
 run_test "both non-empty" \
