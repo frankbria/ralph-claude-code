@@ -318,6 +318,49 @@ RALPH_PR_PUSH_CAPABLE="false"
 RALPH_PR_GH_CAPABLE="false"
 rm -rf "$WT_DIR4"
 
+# ── worktree_fallback_branch_pr ───────────────────────────────────────────────
+
+FB_DIR=$(mktemp -d)
+(
+    cd "$FB_DIR"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "initial" > file.txt
+    git add . && git commit -q -m "init"
+)
+
+# Add uncommitted changes (in a subshell that exits back to original dir)
+echo "new work" >> "$FB_DIR/file.txt"
+
+# Set globals for test
+_WT_CURRENT_PATH="$FB_DIR"   # not used by fallback fn, but set for consistency
+RALPH_ENGINE="claude"
+RALPH_PR_PUSH_CAPABLE="false"
+RALPH_PR_GH_CAPABLE="false"
+PR_ENABLED="true"
+RALPH_DIR=".ralph"
+
+# Run the fallback fn from within FB_DIR context
+# The function operates in the current shell dir, so cd there first (in subshell)
+fb_result=$(
+    cd "$FB_DIR"
+    worktree_fallback_branch_pr "T-2" "Add feature" "7"
+    echo "EXIT:$?"
+)
+fb_exit=$(echo "$fb_result" | grep -o 'EXIT:[0-9]*' | cut -d: -f2)
+run_test "worktree_fallback_branch_pr returns 0" "0" "$fb_exit"
+
+# Confirm branch matching pattern was created
+branch_count=$(cd "$FB_DIR" && git branch | grep -c "ralph-claude/T-2" || echo "0")
+run_test "fallback branch created" "1" "$branch_count"
+
+# Confirm 2 commits on the branch (init + auto-commit)
+commit_count=$(cd "$FB_DIR" && git log --oneline | wc -l | tr -d ' ')
+run_test "fallback branch has 2 commits" "2" "$commit_count"
+
+rm -rf "$FB_DIR"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"

@@ -283,3 +283,108 @@ worktree_commit_and_pr() {
 
     return 0
 }
+
+# ── worktree_fallback_branch_pr ───────────────────────────────────────────────
+# Used when WORKTREE_ENABLED=false. Creates a temp branch, commits, pushes, opens PR.
+# Args: $1=task_id  $2=task_name  $3=loop_count
+# Returns: 0 on success or intentional skip; 1 on failure.
+worktree_fallback_branch_pr() {
+    local task_id="$1"
+    local task_name="$2"
+    local loop_count="$3"
+    local engine="${RALPH_ENGINE:-ralph}"
+    local FALLBACK_BRANCH="ralph-${engine}/${task_id:-run}-$(date +%s)"
+
+    # Honour PR_ENABLED=false
+    if [[ "${PR_ENABLED:-true}" == "false" ]]; then
+        log_status "INFO" "PR_ENABLED=false — skipping fallback branch PR"
+        return 0
+    fi
+
+    # ── Step 1: Stash uncommitted changes ────────────────────────────────────
+    local stash_was_empty=false
+    local stash_output
+    stash_output=$(git stash 2>&1)
+    local stash_exit=$?
+    if echo "$stash_output" | grep -q "No local changes to save"; then
+        stash_was_empty=true
+    elif [[ $stash_exit -ne 0 ]]; then
+        log_status "ERROR" "git stash failed (exit $stash_exit): $stash_output"
+        return 1
+    fi
+
+    # ── Step 2: Create and checkout fallback branch ──────────────────────────
+    if ! git checkout -b "$FALLBACK_BRANCH" 2>/dev/null; then
+        [[ "$stash_was_empty" == "false" ]] && git stash pop 2>/dev/null
+        log_status "ERROR" "Failed to create fallback branch: $FALLBACK_BRANCH"
+        return 1
+    fi
+
+    # ── Step 3: Pop stash ────────────────────────────────────────────────────
+    if [[ "$stash_was_empty" == "false" ]]; then
+        if ! git stash pop 2>/dev/null; then
+            log_status "ERROR" "git stash pop failed. Work is saved in stash."
+            return 1
+        fi
+    fi
+
+    # ── Step 4: Commit ───────────────────────────────────────────────────────
+    if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+        if ! git add -A; then
+            log_status "ERROR" "git add -A failed on fallback branch $FALLBACK_BRANCH"
+            return 1
+        fi
+        if ! git commit -m "ralph-${engine}: auto-commit run #${loop_count}" 2>/dev/null; then
+            log_status "ERROR" "Commit failed on fallback branch $FALLBACK_BRANCH"
+            return 1
+        fi
+    else
+        log_status "WARN" "Nothing to commit on fallback branch $FALLBACK_BRANCH"
+    fi
+
+    # Resolve base branch
+    local base_branch="${PR_BASE_BRANCH:-}"
+    if [[ -z "$base_branch" ]]; then
+        base_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
+                      | sed 's@^refs/remotes/origin/@@')
+    fi
+    [[ -z "$base_branch" ]] && base_branch="main"
+
+    # ── Step 5: Push ─────────────────────────────────────────────────────────
+    if [[ "$RALPH_PR_PUSH_CAPABLE" != "true" ]]; then
+        log_status "WARN" "Push skipped — no git remote. Branch: $FALLBACK_BRANCH"
+    else
+        if ! git push origin "$FALLBACK_BRANCH" --set-upstream 2>/dev/null; then
+            log_status "ERROR" "Push failed for $FALLBACK_BRANCH"
+            return 1
+        fi
+        log_status "SUCCESS" "Fallback branch pushed: $FALLBACK_BRANCH"
+    fi
+
+    # ── Steps 6–7: Create PR ─────────────────────────────────────────────────
+    if [[ "$RALPH_PR_GH_CAPABLE" == "true" && "$RALPH_PR_PUSH_CAPABLE" == "true" ]]; then
+        local existing_pr
+        existing_pr=$(gh pr view "$FALLBACK_BRANCH" --json url --jq '.url' 2>/dev/null)
+        if [[ -n "$existing_pr" ]]; then
+            log_status "INFO" "PR already exists for $FALLBACK_BRANCH: $existing_pr"
+        else
+            local pr_title pr_body
+            pr_title=$(pr_build_title "$task_id" "$task_name")
+            pr_body=$(pr_build_description "$task_id" "$task_name" "$FALLBACK_BRANCH" \
+                      "true" "${RALPH_DIR}/.quality_gate_results" "$loop_count")
+            local gh_args=(--base "$base_branch" --head "$FALLBACK_BRANCH" \
+                           --title "$pr_title" --body "$pr_body")
+            [[ "${PR_DRAFT:-false}" == "true" ]] && gh_args+=(--draft)
+            local pr_url
+            if ! pr_url=$(gh pr create "${gh_args[@]}" 2>&1); then
+                log_status "ERROR" "Fallback PR creation failed: $pr_url"
+                return 1
+            fi
+            log_status "SUCCESS" "Fallback PR created: $pr_url"
+        fi
+    else
+        log_status "WARN" "Fallback PR skipped — gh not available. Branch: $FALLBACK_BRANCH"
+    fi
+
+    return 0
+}
