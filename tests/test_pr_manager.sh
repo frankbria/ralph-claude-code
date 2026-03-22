@@ -106,6 +106,53 @@ title_out="$(pr_build_title "T-1" "$long_name")"
 run_test "title truncated to 72 chars" "72" "${#title_out}"
 run_test "title ends with ..." "..." "${title_out: -3}"
 
+# ── pr_build_description ──────────────────────────────────────────────────────
+TEST_DIR=$(mktemp -d)
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+GATE_FILE="$TEST_DIR/quality_gate_results"
+
+# Test: file with PASS and FAIL lines
+cat > "$GATE_FILE" << 'EOF'
+PASS: npm run lint
+FAIL: npm test (exit 1)
+EOF
+
+desc_out=$(pr_build_description "T-1" "Fix bug" "ralph-claude/T-1" "false" "$GATE_FILE" "3")
+
+run_test "description contains task line" \
+    "1" "$(echo "$desc_out" | grep -c "Task: Fix bug (T-1)")"
+
+run_test "description contains branch line" \
+    "1" "$(echo "$desc_out" | grep -c "Branch: ralph-claude/T-1")"
+
+run_test "description contains PASS row" \
+    "1" "$(echo "$desc_out" | grep -c "✅ PASS")"
+
+run_test "description contains FAIL row" \
+    "1" "$(echo "$desc_out" | grep -c "❌ FAIL")"
+
+run_test "description contains Failures section when gate_passed=false" \
+    "1" "$(echo "$desc_out" | grep -c "Quality Gate Failures")"
+
+run_test "description contains loop number" \
+    "1" "$(echo "$desc_out" | grep -c "loop #3")"
+
+# Test: gate_passed=true — no Failures section
+desc_pass=$(pr_build_description "T-1" "Fix bug" "ralph-claude/T-1" "true" "$GATE_FILE" "3")
+run_test "no Failures section when gate_passed=true" \
+    "0" "$(echo "$desc_pass" | grep -c "Quality Gate Failures")"
+
+# Test: missing gate file
+desc_nofile=$(pr_build_description "T-1" "Fix bug" "ralph-claude/T-1" "true" "/nonexistent/file" "1")
+run_test "missing gate file shows fallback text" \
+    "1" "$(echo "$desc_nofile" | grep -c "No quality gate data available")"
+
+# Test: both task_id and task_name empty
+desc_empty=$(pr_build_description "" "" "ralph-claude/run-1" "true" "/nonexistent/file" "1")
+run_test "empty task_id and task_name omits Task line" \
+    "0" "$(echo "$desc_empty" | grep -c "^Task:")"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"
