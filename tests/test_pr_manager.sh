@@ -290,6 +290,34 @@ RALPH_PR_PUSH_CAPABLE="false"
 RALPH_PR_GH_CAPABLE="false"
 rm -rf "$WT_DIR3"
 
+# Test: gate_passed=false + GH_CAPABLE=true → quality-gates-failed label applied
+WT_DIR4=$(mktemp -d)
+(
+    cd "$WT_DIR4"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "work" > work.txt && git add . && git commit -q -m "initial work"
+)
+_WT_CURRENT_PATH="$WT_DIR4"
+_WT_CURRENT_BRANCH="ralph-claude/T-1-gates"
+_WT_MAIN_DIR="$WT_DIR4"
+RALPH_PR_PUSH_CAPABLE="true"
+RALPH_PR_GH_CAPABLE="true"
+PR_EDIT_LABEL_CALLED=0
+gh() {
+    if [[ "$1" == "pr" && "$2" == "view" ]]; then echo "https://github.com/owner/repo/pull/99"; return 0; fi
+    if [[ "$1" == "pr" && "$2" == "edit" && "$*" == *"quality-gates-failed"* ]]; then PR_EDIT_LABEL_CALLED=1; return 0; fi
+    return 0
+}
+git() { [[ "$1" == "push" ]] && return 0; command git "$@"; }
+worktree_commit_and_pr "T-1" "Gates test" "false" "2"
+run_test "gate_passed=false calls gh pr edit --add-label" "1" "$PR_EDIT_LABEL_CALLED"
+unset -f gh git
+RALPH_PR_PUSH_CAPABLE="false"
+RALPH_PR_GH_CAPABLE="false"
+rm -rf "$WT_DIR4"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"
