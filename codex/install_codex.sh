@@ -226,17 +226,17 @@ install_shared_libs() {
         "lib/enable_core.sh"
         "lib/wizard_utils.sh"
         "lib/task_sources.sh"
+        "lib/parallel_spawn.sh"
+        "lib/pr_manager.sh"
     )
 
     for lib in "${shared_libs[@]}"; do
-        if [[ ! -f "$RALPH_HOME/$lib" ]]; then
-            if [[ -f "$RALPH_ROOT/$lib" ]]; then
-                cp "$RALPH_ROOT/$lib" "$RALPH_HOME/$lib"
-                chmod +x "$RALPH_HOME/$lib"
-                log "INFO" "Copied shared library: $lib"
-            else
-                log "WARN" "Shared library not found: $lib (run main install.sh if needed)"
-            fi
+        if [[ -f "$RALPH_ROOT/$lib" ]]; then
+            cp "$RALPH_ROOT/$lib" "$RALPH_HOME/$lib"
+            chmod +x "$RALPH_HOME/$lib"
+            log "INFO" "Updated shared library: $lib"
+        else
+            log "WARN" "Shared library not found: $lib (run main install.sh if needed)"
         fi
     done
 
