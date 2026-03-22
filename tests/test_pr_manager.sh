@@ -143,6 +143,15 @@ desc_pass=$(pr_build_description "T-1" "Fix bug" "ralph-claude/T-1" "true" "$GAT
 run_test "no Failures section when gate_passed=true" \
     "0" "$(echo "$desc_pass" | grep -c "Quality Gate Failures")"
 
+# Test: gate_passed=false but PASS-only gate file → no Failures section
+cat > "$GATE_FILE" << 'EOF'
+PASS: npm run lint
+PASS: npm test
+EOF
+desc_fail_noerrors=$(pr_build_description "T-1" "Fix bug" "ralph-claude/T-1" "false" "$GATE_FILE" "2")
+run_test "gate_passed=false with no FAIL lines omits Failures section" \
+    "0" "$(echo "$desc_fail_noerrors" | grep -c "Quality Gate Failures")"
+
 # Test: missing gate file
 desc_nofile=$(pr_build_description "T-1" "Fix bug" "ralph-claude/T-1" "true" "/nonexistent/file" "1")
 run_test "missing gate file shows fallback text" \
