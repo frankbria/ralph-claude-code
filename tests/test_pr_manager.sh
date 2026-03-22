@@ -31,21 +31,43 @@ log_status() { :; }
 
 source "$SCRIPT_DIR/../lib/pr_manager.sh"
 
-# ── pr_preflight_check: gh missing ───────────────────────────────────────────
+# ── pr_preflight_check: no remote → both flags false ─────────────────────────
 (
-    # Override command to simulate gh missing
-    command() { [[ "$2" == "gh" ]] && return 1; builtin command "$@"; }
-    git() { return 0; }
+    git() { return 1; }   # all git calls fail — simulates no remote
     RALPH_PR_PUSH_CAPABLE=""
     RALPH_PR_GH_CAPABLE=""
     pr_preflight_check
-    run_test "gh missing sets GH_CAPABLE=false" "false" "$RALPH_PR_GH_CAPABLE"
+    run_test "no remote sets PUSH_CAPABLE=false" "false" "$RALPH_PR_PUSH_CAPABLE"
+    run_test "no remote sets GH_CAPABLE=false"   "false" "$RALPH_PR_GH_CAPABLE"
+)
+
+# ── pr_preflight_check: gh missing → only GH_CAPABLE false ───────────────────
+(
+    git() { return 0; }
+    command() { [[ "$2" == "gh" ]] && return 1; builtin command "$@"; }
+    RALPH_PR_PUSH_CAPABLE=""
+    RALPH_PR_GH_CAPABLE=""
+    pr_preflight_check
+    run_test "gh missing sets GH_CAPABLE=false"    "false" "$RALPH_PR_GH_CAPABLE"
+    run_test "gh missing leaves PUSH_CAPABLE=true" "true"  "$RALPH_PR_PUSH_CAPABLE"
+)
+
+# ── pr_preflight_check: gh not authenticated → only GH_CAPABLE false ─────────
+(
+    git() { return 0; }
+    command() { return 0; }  # gh exists
+    gh() { [[ "$1" == "auth" ]] && return 1; return 0; }
+    RALPH_PR_PUSH_CAPABLE=""
+    RALPH_PR_GH_CAPABLE=""
+    pr_preflight_check
+    run_test "gh not authed sets GH_CAPABLE=false"    "false" "$RALPH_PR_GH_CAPABLE"
+    run_test "gh not authed leaves PUSH_CAPABLE=true" "true"  "$RALPH_PR_PUSH_CAPABLE"
 )
 
 # ── pr_preflight_check: all present (mocked) ─────────────────────────────────
 (
-    command() { return 0; }
     git() { return 0; }
+    command() { return 0; }
     gh() { return 0; }
     RALPH_PR_PUSH_CAPABLE=""
     RALPH_PR_GH_CAPABLE=""
