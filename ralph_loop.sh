@@ -2066,10 +2066,12 @@ main() {
         local picked_line_num=""
         local picked_bead_id=""
         local task_info=""
+        local picked_task_name=""
         if task_info=$(pick_next_task "$RALPH_DIR/fix_plan.md"); then
             picked_task_id=$(echo "$task_info" | cut -d'|' -f1)
             picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
             picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
+            picked_task_name=$(sed -n "${picked_line_num}p" "$RALPH_DIR/fix_plan.md" 2>/dev/null | sed 's/.*\[.\] //' | tr -d '\n' || echo "")
 
             log_status "SUCCESS" "Picked and locked task: $picked_task_id (line $picked_line_num)"
 
@@ -2158,15 +2160,17 @@ main() {
                     # Quality gates passed — commit + push + open PR
                     log_status "SUCCESS" "Quality gates passed."
                     QG_RETRY_COUNT=0
-                    worktree_commit_and_pr "$picked_task_id" "" "true" "$loop_count"
+                    local wt_branch_for_log
+                    wt_branch_for_log="$(worktree_get_branch)"
+                    worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "true" "$loop_count"
                     local pr_result=$?
-                    worktree_cleanup "false"    # branch preserved as PR head; never deleted by Ralph
+                    worktree_cleanup "false"    # worktree directory removed; branch preserved as PR head
                     if [[ $pr_result -eq 0 ]]; then
                         if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
                             mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
                         fi
                     else
-                        log_status "ERROR" "PR workflow failed. Branch preserved for manual recovery: $(worktree_get_branch)"
+                        log_status "ERROR" "PR workflow failed. Branch preserved for manual recovery: $wt_branch_for_log"
                     fi
                 else
                     # Quality gates failed — increment retry counter, keep worktree alive
@@ -2174,8 +2178,8 @@ main() {
                     log_status "WARN" "Quality gates failed (attempt $QG_RETRY_COUNT/$MAX_QG_RETRIES)."
                     if [[ $QG_RETRY_COUNT -ge $MAX_QG_RETRIES ]]; then
                         log_status "WARN" "Max QG retries reached. Creating PR with failure details."
-                        worktree_commit_and_pr "$picked_task_id" "" "false" "$loop_count"
-                        worktree_cleanup "false"    # branch preserved
+                        worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count"
+                        worktree_cleanup "false"    # worktree directory removed; branch preserved
                         QG_RETRY_COUNT=0
                     else
                         log_status "INFO" "Keeping worktree alive for QG retry in next loop iteration."
@@ -2201,7 +2205,7 @@ main() {
 
             # Non-worktree PR: create branch + push + PR when not using worktrees
             if [[ "$WORKTREE_ENABLED" != "true" ]]; then
-                worktree_fallback_branch_pr "$picked_task_id" "" "$loop_count" "true"
+                worktree_fallback_branch_pr "$picked_task_id" "$picked_task_name" "$loop_count" "true"
             fi
 
             # Beads post-sync: close completed beads
@@ -2231,8 +2235,8 @@ main() {
             # Circuit breaker opened — create failure PR before cleanup
             if worktree_is_active; then
                 log_status "WARN" "Circuit breaker opened — creating failure PR before cleanup."
-                worktree_commit_and_pr "$picked_task_id" "" "false" "$loop_count"
-                worktree_cleanup "false"    # branch preserved
+                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count"
+                worktree_cleanup "false"    # worktree directory removed; branch preserved
             fi
             QG_RETRY_COUNT=0
             reset_session "circuit_breaker_trip"
