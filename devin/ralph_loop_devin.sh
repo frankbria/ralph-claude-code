@@ -622,8 +622,20 @@ You are operating inside an **isolated git worktree**.
             echo ""
             echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Worktree Cleanup Phase ━━━━━━━━━━━━━━━━${NC}"
             
-            # Create cleanup prompt
-            local cleanup_prompt="Task complete. Now perform git worktree cleanup:
+            # Create cleanup prompt — when PR_ENABLED, only commit; Ralph handles push+PR.
+            # When PR is disabled, fall back to the old merge-into-main flow.
+            local cleanup_prompt
+            if [[ "${PR_ENABLED:-true}" == "true" ]]; then
+                cleanup_prompt="Task complete. Please finalise your work in this worktree:
+
+1. Review all changes in the current worktree
+2. If there are uncommitted changes, commit them with a clear, descriptive message
+3. Do NOT merge branches, delete the worktree, or switch to the main directory —
+   Ralph will automatically push the branch and open a pull request after you exit.
+
+Type 'exit' to end the session."
+            else
+                cleanup_prompt="Task complete. Now perform git worktree cleanup:
 
 1. Review all changes in the current worktree
 2. If there are uncommitted changes, commit them with a descriptive message
@@ -634,6 +646,7 @@ You are operating inside an **isolated git worktree**.
 7. In the main branch directory, update \`.ralph/fix_plan.md\`: find the line with \`- [~]\` that corresponds to the work you just completed and change it to \`- [x]\`. Then commit that change with message 'ralph-devin: mark task complete'.
 
 After completing these steps, type 'exit' to end the session."
+            fi
 
             # Inject cleanup prompt into Devin
             echo "$cleanup_prompt" | (cd "$work_dir" && "${DEVIN_CMD_ARGS[@]}")
