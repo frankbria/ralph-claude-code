@@ -115,6 +115,10 @@ run_ci_enable() {
         exit 1
     fi
 
+    # Track whether fix_plan.md already exists (before creating anything)
+    local _fix_plan_existed="false"
+    [[ -f ".ralph/fix_plan.md" ]] && _fix_plan_existed="true"
+
     # Create directory structure
     mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
 
@@ -126,10 +130,11 @@ run_ci_enable() {
         templates_dir="$RALPH_ROOT/templates"
     fi
 
+    # Copy templates only for files that don't exist (preserve existing work)
     if [[ -n "$templates_dir" ]]; then
-        cp "$templates_dir/PROMPT.md" .ralph/PROMPT.md 2>/dev/null || true
-        cp "$templates_dir/fix_plan.md" .ralph/fix_plan.md 2>/dev/null || true
-        cp "$templates_dir/AGENT.md" .ralph/AGENT.md 2>/dev/null || true
+        [[ ! -f ".ralph/PROMPT.md" ]] && cp "$templates_dir/PROMPT.md" .ralph/PROMPT.md 2>/dev/null || true
+        [[ ! -f ".ralph/fix_plan.md" ]] && cp "$templates_dir/fix_plan.md" .ralph/fix_plan.md 2>/dev/null || true
+        [[ ! -f ".ralph/AGENT.md" ]] && cp "$templates_dir/AGENT.md" .ralph/AGENT.md 2>/dev/null || true
         cp -r "$templates_dir/specs"/* .ralph/specs/ 2>/dev/null || true
     fi
 
@@ -138,10 +143,13 @@ run_ci_enable() {
     [[ ! -f ".ralph/fix_plan.md" ]] && echo "# Fix Plan" > .ralph/fix_plan.md
     [[ ! -f ".ralph/AGENT.md" ]] && echo "# Agent Instructions" > .ralph/AGENT.md
 
-    # Import tasks if specified
+    # Import tasks if specified — only overwrite fix_plan.md if it was just created (not pre-existing)
     if [[ "$TASK_SOURCE" != "local" ]]; then
         if type import_tasks_from_source &>/dev/null 2>&1; then
-            import_tasks_from_source "$TASK_SOURCE" "$GITHUB_LABEL" "$PRD_FILE" > .ralph/fix_plan.md 2>/dev/null || true
+            # Only import into fix_plan.md if it was just created by this run (not pre-existing)
+            if [[ "$_fix_plan_existed" != "true" ]]; then
+                import_tasks_from_source "$TASK_SOURCE" "$GITHUB_LABEL" "$PRD_FILE" > .ralph/fix_plan.md 2>/dev/null || true
+            fi
         fi
     fi
 

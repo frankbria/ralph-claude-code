@@ -360,6 +360,89 @@ EOF
     [[ "$prompt_content" == *"new-project"* ]]
 }
 
+# =============================================================================
+# FIX_PLAN.MD PRESERVATION (4 tests)
+# Verify fix_plan.md is preserved on re-enable to protect work progress
+# =============================================================================
+
+@test "enable_ralph_in_directory preserves fix_plan.md with force and no new tasks" {
+    mkdir -p .ralph
+    echo "old content" > .ralph/PROMPT.md
+    echo "- [x] My completed task" > .ralph/fix_plan.md
+    echo "old agent" > .ralph/AGENT.md
+
+    export ENABLE_FORCE="true"
+    export ENABLE_PROJECT_NAME="new-project"
+    export ENABLE_TASK_CONTENT=""
+
+    run enable_ralph_in_directory
+
+    assert_success
+
+    # fix_plan.md should be preserved (no new tasks imported)
+    local fix_plan_content
+    fix_plan_content=$(cat .ralph/fix_plan.md)
+    [[ "$fix_plan_content" == "- [x] My completed task" ]]
+}
+
+@test "enable_ralph_in_directory overwrites fix_plan.md with force AND new task content" {
+    mkdir -p .ralph
+    echo "old content" > .ralph/PROMPT.md
+    echo "- [x] My completed task" > .ralph/fix_plan.md
+    echo "old agent" > .ralph/AGENT.md
+
+    export ENABLE_FORCE="true"
+    export ENABLE_PROJECT_NAME="new-project"
+    export ENABLE_TASK_CONTENT="- [ ] New imported task from beads"
+
+    run enable_ralph_in_directory
+
+    assert_success
+
+    # fix_plan.md should be overwritten with new task content
+    local fix_plan_content
+    fix_plan_content=$(cat .ralph/fix_plan.md)
+    [[ "$fix_plan_content" == *"New imported task from beads"* ]]
+}
+
+@test "enable_ralph_in_directory preserves fix_plan.md without force flag" {
+    # Create a partial .ralph (missing AGENT.md so state is "partial")
+    mkdir -p .ralph
+    echo "prompt" > .ralph/PROMPT.md
+    echo "- [x] My completed task" > .ralph/fix_plan.md
+
+    export ENABLE_FORCE="false"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+
+    # fix_plan.md should be preserved
+    local fix_plan_content
+    fix_plan_content=$(cat .ralph/fix_plan.md)
+    [[ "$fix_plan_content" == "- [x] My completed task" ]]
+}
+
+@test "enable_ralph_in_directory creates fix_plan.md when missing" {
+    # Create a partial .ralph without fix_plan.md
+    mkdir -p .ralph
+    echo "prompt" > .ralph/PROMPT.md
+
+    export ENABLE_FORCE="false"
+    export ENABLE_PROJECT_NAME="test-project"
+
+    run enable_ralph_in_directory
+
+    assert_success
+
+    # fix_plan.md should be created
+    [[ -f ".ralph/fix_plan.md" ]]
+    local fix_plan_content
+    fix_plan_content=$(cat .ralph/fix_plan.md)
+    [[ "$fix_plan_content" == *"Ralph Fix Plan"* ]]
+}
+
 @test "safe_create_file overwrites existing file when ENABLE_FORCE is true" {
     # Create existing file with old content
     echo "original content" > test_file.txt

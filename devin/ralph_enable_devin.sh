@@ -268,13 +268,14 @@ run_wizard() {
     mkdir -p .ralph/{specs/stdlib,examples,logs,docs/generated}
     echo "  ✅ Created .ralph/ directory structure"
 
-    # Generate PROMPT.md
-    if [[ -f "$RALPH_HOME/templates/PROMPT.md" ]]; then
-        cp "$RALPH_HOME/templates/PROMPT.md" .ralph/PROMPT.md
-    elif [[ -f "$RALPH_ROOT/templates/PROMPT.md" ]]; then
-        cp "$RALPH_ROOT/templates/PROMPT.md" .ralph/PROMPT.md
-    else
-        cat > .ralph/PROMPT.md << 'PROMPTEOF'
+    # Generate PROMPT.md (skip if exists and not --force)
+    if [[ ! -f ".ralph/PROMPT.md" ]] || [[ "$FORCE_OVERWRITE" == "true" ]]; then
+        if [[ -f "$RALPH_HOME/templates/PROMPT.md" ]]; then
+            cp "$RALPH_HOME/templates/PROMPT.md" .ralph/PROMPT.md
+        elif [[ -f "$RALPH_ROOT/templates/PROMPT.md" ]]; then
+            cp "$RALPH_ROOT/templates/PROMPT.md" .ralph/PROMPT.md
+        else
+            cat > .ralph/PROMPT.md << 'PROMPTEOF'
 # Project Development Instructions
 
 ## Overview
@@ -289,17 +290,36 @@ run_wizard() {
 - Write tests for new functionality
 - Document public APIs
 PROMPTEOF
+        fi
+        echo "  ✅ Generated .ralph/PROMPT.md"
+    else
+        echo "  ⏭️  Preserved existing .ralph/PROMPT.md"
     fi
-    echo "  ✅ Generated .ralph/PROMPT.md"
 
-    # Generate fix_plan.md (with task import if applicable)
-    if [[ "$task_source_type" == "local" || "$SKIP_TASKS" == "true" ]]; then
-        if [[ -f "$RALPH_HOME/templates/fix_plan.md" ]]; then
-            cp "$RALPH_HOME/templates/fix_plan.md" .ralph/fix_plan.md
-        elif [[ -f "$RALPH_ROOT/templates/fix_plan.md" ]]; then
-            cp "$RALPH_ROOT/templates/fix_plan.md" .ralph/fix_plan.md
+    # Generate fix_plan.md
+    # IMPORTANT: Always preserve existing fix_plan.md (contains work progress)
+    # Only write if file doesn't exist, or if explicitly importing new tasks with --force
+    if [[ -f ".ralph/fix_plan.md" ]]; then
+        if [[ "$FORCE_OVERWRITE" == "true" && "$task_source_type" != "local" && "$SKIP_TASKS" != "true" ]]; then
+            # --force with explicit task import: overwrite with new tasks
+            if type import_tasks_from_source &>/dev/null 2>&1; then
+                import_tasks_from_source "$task_source_type" "$GITHUB_LABEL" "$PRD_FILE" > .ralph/fix_plan.md 2>/dev/null || {
+                    echo "  ⚠️  Task import failed, preserving existing fix_plan.md"
+                }
+            fi
+            echo "  ✅ Imported new tasks into .ralph/fix_plan.md"
         else
-            cat > .ralph/fix_plan.md << 'FIXPLANEOF'
+            echo "  ⏭️  Preserved existing .ralph/fix_plan.md (contains work progress)"
+        fi
+    else
+        # fix_plan.md doesn't exist — create it
+        if [[ "$task_source_type" == "local" || "$SKIP_TASKS" == "true" ]]; then
+            if [[ -f "$RALPH_HOME/templates/fix_plan.md" ]]; then
+                cp "$RALPH_HOME/templates/fix_plan.md" .ralph/fix_plan.md
+            elif [[ -f "$RALPH_ROOT/templates/fix_plan.md" ]]; then
+                cp "$RALPH_ROOT/templates/fix_plan.md" .ralph/fix_plan.md
+            else
+                cat > .ralph/fix_plan.md << 'FIXPLANEOF'
 # Fix Plan
 
 ## Priority Tasks
@@ -309,31 +329,33 @@ PROMPTEOF
 - [ ] Write tests
 - [ ] Documentation
 FIXPLANEOF
-        fi
-    else
-        # Try to import tasks from source using shared library
-        if type import_tasks_from_source &>/dev/null 2>&1; then
-            import_tasks_from_source "$task_source_type" "$GITHUB_LABEL" "$PRD_FILE" > .ralph/fix_plan.md 2>/dev/null || {
-                echo "  ⚠️  Task import failed, using defaults"
+            fi
+        else
+            # Try to import tasks from source using shared library
+            if type import_tasks_from_source &>/dev/null 2>&1; then
+                import_tasks_from_source "$task_source_type" "$GITHUB_LABEL" "$PRD_FILE" > .ralph/fix_plan.md 2>/dev/null || {
+                    echo "  ⚠️  Task import failed, using defaults"
+                    echo "# Fix Plan" > .ralph/fix_plan.md
+                    echo "" >> .ralph/fix_plan.md
+                    echo "- [ ] Import tasks manually" >> .ralph/fix_plan.md
+                }
+            else
                 echo "# Fix Plan" > .ralph/fix_plan.md
                 echo "" >> .ralph/fix_plan.md
-                echo "- [ ] Import tasks manually" >> .ralph/fix_plan.md
-            }
-        else
-            echo "# Fix Plan" > .ralph/fix_plan.md
-            echo "" >> .ralph/fix_plan.md
-            echo "- [ ] Import tasks from $task_source_type" >> .ralph/fix_plan.md
+                echo "- [ ] Import tasks from $task_source_type" >> .ralph/fix_plan.md
+            fi
         fi
+        echo "  ✅ Generated .ralph/fix_plan.md"
     fi
-    echo "  ✅ Generated .ralph/fix_plan.md"
 
-    # Generate AGENT.md
-    if [[ -f "$RALPH_HOME/templates/AGENT.md" ]]; then
-        cp "$RALPH_HOME/templates/AGENT.md" .ralph/AGENT.md
-    elif [[ -f "$RALPH_ROOT/templates/AGENT.md" ]]; then
-        cp "$RALPH_ROOT/templates/AGENT.md" .ralph/AGENT.md
-    else
-        cat > .ralph/AGENT.md << 'AGENTEOF'
+    # Generate AGENT.md (skip if exists and not --force)
+    if [[ ! -f ".ralph/AGENT.md" ]] || [[ "$FORCE_OVERWRITE" == "true" ]]; then
+        if [[ -f "$RALPH_HOME/templates/AGENT.md" ]]; then
+            cp "$RALPH_HOME/templates/AGENT.md" .ralph/AGENT.md
+        elif [[ -f "$RALPH_ROOT/templates/AGENT.md" ]]; then
+            cp "$RALPH_ROOT/templates/AGENT.md" .ralph/AGENT.md
+        else
+            cat > .ralph/AGENT.md << 'AGENTEOF'
 # Agent Instructions
 
 ## Build Commands
@@ -345,8 +367,11 @@ FIXPLANEOF
 - Follow existing conventions
 - Use consistent formatting
 AGENTEOF
+        fi
+        echo "  ✅ Generated .ralph/AGENT.md"
+    else
+        echo "  ⏭️  Preserved existing .ralph/AGENT.md"
     fi
-    echo "  ✅ Generated .ralph/AGENT.md"
 
     # Generate .ralphrc with Devin-specific settings
     generate_devin_ralphrc "$project_name" "$project_type" "$task_source_type" > .ralphrc.devin

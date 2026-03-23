@@ -14,6 +14,9 @@ setup() {
     TEST_DIR="$(mktemp -d)"
     cd "$TEST_DIR"
 
+    # Point RALPH_HOME to local repo so tests use local (unfixed) libraries, not installed ones
+    export RALPH_HOME="${BATS_TEST_DIRNAME}/../.."
+
     # Initialize git repo (required by some detection)
     git init > /dev/null 2>&1
     git config user.email "test@example.com"
@@ -246,6 +249,68 @@ EOF
     assert_equal "$status" 2
     # Verify original content preserved
     assert_equal "$(cat .ralph/PROMPT.md)" "original prompt"
+}
+
+# =============================================================================
+# FIX_PLAN.MD PRESERVATION ON RE-ENABLE (3 tests)
+# When switching engines or re-enabling, fix_plan.md must be preserved
+# =============================================================================
+
+@test "ralph enable-ci preserves fix_plan.md content with --force" {
+    # First enable
+    bash "$RALPH_ENABLE_CI" --from none >/dev/null 2>&1
+
+    # Simulate user work progress in fix_plan.md
+    cat > .ralph/fix_plan.md << 'EOF'
+# Ralph Fix Plan
+
+## High Priority
+- [x] Task 1 - Completed by user
+- [ ] Task 2 - In progress
+- [ ] Task 3 - Pending
+
+## Completed
+- [x] Project enabled for Ralph
+- [x] Task 1 - Completed by user
+EOF
+
+    # Re-enable with --force (e.g., switching engines)
+    run bash "$RALPH_ENABLE_CI" --from none --force
+
+    assert_success
+    # Verify user's fix_plan content is preserved
+    grep -q "Task 1 - Completed by user" .ralph/fix_plan.md
+    grep -q "Task 2 - In progress" .ralph/fix_plan.md
+    grep -q "Task 3 - Pending" .ralph/fix_plan.md
+}
+
+@test "ralph enable-ci preserves fix_plan.md even with --from option on re-enable" {
+    # First enable
+    bash "$RALPH_ENABLE_CI" --from none >/dev/null 2>&1
+
+    # Simulate user work progress
+    echo "- [x] User completed this task" > .ralph/fix_plan.md
+
+    # Re-enable with --force (fix_plan exists, so it should be preserved)
+    run bash "$RALPH_ENABLE_CI" --from none --force
+
+    assert_success
+    # User's content should be preserved
+    grep -q "User completed this task" .ralph/fix_plan.md
+}
+
+@test "ralph enable-ci creates fix_plan.md when missing even on re-enable" {
+    # Create partial .ralph without fix_plan
+    mkdir -p .ralph
+    echo "prompt" > .ralph/PROMPT.md
+    echo "agent" > .ralph/AGENT.md
+    touch .ralphrc
+
+    # Re-enable with --force — fix_plan.md is missing, should be created
+    run bash "$RALPH_ENABLE_CI" --from none --force
+
+    assert_success
+    [[ -f ".ralph/fix_plan.md" ]]
 }
 
 # =============================================================================

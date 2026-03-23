@@ -832,9 +832,22 @@ enable_ralph_in_directory() {
     agent_content=$(generate_agent_md "$DETECTED_BUILD_CMD" "$DETECTED_TEST_CMD" "$DETECTED_RUN_CMD")
     safe_create_file ".ralph/AGENT.md" "$agent_content"
 
-    local fix_plan_content
-    fix_plan_content=$(generate_fix_plan_md "$task_content")
-    safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
+    # fix_plan.md: Always preserve existing file (contains work progress).
+    # Only overwrite when: file doesn't exist, OR --force with explicit task import content.
+    if [[ -f ".ralph/fix_plan.md" ]]; then
+        if [[ "$force" == "true" && -n "$task_content" ]]; then
+            # --force with explicit task import: overwrite with new tasks
+            local fix_plan_content
+            fix_plan_content=$(generate_fix_plan_md "$task_content")
+            safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
+        else
+            enable_log "SKIP" ".ralph/fix_plan.md already exists (preserving work progress)"
+        fi
+    else
+        local fix_plan_content
+        fix_plan_content=$(generate_fix_plan_md "$task_content")
+        safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
+    fi
 
     # Copy .gitignore template to project root (if available)
     local templates_dir
