@@ -14,7 +14,10 @@
 #
 # Version: 0.2.0
 
-set -e
+# Note: set -e intentionally NOT used — see Issue #208.
+# set -e causes silent script death in pipelines, command substitutions,
+# and piped subshells (e.g., cleanup prompt injection, quality gate checks).
+# Errors are handled explicitly throughout the script.
 
 # Source library components (shared with Claude version)
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -616,42 +619,15 @@ You are operating inside an **isolated git worktree**.
         echo ""
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
 
-        # If DEVIN_AUTO_EXIT=false and worktree is enabled, inject cleanup prompt
+        # After interactive Devin session completes in worktree mode,
+        # print a notice. Ralph's post-loop code handles auto-commit,
+        # push, PR creation, and worktree cleanup automatically.
         if [[ "$DEVIN_AUTO_EXIT" == "false" && "$WORKTREE_ENABLED" == "true" && "$exit_code" -eq 0 ]]; then
-            log_status "INFO" "Injecting worktree cleanup prompt to Devin..."
             echo ""
-            echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Worktree Cleanup Phase ━━━━━━━━━━━━━━━━${NC}"
-            
-            # Create cleanup prompt — when PR_ENABLED, only commit; Ralph handles push+PR.
-            # When PR is disabled, fall back to the old merge-into-main flow.
-            local cleanup_prompt
-            if [[ "${PR_ENABLED:-true}" == "true" ]]; then
-                cleanup_prompt="Task complete. Please finalise your work in this worktree:
-
-1. Review all changes in the current worktree
-2. If there are uncommitted changes, commit them with a clear, descriptive message
-3. Do NOT merge branches, delete the worktree, or switch to the main directory —
-   Ralph will automatically push the branch and open a pull request after you exit.
-
-Type 'exit' to end the session."
-            else
-                cleanup_prompt="Task complete. Now perform git worktree cleanup:
-
-1. Review all changes in the current worktree
-2. If there are uncommitted changes, commit them with a descriptive message
-3. Run quality checks: \`npm test\` and \`npm run lint\` (or equivalent for this project)
-4. If all checks pass, merge this worktree branch into the main branch using the squash strategy
-5. After successful merge, delete this worktree and its branch
-6. Clean up any other stale worktrees that have no uncommitted changes
-7. In the main branch directory, update \`.ralph/fix_plan.md\`: find the line with \`- [~]\` that corresponds to the work you just completed and change it to \`- [x]\`. Then commit that change with message 'ralph-devin: mark task complete'.
-
-After completing these steps, type 'exit' to end the session."
-            fi
-
-            # Inject cleanup prompt into Devin
-            echo "$cleanup_prompt" | (cd "$work_dir" && "${DEVIN_CMD_ARGS[@]}")
-            echo ""
-            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Cleanup Complete ━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Post-Session ━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${BLUE}Ralph will now auto-commit any remaining changes,${NC}"
+            echo -e "${BLUE}push the branch, and open a pull request.${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         fi
     else
         # Background mode: non-interactive (-p flag), output to file

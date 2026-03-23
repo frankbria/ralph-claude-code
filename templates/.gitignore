@@ -11,6 +11,12 @@
 .ralph/.circuit_breaker_history
 .ralph/.loop_start_sha
 .ralph/.quality_gate_results
+.ralph/.devin_session_id
+.ralph/.devin_session_history
+.ralph/.devin_prompt_combined.md
+.ralph/.codex_session_id
+.ralph/progress.json
+.ralph/live.log
 
 # Ralph logs and generated docs
 .ralph/logs/*
