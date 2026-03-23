@@ -97,9 +97,11 @@ create_install_dirs() {
     log "INFO" "Creating installation directories..."
 
     mkdir -p "$INSTALL_DIR"
+    mkdir -p "$RALPH_HOME/lib"
+    mkdir -p "$RALPH_HOME/templates"
     mkdir -p "$CODEX_HOME/lib"
 
-    log "SUCCESS" "Directories created: $INSTALL_DIR, $CODEX_HOME"
+    log "SUCCESS" "Directories created: $INSTALL_DIR, $RALPH_HOME/lib, $CODEX_HOME"
 }
 
 # Install Codex-specific scripts
