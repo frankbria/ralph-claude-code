@@ -77,3 +77,5 @@ alias ralph.migrate='ralph-migrate'
 alias ralph.import='ralph-import'
 alias ralph.check.beads='ralph-check-beads'
 alias ralph.plan='ralph-plan'
+
+alias rp.install="rpc.install;rpd.install;rpx.install"
