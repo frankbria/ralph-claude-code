@@ -1124,18 +1124,14 @@ EOF
 }
 
 @test "text mode: requires both confidence>=70 AND has_completion_signal to exit" {
-    # Text mode should exit only when BOTH conditions are met
+    # Text mode should exit only when BOTH conditions are met.
+    # Here: keyword match gives has_completion_signal=true and confidence=10.
+    # No .ralph/.loop_start_sha means the git-change boost (+20) does not fire.
+    # Total confidence (10) is well below 70 — should NOT exit.
     local output_file="$LOG_DIR/test_output.log"
-    # Create text output with completion keyword + git changes (score: 10+20=30 < 70)
-    # to show it won't exit on low confidence
     cat > "$output_file" << 'EOF'
 All tasks are done. The implementation is complete.
 EOF
-    # Simulate git file changes to boost confidence to 30 (10 keyword + 20 git)
-    # Still below 70 — should NOT exit
-    touch modified_file.txt
-    git add modified_file.txt
-    git commit -m "test" --allow-empty > /dev/null 2>&1
 
     run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
     assert_success
