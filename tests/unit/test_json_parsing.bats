@@ -1087,3 +1087,71 @@ EOF
     assert_success
     [[ "$output" -gt 0 ]]
 }
+
+# =============================================================================
+# HEURISTIC EXIT THRESHOLD TESTS (Issue #224)
+# =============================================================================
+
+@test "JSON mode without RALPH_STATUS block: completion keywords do not trigger exit" {
+    # Regression test for Issue #224
+    # Writing a CHANGELOG or README with "done"/"complete" should NOT exit
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"type":"result","subtype":"success","result":"I've updated the CHANGELOG.\n\n## v1.2.0\n- Implementation complete\n- Setup is done\n- All tasks finished\n\nThe documentation has been updated successfully."}
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local exit_signal
+    exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "false"
+}
+
+@test "JSON mode without RALPH_STATUS block: multiple documentation completion phrases do not trigger exit" {
+    # Even heavy use of completion language in JSON mode should not exit without EXIT_SIGNAL
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"type":"result","subtype":"success","result":"Updated README: setup complete, installation done, configuration finished, all steps completed."}
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local exit_signal
+    exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "false"
+}
+
+@test "text mode: requires both confidence>=70 AND has_completion_signal to exit" {
+    # Text mode should exit only when BOTH conditions are met.
+    # Here: keyword match gives has_completion_signal=true and confidence=10.
+    # No .ralph/.loop_start_sha means the git-change boost (+20) does not fire.
+    # Total confidence (10) is well below 70 — should NOT exit.
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+All tasks are done. The implementation is complete.
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local exit_signal
+    exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "false"
+}
+
+@test "text mode: has_completion_signal alone (confidence<70) does not trigger exit" {
+    # A single keyword match sets has_completion_signal=true but score=10 — must NOT exit
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+The feature is done.
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local exit_signal
+    exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "false"
+}
