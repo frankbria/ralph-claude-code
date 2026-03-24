@@ -638,7 +638,15 @@ analyze_response() {
     # IMPORTANT: Only apply heuristics if no explicit EXIT_SIGNAL was found in RALPH_STATUS
     # Claude's explicit intent takes precedence over natural language pattern matching
     if [[ "$explicit_exit_signal_found" != "true" ]]; then
-        if [[ $confidence_score -ge 40 || "$has_completion_signal" == "true" ]]; then
+        if [[ "$output_format" == "json" ]]; then
+            # JSON mode with failed parse: suppress heuristics entirely (Issue #224)
+            # A malformed/truncated JSON response is not a completion signal.
+            # Only an explicit EXIT_SIGNAL from a RALPH_STATUS block can trigger exit.
+            [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: JSON mode, no explicit EXIT_SIGNAL — suppressing heuristic exit (confidence=$confidence_score)" >&2
+        elif [[ $confidence_score -ge 70 && "$has_completion_signal" == "true" ]]; then
+            # Text mode: require BOTH high confidence AND a structural completion signal (Issue #224)
+            # Raised from >=40 OR has_completion_signal to prevent documentation keywords
+            # ("setup is done", "implementation complete") from triggering false-positive exits.
             exit_signal=true
         fi
     fi
