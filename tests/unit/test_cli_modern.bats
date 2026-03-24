@@ -1873,6 +1873,17 @@ EOF
     assert_equal "$CLAUDE_MODEL" "claude-opus-4-6"
 }
 
+@test "CLAUDE_EFFORT env var takes precedence over .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_EFFORT="low"
+EOF
+    _env_CLAUDE_EFFORT="high"
+    CLAUDE_EFFORT="high"
+
+    load_ralphrc
+    assert_equal "$CLAUDE_EFFORT" "high"
+}
+
 @test "build_claude_command includes --model flag when CLAUDE_MODEL is set" {
     CLAUDE_MODEL="claude-sonnet-4-6"
     CLAUDE_EFFORT=""
