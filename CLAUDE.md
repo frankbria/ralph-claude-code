@@ -55,7 +55,7 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Detects test-only loops, stuck error patterns, and question-only loops
    - Two-stage error filtering to eliminate false positives
    - Multi-line error matching for accurate stuck loop detection
-   - Confidence scoring for exit decisions
+   - **Mode-specific heuristic exit**: In JSON mode, heuristics are suppressed entirely — only an explicit `EXIT_SIGNAL: true` in a RALPH_STATUS block can set `exit_signal=true` (Issue #224). In text mode, exit requires `confidence_score >= 70` AND `has_completion_signal=true` (raised from the old `>= 40 OR has_completion_signal` to prevent documentation keywords like "setup is done" from triggering false-positive exits).
 
 3. **lib/date_utils.sh** - Cross-platform date utilities
    - ISO timestamp generation for logging
@@ -286,7 +286,10 @@ Loop 8: Claude outputs "All tasks complete, project ready"
         → Result: EXIT with "project_complete"
 ```
 
-**Rationale:** Natural language patterns like "done" or "complete" can trigger false positives during productive work (e.g., "feature done, moving to tests"). By requiring Claude's explicit EXIT_SIGNAL confirmation, Ralph avoids exiting mid-iteration when Claude is still working.
+**Rationale:** Natural language patterns like "done" or "complete" can trigger false positives during productive work (e.g., writing a CHANGELOG entry that says "implementation complete"). Two defences are layered:
+
+- **JSON mode** (default): heuristics are suppressed entirely. Only an explicit `EXIT_SIGNAL: true` inside a RALPH_STATUS block triggers exit. Completion keywords in tool output or generated docs are ignored (Issue #224).
+- **Text mode**: requires `confidence_score >= 70` AND `has_completion_signal=true` before setting `exit_signal=true`. The old threshold (`>= 40 OR has_completion_signal`) was too sensitive to documentation language (Issue #224).
 
 ## CI/CD Pipeline
 
@@ -558,14 +561,14 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (584 tests total)
+### Test Files (588 tests total)
 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_circuit_breaker_recovery.bats` | 22 | Cooldown timer, auto-reset, parse_iso_to_epoch, CLI flag (Issue #160) + current_loop init/display fix (#194) |
 | `test_cli_parsing.bats` | 35 | CLI argument parsing for all flags + monitor parameter forwarding |
 | `test_cli_modern.bats` | 111 | Modern CLI commands (Phase 1.1) + build_claude_command fix + live mode text format fix (#164) + errexit pipeline guard (#175) + ALLOWED_TOOLS tightening (#149) + API limit false positive detection (#183) + Claude CLI command validation (#97) + stale call counter fix (#196) + is_error detection (#134, #199) + set-e removal (#208) + question detection + version check + semver comparison + stderr separation (#190) + productive timeout detection + session ID fallback + stale analysis cleanup (#198) + Extra Usage quota detection (#100) |
-| `test_json_parsing.bats` | 52 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) |
+| `test_json_parsing.bats` | 56 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) + heuristic exit threshold tests (#224) |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 54 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) + stale exit signal prevention (#194) |
 | `test_rate_limiting.bats` | 11 | Rate limiting behavior |
