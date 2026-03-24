@@ -42,13 +42,22 @@ alias rpd.wt.merge='ralph-devin --merge-strategy merge'
 alias rpd.wt.rebase='ralph-devin --merge-strategy rebase'
 alias rpd.wt.nogate='ralph-devin --quality-gates none'
 
-# Parallel mode (spawns N agents: iTerm2 tabs from iTerm, IDE terminal tabs from Windsurf/VS Code/Cursor)
-# Usage: rpd.p 3  -> spawns 3 parallel devin agents
+# Interactive (TUI) mode - Devin runs without -p flag, shows its TUI
+alias rpd.int='ralph-devin --no-devin-auto-exit'
+alias rpd.wt.int='ralph-devin --no-devin-auto-exit --live --monitor'
+
+# Parallel non-interactive (spawns N agents: iTerm2 tabs or IDE terminal tabs)
+# Usage: rpd.p 3  -> spawns 3 parallel devin agents (auto-exit)
 rpd.p() { ralph-devin --parallel "${1:?Usage: rpd.p <number>}"; }
+
+# Parallel interactive (spawns N agents in TUI mode)
+# Usage: rpd.int.p 3  -> spawns 3 parallel devin agents in interactive mode
+rpd.int.p() { ralph-devin --no-devin-auto-exit --parallel "${1:?Usage: rpd.int.p <number>}"; }
 
 # Parallel background mode (spawns N agents as background processes in any terminal)
 # Usage: rpd.p.b 3  -> spawns 3 parallel devin agents in background
 rpd.p.b() { ralph-devin --parallel-bg "${1:?Usage: rpd.p.b <number>}"; }
+rpd.int.p.b() { ralph-devin --no-devin-auto-exit --parallel-bg "${1:?Usage: rpd.int.p.b <number>}"; }
 
 # Combined common workflows
 alias rpd.dev='ralph-devin --live --monitor --verbose'

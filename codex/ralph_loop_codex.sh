@@ -56,6 +56,7 @@ _env_CODEX_TIMEOUT_MINUTES="${CODEX_TIMEOUT_MINUTES:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CODEX_MODEL="${CODEX_MODEL:-}"
 _env_CODEX_PERMISSION_MODE="${CODEX_PERMISSION_MODE:-}"
+_env_CODEX_AUTO_EXIT="${CODEX_AUTO_EXIT:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 _env_WORKTREE_ENABLED="${WORKTREE_ENABLED:-}"
@@ -67,6 +68,7 @@ MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 CODEX_TIMEOUT_MINUTES="${CODEX_TIMEOUT_MINUTES:-30}"
 CODEX_USE_CONTINUE="${CODEX_USE_CONTINUE:-true}"
+CODEX_AUTO_EXIT="${CODEX_AUTO_EXIT:-true}"  # true = use -p flag (auto-exit), false = interactive TUI
 
 # Session management
 CODEX_SESSION_EXPIRY_HOURS="${CODEX_SESSION_EXPIRY_HOURS:-24}"
@@ -105,6 +107,7 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CODEX_MODEL" ]] && CODEX_MODEL="$_env_CODEX_MODEL"
     [[ -n "$_env_CODEX_PERMISSION_MODE" ]] && CODEX_PERMISSION_MODE="$_env_CODEX_PERMISSION_MODE"
+    [[ -n "$_env_CODEX_AUTO_EXIT" ]] && CODEX_AUTO_EXIT="$_env_CODEX_AUTO_EXIT"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
     [[ -n "$_env_WORKTREE_ENABLED" ]] && WORKTREE_ENABLED="$_env_WORKTREE_ENABLED"
@@ -545,8 +548,11 @@ You are operating inside an **isolated git worktree**.
     fi
 
     # Build the Codex CLI command
-    # Always use -p flag (auto-exit); LIVE_OUTPUT streams output in real-time
+    # CODEX_AUTO_EXIT controls -p flag: true = auto-exit, false = interactive TUI
     local print_mode="true"
+    if [[ "$CODEX_AUTO_EXIT" == "false" ]]; then
+        print_mode="false"
+    fi
 
     # Use worktree's prompt file (absolute path) when in worktree mode
     local effective_prompt="$PROMPT_FILE"
@@ -574,18 +580,49 @@ You are operating inside an **isolated git worktree**.
     # Execute Codex CLI
     local exit_code=0
 
-    echo -e "${PURPLE}━━━━━━━━ Codex Session ━━━━━━━━${NC}"
+    if [[ "$print_mode" == "false" ]]; then
+        # Interactive mode: Codex runs in the terminal TUI (no -p flag)
+        log_status "INFO" "Interactive mode - Codex running in TUI..."
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Codex Session ━━━━━━━━━━━━━━━━${NC}"
 
-    # Background mode: non-interactive (-p flag), output to file
-    (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}") \
-        < /dev/null > "$output_file" 2>&1 &
+        # Run Codex directly on the terminal (interactive TUI needs real TTY)
+        # Use script to capture a copy of the output while keeping TTY intact
+        local resolved_timeout_cmd
+        resolved_timeout_cmd=$(detect_timeout_command 2>/dev/null)
+
+        if command -v script &>/dev/null && [[ -n "$resolved_timeout_cmd" ]]; then
+            (cd "$work_dir" && script -q "$output_file" "$resolved_timeout_cmd" ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}")
+            exit_code=$?
+        elif [[ -n "$resolved_timeout_cmd" ]]; then
+            (cd "$work_dir" && "$resolved_timeout_cmd" ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}")
+            exit_code=$?
+        else
+            (cd "$work_dir" && "${CODEX_CMD_ARGS[@]}")
+            exit_code=$?
+        fi
+
+        cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null || true
+        echo ""
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
+
+        if [[ "$WORKTREE_ENABLED" == "true" && "$exit_code" -eq 0 ]]; then
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Post-Session ━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${BLUE}Ralph will now auto-commit any remaining changes,${NC}"
+            echo -e "${BLUE}push the branch, and open a pull request.${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        fi
+    else
+        # Background mode: non-interactive (-p flag), output to file; LIVE_OUTPUT streams it.
+        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Codex Session (Live Output) ━━━━━━━━━━━━━━━━${NC}"
+        (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}") \
+            < /dev/null > "$output_file" 2>&1 &
 
         local codex_pid=$!
         local progress_counter=0
         local last_displayed_line=0
 
         if [[ "$LIVE_OUTPUT" == "true" ]]; then
-            echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Codex Session (Live Output) ━━━━━━━━━━━━━━━━${NC}"
             sleep 1  # Wait for output file to be created
         fi
 
@@ -601,12 +638,10 @@ You are operating inside an **isolated git worktree**.
 
             local last_line=""
             if [[ -f "$output_file" && -s "$output_file" ]]; then
-                # If LIVE_OUTPUT is enabled, display new lines from output file
                 if [[ "$LIVE_OUTPUT" == "true" ]]; then
                     local current_lines
                     current_lines=$(wc -l < "$output_file" 2>/dev/null || echo "0")
                     if [[ $current_lines -gt $last_displayed_line ]]; then
-                        # Display new lines since last check
                         tail -n +$((last_displayed_line + 1)) "$output_file" 2>/dev/null
                         last_displayed_line=$current_lines
                     fi
@@ -634,13 +669,13 @@ EOF
                 fi
             fi
 
-            sleep 2  # Reduced from 10s to 2s for more responsive live output
+            sleep 2
         done
 
         wait $codex_pid
         exit_code=$?
 
-        # Display any remaining output
+        # Flush any remaining output
         if [[ "$LIVE_OUTPUT" == "true" && -f "$output_file" ]]; then
             local final_lines
             final_lines=$(wc -l < "$output_file" 2>/dev/null || echo "0")
@@ -650,6 +685,7 @@ EOF
             echo ""
             echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
         fi
+    fi
 
     # Process results
     if [[ $exit_code -eq 0 ]]; then
@@ -975,12 +1011,11 @@ Options:
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup
     --reset-session         Reset session state and exit
-    --max-loops NUM         Stop after NUM loops (default: 0 = unlimited)
+    --codex-auto-exit       Force Codex to auto-exit with -p flag (default: true)
+    --no-codex-auto-exit    Run Codex interactively (no -p flag, shows TUI)
     --no-worktree           Disable git worktree isolation
     --merge-strategy STR    Merge strategy: squash, merge, rebase (default: squash)
     --quality-gates GATES   Quality gates: auto, none, or "cmd1;cmd2" (default: auto)
-    --codex-auto-exit       Force Codex to auto-exit with -p flag (default: true)
-    --no-codex-auto-exit    Disable auto-exit, inject cleanup prompt after work
 
 Examples:
     ralph-codex --calls 50 --timeout 30
@@ -1102,6 +1137,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-worktree)
             WORKTREE_ENABLED=false
+            shift
+            ;;
+        --codex-auto-exit)
+            CODEX_AUTO_EXIT=true
+            shift
+            ;;
+        --no-codex-auto-exit)
+            CODEX_AUTO_EXIT=false
             shift
             ;;
         --merge-strategy)
