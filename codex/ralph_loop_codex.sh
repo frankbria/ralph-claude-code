@@ -56,10 +56,8 @@ _env_CODEX_TIMEOUT_MINUTES="${CODEX_TIMEOUT_MINUTES:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CODEX_MODEL="${CODEX_MODEL:-}"
 _env_CODEX_PERMISSION_MODE="${CODEX_PERMISSION_MODE:-}"
-_env_CODEX_AUTO_EXIT="${CODEX_AUTO_EXIT:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
-_env_MAX_LOOPS="${MAX_LOOPS:-}"
 _env_WORKTREE_ENABLED="${WORKTREE_ENABLED:-}"
 _env_WORKTREE_MERGE_STRATEGY="${WORKTREE_MERGE_STRATEGY:-}"
 _env_WORKTREE_QUALITY_GATES="${WORKTREE_QUALITY_GATES:-}"
@@ -69,10 +67,6 @@ MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 CODEX_TIMEOUT_MINUTES="${CODEX_TIMEOUT_MINUTES:-30}"
 CODEX_USE_CONTINUE="${CODEX_USE_CONTINUE:-true}"
-CODEX_AUTO_EXIT="${CODEX_AUTO_EXIT:-true}"  # true = use -p flag (auto-exit), false = interactive
-MAX_LOOPS="${MAX_LOOPS:-0}"  # 0 = unlimited
-QG_RETRY_COUNT=0
-MAX_QG_RETRIES="${MAX_QG_RETRIES:-3}"
 
 # Session management
 CODEX_SESSION_EXPIRY_HOURS="${CODEX_SESSION_EXPIRY_HOURS:-24}"
@@ -111,10 +105,8 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CODEX_MODEL" ]] && CODEX_MODEL="$_env_CODEX_MODEL"
     [[ -n "$_env_CODEX_PERMISSION_MODE" ]] && CODEX_PERMISSION_MODE="$_env_CODEX_PERMISSION_MODE"
-    [[ -n "$_env_CODEX_AUTO_EXIT" ]] && CODEX_AUTO_EXIT="$_env_CODEX_AUTO_EXIT"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
-    [[ -n "$_env_MAX_LOOPS" ]] && MAX_LOOPS="$_env_MAX_LOOPS"
     [[ -n "$_env_WORKTREE_ENABLED" ]] && WORKTREE_ENABLED="$_env_WORKTREE_ENABLED"
     [[ -n "$_env_WORKTREE_MERGE_STRATEGY" ]] && WORKTREE_MERGE_STRATEGY="$_env_WORKTREE_MERGE_STRATEGY"
     [[ -n "$_env_WORKTREE_QUALITY_GATES" ]] && WORKTREE_QUALITY_GATES="$_env_WORKTREE_QUALITY_GATES"
@@ -553,17 +545,8 @@ You are operating inside an **isolated git worktree**.
     fi
 
     # Build the Codex CLI command
-    # --live mode: interactive (no -p), user sees Codex's TUI directly
-    # background mode: non-interactive (-p), output captured to file
-    # CODEX_AUTO_EXIT controls -p flag: true = auto-exit, false = interactive
+    # Always use -p flag (auto-exit); LIVE_OUTPUT streams output in real-time
     local print_mode="true"
-    if [[ "$CODEX_AUTO_EXIT" == "false" ]]; then
-        # Interactive mode - no -p flag, Codex waits for user input
-        print_mode="false"
-    elif [[ "$LIVE_OUTPUT" == "true" && "$WORKTREE_ENABLED" != "true" ]]; then
-        # Legacy behavior: live output without worktree = interactive
-        print_mode="false"
-    fi
 
     # Use worktree's prompt file (absolute path) when in worktree mode
     local effective_prompt="$PROMPT_FILE"
@@ -591,48 +574,11 @@ You are operating inside an **isolated git worktree**.
     # Execute Codex CLI
     local exit_code=0
 
-    # Use interactive mode if print_mode is false (CODEX_AUTO_EXIT=false or legacy live mode)
-    # Otherwise use background mode (which supports live streaming)
-    if [[ "$print_mode" == "false" ]]; then
-        log_status "INFO" "Live output mode - Codex running interactively..."
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Codex Session ━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${PURPLE}━━━━━━━━ Codex Session ━━━━━━━━${NC}"
 
-        # Run Codex directly on the terminal (interactive TUI needs real TTY)
-        # Use script to capture a copy of the output while keeping TTY intact
-        # Note: portable_timeout is a bash function, not an executable.
-        # script spawns a subprocess that can't see functions, so resolve to actual binary.
-        local resolved_timeout_cmd
-        resolved_timeout_cmd=$(detect_timeout_command 2>/dev/null)
-
-        if command -v script &>/dev/null && [[ -n "$resolved_timeout_cmd" ]]; then
-            (cd "$work_dir" && script -q "$output_file" "$resolved_timeout_cmd" ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}")
-            exit_code=$?
-        elif [[ -n "$resolved_timeout_cmd" ]]; then
-            (cd "$work_dir" && "$resolved_timeout_cmd" ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}")
-            exit_code=$?
-        else
-            (cd "$work_dir" && "${CODEX_CMD_ARGS[@]}")
-            exit_code=$?
-        fi
-
-        cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null || true
-        echo ""
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
-
-        # After interactive Codex session completes in worktree mode,
-        # print a notice. Ralph's post-loop code handles auto-commit,
-        # push, PR creation, and worktree cleanup automatically.
-        if [[ "$CODEX_AUTO_EXIT" == "false" && "$WORKTREE_ENABLED" == "true" && "$exit_code" -eq 0 ]]; then
-            echo ""
-            echo -e "${YELLOW}━━━━━━━━━━━━━━━━ Post-Session ━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${BLUE}Ralph will now auto-commit any remaining changes,${NC}"
-            echo -e "${BLUE}push the branch, and open a pull request.${NC}"
-            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        fi
-    else
-        # Background mode: non-interactive (-p flag), output to file
-        (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}") \
-            < /dev/null > "$output_file" 2>&1 &
+    # Background mode: non-interactive (-p flag), output to file
+    (cd "$work_dir" && portable_timeout ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}") \
+        < /dev/null > "$output_file" 2>&1 &
 
         local codex_pid=$!
         local progress_counter=0
@@ -704,7 +650,6 @@ EOF
             echo ""
             echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Session ━━━━━━━━━━━━━━━━━━━${NC}"
         fi
-    fi
 
     # Process results
     if [[ $exit_code -eq 0 ]]; then
@@ -841,11 +786,8 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# Global variable for loop count
-loop_count=0
-
 # =============================================================================
-# MAIN LOOP
+# MAIN
 # =============================================================================
 
 main() {
@@ -897,201 +839,112 @@ main() {
     # Run PR preflight checks once before entering the loop
     pr_preflight_check
 
-    log_status "INFO" "Starting main loop..."
+    log_status "INFO" "Starting task execution..."
 
-    while true; do
-        loop_count=$((loop_count + 1))
+    init_call_tracking
 
-        log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
-        init_call_tracking
+    # Beads pre-sync
+    if beads_sync_available; then
+        log_status "INFO" "Syncing open beads into fix_plan.md..."
+        beads_pre_sync "$RALPH_DIR/fix_plan.md" 2>&1 | while IFS= read -r sync_msg; do
+            log_status "INFO" "$sync_msg"
+        done
+    fi
 
-        log_status "LOOP" "=== Starting Loop #$loop_count ==="
-
-        # Check max loops limit
-        if [[ $MAX_LOOPS -gt 0 ]] && [[ $loop_count -gt $MAX_LOOPS ]]; then
-            log_status "SUCCESS" "Max loops reached ($MAX_LOOPS). Stopping."
-            reset_session "max_loops_reached"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "max_loops" "completed" "max_loops_reached"
-            break
+    # Pick one task
+    local picked_task_id="" picked_line_num="" picked_bead_id="" task_info="" picked_task_name=""
+    if task_info=$(pick_next_task "$RALPH_DIR/fix_plan.md"); then
+        picked_task_id=$(echo "$task_info" | cut -d'|' -f1)
+        picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
+        picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
+        picked_task_name=$(sed -n "${picked_line_num}p" "$RALPH_DIR/fix_plan.md" 2>/dev/null | sed 's/.*\[.\] //' | tr -d '\n' || echo "")
+        log_status "SUCCESS" "Picked task: $picked_task_id (line $picked_line_num)"
+        if [[ -n "$picked_bead_id" ]] && beads_sync_available; then
+            mark_single_bead_in_progress "$picked_bead_id" 2>&1 | while IFS= read -r m; do log_status "INFO" "$m"; done || true
         fi
+    else
+        log_status "INFO" "No unclaimed tasks in fix_plan.md — nothing to do."
+        exit 0
+    fi
 
-        # Check circuit breaker
-        if should_halt_execution; then
-            reset_session "circuit_breaker_open"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
-            log_status "ERROR" "Circuit breaker has opened - execution halted"
-            break
-        fi
-
-        # Check rate limits
-        if ! can_make_call; then
-            wait_for_reset
-            continue
-        fi
-
-        # Check for graceful exit conditions
-        local exit_reason
-        exit_reason=$(should_exit_gracefully)
-        if [[ "$exit_reason" != "" ]]; then
-            log_status "SUCCESS" "Graceful exit triggered: $exit_reason"
-            reset_session "project_complete"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
-
-            log_status "SUCCESS" "Ralph has completed the project! Final stats:"
-            log_status "INFO" "  - Total loops: $loop_count"
-            log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
-            log_status "INFO" "  - Exit reason: $exit_reason"
-            break
-        fi
-
-        # Beads pre-sync: pull new open beads into fix_plan.md
-        if beads_sync_available; then
-            log_status "INFO" "Syncing open beads into fix_plan.md..."
-            beads_pre_sync "$RALPH_DIR/fix_plan.md" 2>&1 | while IFS= read -r sync_msg; do
-                log_status "INFO" "$sync_msg"
-            done
-        fi
-
-        # Pick next unclaimed task and mark it in-progress BEFORE worktree creation
-        # This enables parallel loops to each pick a different task
-        local picked_task_id=""
-        local picked_line_num=""
-        local picked_bead_id=""
-        local task_info=""
-        local picked_task_name=""
-        if task_info=$(pick_next_task "$RALPH_DIR/fix_plan.md"); then
-            picked_task_id=$(echo "$task_info" | cut -d'|' -f1)
-            picked_line_num=$(echo "$task_info" | cut -d'|' -f2)
-            picked_bead_id=$(echo "$task_info" | cut -d'|' -f3)
-            picked_task_name=$(sed -n "${picked_line_num}p" "$RALPH_DIR/fix_plan.md" 2>/dev/null | sed 's/.*\[.\] //' | tr -d '\n' || echo "")
-
-            log_status "SUCCESS" "Picked and locked task: $picked_task_id (line $picked_line_num)"
-
-            # Claim the specific bead as in_progress (if it's a bead task)
-            if [[ -n "$picked_bead_id" ]] && beads_sync_available; then
-                if mark_single_bead_in_progress "$picked_bead_id" 2>&1 | while IFS= read -r sync_msg; do
-                    log_status "INFO" "$sync_msg"
-                done; then
-                    :
-                fi
-            fi
+    # Create worktree
+    # NOTE: worktree_create must NOT be called inside $() — that runs a subshell
+    # and the internal state variables (_WT_CURRENT_PATH, _WT_CURRENT_BRANCH)
+    # would be lost. Instead, call directly and use accessors afterward.
+    local work_dir
+    work_dir="$(pwd)"
+    if [[ "$WORKTREE_ENABLED" == "true" ]]; then
+        local wt_task_id="${picked_task_id:-task-$(date +%s)}"
+        if worktree_create 1 "$wt_task_id" > /dev/null; then
+            work_dir="$(worktree_get_path)"
+            log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
         else
-            log_status "WARN" "No unclaimed tasks found in fix_plan.md"
+            log_status "WARN" "Worktree creation failed, using main directory"
+            WORKTREE_ENABLED="false"
         fi
+    fi
 
-        # Create worktree for this loop iteration
-        # NOTE: worktree_create must NOT be called inside $() — that runs a subshell
-        # and the internal state variables (_WT_CURRENT_PATH, _WT_CURRENT_BRANCH)
-        # would be lost. Instead, call directly and use accessors afterward.
-        local work_dir
-        work_dir="$(pwd)"
-        if [[ "$WORKTREE_ENABLED" == "true" ]]; then
-            if worktree_is_active; then
-                # QG retry — reuse existing worktree (do not create a new one)
-                work_dir="$(worktree_get_path)"
-                log_status "INFO" "QG retry #${QG_RETRY_COUNT}: reusing worktree $work_dir (branch: $(worktree_get_branch))"
+    update_status 1 "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "executing" "running"
+
+    # Execute Codex session
+    execute_codex_session 1 "$work_dir"
+    local exec_result=$?
+
+    if [[ $exec_result -eq 0 ]]; then
+        # Worktree: quality gates + commit + push + PR + cleanup
+        if [[ "$WORKTREE_ENABLED" == "true" ]] && worktree_is_active; then
+            log_status "INFO" "Running quality gates..."
+            local gate_output gate_result
+            gate_output=$(worktree_run_quality_gates 2>&1)
+            gate_result=$?
+            while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$gate_output"
+
+            local wt_branch_for_log pr_result=0
+            wt_branch_for_log="$(worktree_get_branch)"
+            if [[ $gate_result -eq 0 ]]; then
+                log_status "SUCCESS" "Quality gates passed."
+                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "true" "1" || pr_result=$?
             else
-                QG_RETRY_COUNT=0   # reset counter when starting fresh with a new worktree
-                local wt_task_id="${picked_task_id:-loop-${loop_count}-$(date +%s)}"
-                if worktree_create "$loop_count" "$wt_task_id" > /dev/null; then
-                    work_dir="$(worktree_get_path)"
-                    log_status "SUCCESS" "Worktree: $work_dir (branch: $(worktree_get_branch))"
-                else
-                    log_status "WARN" "Worktree creation failed, using main directory"
-                fi
+                log_status "WARN" "Quality gates failed — creating PR with failure details."
+                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "1" || pr_result=$?
+            fi
+            worktree_cleanup "false"
+            if [[ $pr_result -eq 0 && $gate_result -eq 0 ]]; then
+                [[ -n "$picked_line_num" ]] && mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
+            else
+                log_status "ERROR" "PR workflow failed. Branch preserved: $wt_branch_for_log"
             fi
         fi
 
-        # Update status
-        local calls_made
-        calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-        update_status "$loop_count" "$calls_made" "executing" "running"
-
-        # Execute Codex session (in worktree if active)
-        execute_codex_session "$loop_count" "$work_dir"
-        local exec_result=$?
-
-        if [[ $exec_result -eq 0 ]]; then
-            # Worktree: quality gates + commit + push + PR + cleanup
-            if [[ "$WORKTREE_ENABLED" == "true" ]] && worktree_is_active; then
-                log_status "INFO" "Running quality gates in worktree..."
-                local gate_output
-                gate_output=$(worktree_run_quality_gates 2>&1)
-                local gate_result=$?
-                while IFS= read -r line; do [[ -n "$line" ]] && log_status "INFO" "$line"; done <<< "$gate_output"
-
-                if [[ $gate_result -eq 0 ]]; then
-                    # Quality gates passed — commit + push + open PR
-                    log_status "SUCCESS" "Quality gates passed."
-                    QG_RETRY_COUNT=0
-                    local wt_branch_for_log
-                    wt_branch_for_log="$(worktree_get_branch)"
-                    local pr_result=0
-                    worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "true" "$loop_count" || pr_result=$?
-                    worktree_cleanup "false"    # worktree directory removed; branch preserved as PR head
-                    if [[ $pr_result -eq 0 ]]; then
-                        if [[ -n "$picked_line_num" ]] && [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-                            mark_fix_plan_complete "$RALPH_DIR/fix_plan.md" "$picked_line_num"
-                        fi
-                    else
-                        log_status "ERROR" "PR workflow failed. Branch preserved for manual recovery: $wt_branch_for_log"
-                    fi
-                else
-                    # Quality gates failed — increment retry counter, keep worktree alive
-                    QG_RETRY_COUNT=$((QG_RETRY_COUNT + 1))
-                    log_status "WARN" "Quality gates failed (attempt $QG_RETRY_COUNT/$MAX_QG_RETRIES)."
-                    if [[ $QG_RETRY_COUNT -ge $MAX_QG_RETRIES ]]; then
-                        log_status "WARN" "Max QG retries reached. Creating PR with failure details."
-                        worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count" || true
-                        worktree_cleanup "false"    # worktree directory removed; branch preserved
-                        QG_RETRY_COUNT=0
-                    else
-                        log_status "INFO" "Keeping worktree alive for QG retry in next loop iteration."
-                        # do NOT call worktree_cleanup — worktree stays active for next iteration
-                    fi
-                fi
-            fi
-
-            # Non-worktree PR: create branch + push + PR when not using worktrees
-            if [[ "$WORKTREE_ENABLED" != "true" ]]; then
-                worktree_fallback_branch_pr "$picked_task_id" "$picked_task_name" "$loop_count" "true" || true
-            fi
-
-            # Beads post-sync: close completed beads
-            if beads_sync_available; then
-                log_status "INFO" "Syncing completed tasks back to beads..."
-                beads_post_sync "$RALPH_DIR/fix_plan.md" "$loop_count" 2>&1 | while IFS= read -r sync_msg; do
-                    log_status "INFO" "$sync_msg"
-                done
-            fi
-
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
-            sleep 5
-        elif [[ $exec_result -eq 3 ]]; then
-            # Circuit breaker opened — create failure PR before cleanup
-            if worktree_is_active; then
-                log_status "WARN" "Circuit breaker opened — creating failure PR before cleanup."
-                worktree_commit_and_pr "$picked_task_id" "$picked_task_name" "false" "$loop_count" || true
-                worktree_cleanup "false"    # worktree directory removed; branch preserved
-            fi
-            QG_RETRY_COUNT=0
-            reset_session "circuit_breaker_trip"
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
-            log_status "ERROR" "Circuit breaker has opened - halting loop"
-            log_status "INFO" "Run 'ralph-codex --reset-circuit' to reset"
-            break
-        else
-            if worktree_is_active; then
-                log_status "WARN" "Cleaning up worktree after failure..."
-                worktree_cleanup "true"
-            fi
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
-            log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
-            sleep 30
+        # Non-worktree PR
+        if [[ "$WORKTREE_ENABLED" != "true" ]]; then
+            worktree_fallback_branch_pr "$picked_task_id" "$picked_task_name" "1" "true" || true
         fi
 
-        log_status "LOOP" "=== Completed Loop #$loop_count ==="
-    done
+        # Beads post-sync
+        if beads_sync_available; then
+            beads_post_sync "$RALPH_DIR/fix_plan.md" 1 2>&1 | while IFS= read -r m; do log_status "INFO" "$m"; done
+        fi
+
+        # Commit .ralph/ state files
+        if git rev-parse --git-dir &>/dev/null 2>&1; then
+            git add "$RALPH_DIR/fix_plan.md" "$RALPH_DIR/AGENT.md" 2>/dev/null || true
+            if ! git diff --cached --quiet 2>/dev/null; then
+                git commit -m "ralph-codex: update .ralph state" 2>/dev/null || true
+            fi
+        fi
+
+        update_status 1 "$(cat "$CALL_COUNT_FILE")" "completed" "success"
+        log_status "SUCCESS" "Ralph Codex complete."
+    else
+        if worktree_is_active; then
+            log_status "WARN" "Cleaning up worktree after failure..."
+            worktree_cleanup "true"
+        fi
+        update_status 1 "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "failed" "error"
+        log_status "ERROR" "Codex execution failed (exit $exec_result)"
+        exit 1
+    fi
 }
 
 # =============================================================================
@@ -1218,15 +1071,6 @@ while [[ $# -gt 0 ]]; do
             fi
             shift 2
             ;;
-        --max-loops)
-            if [[ "$2" =~ ^[0-9]+$ ]]; then
-                MAX_LOOPS="$2"
-            else
-                echo "Error: --max-loops must be a non-negative integer"
-                exit 1
-            fi
-            shift 2
-            ;;
         --no-continue)
             CODEX_USE_CONTINUE=false
             shift
@@ -1258,14 +1102,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-worktree)
             WORKTREE_ENABLED=false
-            shift
-            ;;
-        --codex-auto-exit)
-            CODEX_AUTO_EXIT=true
-            shift
-            ;;
-        --no-codex-auto-exit)
-            CODEX_AUTO_EXIT=false
             shift
             ;;
         --merge-strategy)

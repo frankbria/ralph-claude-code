@@ -24,9 +24,6 @@ alias rpd.cb.auto='ralph-devin --auto-reset-circuit'
 # Configuration variants
 alias rpd.fast='ralph-devin --calls 200'
 alias rpd.slow='ralph-devin --calls 50'
-alias rpd.test='ralph-devin --max-loops 1'
-alias rpd.5='ralph-devin --max-loops 5'
-alias rpd.10='ralph-devin --max-loops 10'
 
 # Model selection
 alias rpd.opus='ralph-devin --model opus'
@@ -45,24 +42,18 @@ alias rpd.wt.merge='ralph-devin --merge-strategy merge'
 alias rpd.wt.rebase='ralph-devin --merge-strategy rebase'
 alias rpd.wt.nogate='ralph-devin --quality-gates none'
 
-# Auto-exit control
-alias rpd.autoexit='ralph-devin --devin-auto-exit'
-alias rpd.int='ralph-devin --no-devin-auto-exit'
-
 # Parallel mode (spawns N agents: iTerm2 tabs from iTerm, IDE terminal tabs from Windsurf/VS Code/Cursor)
-# Usage: rpd.int.p 3  -> spawns 3 parallel devin agents
-rpd.int.p() { ralph-devin --no-devin-auto-exit --parallel "${1:?Usage: rpd.int.p <number>}"; }
+# Usage: rpd.p 3  -> spawns 3 parallel devin agents
+rpd.p() { ralph-devin --parallel "${1:?Usage: rpd.p <number>}"; }
 
 # Parallel background mode (spawns N agents as background processes in any terminal)
-# Usage: rpd.int.p.b 3  -> spawns 3 parallel devin agents in background
-rpd.int.p.b() { ralph-devin --no-devin-auto-exit --parallel-bg "${1:?Usage: rpd.int.p.b <number>}"; }
+# Usage: rpd.p.b 3  -> spawns 3 parallel devin agents in background
+rpd.p.b() { ralph-devin --parallel-bg "${1:?Usage: rpd.p.b <number>}"; }
 
 # Combined common workflows
 alias rpd.dev='ralph-devin --live --monitor --verbose'
 alias rpd.prod='ralph-devin --calls 50 --auto-reset-circuit --permission-mode dangerous'
-alias rpd.debug='ralph-devin --live --verbose --max-loops 1'
 alias rpd.wt.full='ralph-devin --live --monitor --merge-strategy squash --quality-gates auto'
-alias rpd.wt.int='ralph-devin --no-devin-auto-exit --live --monitor'
 
 # Setup & Management
 alias rpd.monitor='ralph-monitor-devin'
