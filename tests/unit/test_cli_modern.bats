@@ -186,10 +186,12 @@ setup() {
         return 0
     }
 
-    # load_ralphrc - minimal version for testing CLAUDE_CODE_CMD loading
+    # load_ralphrc - minimal version for testing CLAUDE_CODE_CMD/MODEL/EFFORT loading
     RALPHRC_FILE=".ralphrc"
     RALPHRC_LOADED=false
     _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
+    _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
+    _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
 
     load_ralphrc() {
         if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -197,6 +199,8 @@ setup() {
         fi
         source "$RALPHRC_FILE"
         [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
+        [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
+        [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
         RALPHRC_LOADED=true
         return 0
     }
@@ -505,6 +509,16 @@ build_claude_command() {
     if [[ ! -f "$prompt_file" ]]; then
         echo "ERROR: Prompt file not found: $prompt_file" >&2
         return 1
+    fi
+
+    # Add model override (Issue #228)
+    if [[ -n "${CLAUDE_MODEL:-}" ]]; then
+        CLAUDE_CMD_ARGS+=("--model" "$CLAUDE_MODEL")
+    fi
+
+    # Add effort level override (Issue #228)
+    if [[ -n "${CLAUDE_EFFORT:-}" ]]; then
+        CLAUDE_CMD_ARGS+=("--effort" "$CLAUDE_EFFORT")
     fi
 
     # Add output format flag
@@ -1798,4 +1812,107 @@ EOF
     # Should NOT have set -e
     run grep -c '^set -e' "$script"
     [[ "$output" == "0" ]]
+}
+
+# =============================================================================
+# Issue #228: CLAUDE_CODE_CMD env-snapshot fix
+# =============================================================================
+
+@test "CLAUDE_CODE_CMD default uses parameter expansion not unconditional assignment" {
+    # Regression test for #228: line must use := syntax so the env snapshot
+    # captures "" (unset) rather than "claude" when no env var was exported.
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CLAUDE_CODE_CMD=' "$script"
+    # Should use parameter expansion (:-) not bare assignment before the snapshot block
+    [[ "$output" == *'CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"'* ]]
+}
+
+@test "CLAUDE_CODE_CMD from .ralphrc is respected when no env var is set" {
+    # Core bug: when no env CLAUDE_CODE_CMD is exported, .ralphrc value must win
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"
+EOF
+    # Simulate correctly-initialized state (env not set → snapshot captured "")
+    _env_CLAUDE_CODE_CMD=""
+    CLAUDE_CODE_CMD="claude"  # script default
+
+    load_ralphrc
+    assert_equal "$CLAUDE_CODE_CMD" "npx @anthropic-ai/claude-code"
+}
+
+@test "CLAUDE_MODEL from .ralphrc is loaded correctly" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_MODEL="claude-sonnet-4-6"
+EOF
+    _env_CLAUDE_MODEL=""
+    CLAUDE_MODEL=""
+
+    load_ralphrc
+    assert_equal "$CLAUDE_MODEL" "claude-sonnet-4-6"
+}
+
+@test "CLAUDE_EFFORT from .ralphrc is loaded correctly" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_EFFORT="high"
+EOF
+    _env_CLAUDE_EFFORT=""
+    CLAUDE_EFFORT=""
+
+    load_ralphrc
+    assert_equal "$CLAUDE_EFFORT" "high"
+}
+
+@test "CLAUDE_MODEL env var takes precedence over .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_MODEL="claude-sonnet-4-6"
+EOF
+    _env_CLAUDE_MODEL="claude-opus-4-6"
+    CLAUDE_MODEL="claude-opus-4-6"
+
+    load_ralphrc
+    assert_equal "$CLAUDE_MODEL" "claude-opus-4-6"
+}
+
+@test "CLAUDE_EFFORT env var takes precedence over .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_EFFORT="low"
+EOF
+    _env_CLAUDE_EFFORT="high"
+    CLAUDE_EFFORT="high"
+
+    load_ralphrc
+    assert_equal "$CLAUDE_EFFORT" "high"
+}
+
+@test "build_claude_command includes --model flag when CLAUDE_MODEL is set" {
+    CLAUDE_MODEL="claude-sonnet-4-6"
+    CLAUDE_EFFORT=""
+    echo "test prompt" > "$TEST_DIR/PROMPT.md"
+
+    build_claude_command "$TEST_DIR/PROMPT.md" "" ""
+
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"--model"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"claude-sonnet-4-6"* ]]
+}
+
+@test "build_claude_command includes --effort flag when CLAUDE_EFFORT is set" {
+    CLAUDE_MODEL=""
+    CLAUDE_EFFORT="high"
+    echo "test prompt" > "$TEST_DIR/PROMPT.md"
+
+    build_claude_command "$TEST_DIR/PROMPT.md" "" ""
+
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"--effort"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"high"* ]]
+}
+
+@test "build_claude_command omits --model and --effort when not configured" {
+    CLAUDE_MODEL=""
+    CLAUDE_EFFORT=""
+    echo "test prompt" > "$TEST_DIR/PROMPT.md"
+
+    build_claude_command "$TEST_DIR/PROMPT.md" "" ""
+
+    [[ "${CLAUDE_CMD_ARGS[*]}" != *"--model"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" != *"--effort"* ]]
 }

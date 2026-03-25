@@ -223,6 +223,8 @@ CLAUDE_ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),...,Bas
 CLAUDE_USE_CONTINUE=true              # Enable session continuity
 CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set false for air-gapped environments)
+CLAUDE_MODEL=""                       # Model override (e.g. claude-sonnet-4-6); empty = CLI default (Issue #228)
+CLAUDE_EFFORT=""                      # Effort level override (e.g. high, low); empty = CLI default (Issue #228)
 ```
 
 **Auto-Update Configuration:**
@@ -240,6 +242,11 @@ CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set f
 - After validation, `check_claude_version()` verifies minimum version compatibility and `check_claude_updates()` queries npm registry for latest version with auto-update attempt (Issue #190)
 - Both functions use `compare_semver()` for proper major→minor→patch sequential comparison (safe for any patch number, unlike integer arithmetic)
 - Environment variable `CLAUDE_CODE_CMD` takes precedence over `.ralphrc`
+
+**Model and Effort Overrides (Issue #228):**
+- `CLAUDE_MODEL` sets the `--model` flag on every Claude invocation (e.g., `CLAUDE_MODEL=claude-sonnet-4-6`). Leave empty to use the CLI's default model.
+- `CLAUDE_EFFORT` sets the `--effort` flag (e.g., `CLAUDE_EFFORT=high` or `CLAUDE_EFFORT=low`). Leave empty to use the CLI's default.
+- Both variables can be set in `.ralphrc` or as environment variables. The environment variable takes precedence over `.ralphrc`.
 
 **CLI Options:**
 - `--output-format json|text` - Set Claude output format (default: json). Note: `--live` mode requires JSON and will auto-switch from text to json.
