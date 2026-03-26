@@ -24,7 +24,7 @@ git init
 Run the interactive wizard:
 
 ```bash
-ralph-enable
+ralph enable
 ```
 
 The wizard will:

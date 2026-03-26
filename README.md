@@ -327,11 +327,11 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 
 ## Enabling Ralph in Existing Projects
 
-The `ralph-enable` command provides an interactive wizard for adding Ralph to existing projects:
+The `ralph enable` command provides an interactive wizard for adding Ralph to existing projects:
 
 ```bash
 cd my-existing-project
-ralph-enable
+ralph enable
 ```
 
 **The wizard:**
@@ -833,7 +833,7 @@ ralph [OPTIONS]
 ### Project Commands (Per Project)
 ```bash
 ralph-setup project-name     # Create new Ralph project
-ralph-enable                 # Enable Ralph in existing project (interactive)
+ralph enable                 # Enable Ralph in existing project (interactive)
 ralph-enable-ci              # Enable Ralph in existing project (non-interactive)
 ralph-import prd.md project  # Convert PRD/specs to Ralph project
 ralph --monitor              # Start with integrated monitoring
