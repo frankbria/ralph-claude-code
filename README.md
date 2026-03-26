@@ -189,12 +189,12 @@ This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-migrat
 cd my-existing-project
 
 # Interactive wizard - auto-detects project type and imports tasks
-ralph-enable
+ralph enable
 
 # Or with specific task source
-ralph-enable --from beads
-ralph-enable --from github --label "sprint-1"
-ralph-enable --from prd ./docs/requirements.md
+ralph enable --from beads
+ralph enable --from github --label "sprint-1"
+ralph enable --from prd --prd ./docs/requirements.md
 
 # Start autonomous development
 ralph --monitor
