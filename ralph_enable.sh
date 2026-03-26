@@ -4,10 +4,10 @@
 # Adds Ralph configuration to an existing codebase
 #
 # Usage:
-#   ralph enable              # Interactive wizard
-#   ralph enable --from beads # With specific task source
-#   ralph enable --force      # Overwrite existing .ralph/
-#   ralph enable --skip-tasks # Skip task import
+#   ralph-enable              # Interactive wizard
+#   ralph-enable --from beads # With specific task source
+#   ralph-enable --force      # Overwrite existing .ralph/
+#   ralph-enable --skip-tasks # Skip task import
 #
 # Version: 0.11.0
 
@@ -57,7 +57,7 @@ show_help() {
     cat << EOF
 Ralph Enable - Add Ralph to Existing Projects
 
-Usage: ralph enable [OPTIONS]
+Usage: ralph-enable [OPTIONS]
 
 Options:
     --from <source>     Import tasks from: beads, github, prd
@@ -72,22 +72,22 @@ Options:
 Examples:
     # Interactive wizard (recommended)
     cd my-existing-project
-    ralph enable
+    ralph-enable
 
     # Import tasks from beads
-    ralph enable --from beads
+    ralph-enable --from beads
 
     # Import from GitHub issues with label
-    ralph enable --from github --label "ralph-task"
+    ralph-enable --from github --label "ralph-task"
 
     # Convert a PRD document
-    ralph enable --from prd --prd ./docs/requirements.md
+    ralph-enable --from prd --prd ./docs/requirements.md
 
     # Skip task import
-    ralph enable --skip-tasks
+    ralph-enable --skip-tasks
 
     # Force overwrite existing configuration
-    ralph enable --force
+    ralph-enable --force
 
 What this command does:
     1. Detects your project type (TypeScript, Python, etc.)

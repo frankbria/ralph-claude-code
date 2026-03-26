@@ -189,12 +189,12 @@ This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-migrat
 cd my-existing-project
 
 # Interactive wizard - auto-detects project type and imports tasks
-ralph enable
+ralph-enable
 
 # Or with specific task source
-ralph enable --from beads
-ralph enable --from github --label "sprint-1"
-ralph enable --from prd --prd ./docs/requirements.md
+ralph-enable --from beads
+ralph-enable --from github --label "sprint-1"
+ralph-enable --from prd --prd ./docs/requirements.md
 
 # Start autonomous development
 ralph --monitor
@@ -327,11 +327,11 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 
 ## Enabling Ralph in Existing Projects
 
-The `ralph enable` command provides an interactive wizard for adding Ralph to existing projects:
+The `ralph-enable` command provides an interactive wizard for adding Ralph to existing projects:
 
 ```bash
 cd my-existing-project
-ralph enable
+ralph-enable
 ```
 
 **The wizard:**
@@ -833,7 +833,7 @@ ralph [OPTIONS]
 ### Project Commands (Per Project)
 ```bash
 ralph-setup project-name     # Create new Ralph project
-ralph enable                 # Enable Ralph in existing project (interactive)
+ralph-enable                 # Enable Ralph in existing project (interactive)
 ralph-enable-ci              # Enable Ralph in existing project (non-interactive)
 ralph-import prd.md project  # Convert PRD/specs to Ralph project
 ralph --monitor              # Start with integrated monitoring
