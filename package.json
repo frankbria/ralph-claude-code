@@ -12,7 +12,8 @@
     "test": "bats tests/unit/ tests/integration/",
     "test:unit": "bats tests/unit/",
     "test:integration": "bats tests/integration/",
-    "test:e2e": "bats tests/e2e/"
+    "test:e2e": "bats tests/e2e/",
+    "release-notes": "bash ralph_release_notes.sh"
   },
   "repository": {
     "type": "git",
