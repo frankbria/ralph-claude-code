@@ -28,12 +28,14 @@ SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+TOKEN_COUNT_FILE="$RALPH_DIR/.token_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
 
 # Save environment variable state BEFORE setting defaults
 # These are used by load_ralphrc() to determine which values came from environment
 _env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
+_env_MAX_TOKENS_PER_HOUR="${MAX_TOKENS_PER_HOUR:-}"
 _env_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
 _env_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
 _env_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
@@ -46,9 +48,11 @@ _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
 _env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
 _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
 _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
+_env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
+MAX_TOKENS_PER_HOUR="${MAX_TOKENS_PER_HOUR:-0}"      # 0 = disabled; set to limit cumulative tokens/hour
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
 
@@ -63,6 +67,7 @@ CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-true}"  # Auto-update Claude CLI at st
 CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"     # Claude Code CLI command (default: global install)
 CLAUDE_MODEL="${CLAUDE_MODEL:-}"                 # Model override (e.g. claude-sonnet-4-6); empty = CLI default
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"               # Effort level override (e.g. high, low); empty = CLI default
+RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source before running claude (e.g. ~/.zshrc)
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -112,6 +117,7 @@ RALPHRC_LOADED=false
 #
 # Configuration values that can be overridden:
 #   - MAX_CALLS_PER_HOUR
+#   - MAX_TOKENS_PER_HOUR (cumulative token limit per hour; 0 = disabled)
 #   - CLAUDE_TIMEOUT_MINUTES
 #   - CLAUDE_OUTPUT_FORMAT
 #   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
@@ -123,6 +129,7 @@ RALPHRC_LOADED=false
 #   - RALPH_VERBOSE
 #   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
 #   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
+#   - RALPH_SHELL_INIT_FILE (shell init file to source before running claude)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -151,6 +158,7 @@ load_ralphrc() {
     # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
     # If _env_* is non-empty, the user explicitly set it in their environment.
     [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
+    [[ -n "$_env_MAX_TOKENS_PER_HOUR" ]] && MAX_TOKENS_PER_HOUR="$_env_MAX_TOKENS_PER_HOUR"
     [[ -n "$_env_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$_env_CLAUDE_TIMEOUT_MINUTES"
     [[ -n "$_env_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$_env_CLAUDE_OUTPUT_FORMAT"
     [[ -n "$_env_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$_env_CLAUDE_ALLOWED_TOOLS"
@@ -163,6 +171,7 @@ load_ralphrc() {
     [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
     [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
     [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
+    [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
 
     RALPHRC_LOADED=true
     return 0
@@ -383,11 +392,12 @@ init_call_tracking() {
         last_reset_hour=$(cat "$TIMESTAMP_FILE")
     fi
 
-    # Reset counter if it's a new hour
+    # Reset counters if it's a new hour
     if [[ "$current_hour" != "$last_reset_hour" ]]; then
         echo "0" > "$CALL_COUNT_FILE"
+        echo "0" > "$TOKEN_COUNT_FILE"
         echo "$current_hour" > "$TIMESTAMP_FILE"
-        log_status "INFO" "Call counter reset for new hour: $current_hour"
+        log_status "INFO" "Call and token counters reset for new hour: $current_hour"
     fi
 
     # Initialize exit signals tracking if it doesn't exist
@@ -429,12 +439,16 @@ update_status() {
     local status=$4
     local exit_reason=${5:-""}
     
+    local tokens_used
+    tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
     "loop_count": $loop_count,
     "calls_made_this_hour": $calls_made,
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
+    "tokens_used_this_hour": $tokens_used,
+    "max_tokens_per_hour": $MAX_TOKENS_PER_HOUR,
     "last_action": "$last_action",
     "status": "$status",
     "exit_reason": "$exit_reason",
@@ -443,18 +457,59 @@ update_status() {
 STATUSEOF
 }
 
+# Extract token usage from a Claude output file
+# Handles both Claude CLI format (metadata.usage) and stream-json result format (.usage)
+# Outputs total tokens (input + output), or 0 on failure
+extract_token_usage() {
+    local output_file=$1
+    if [[ ! -f "$output_file" ]]; then
+        echo "0"
+        return
+    fi
+    local tokens
+    tokens=$(jq -r '
+        ((.usage.input_tokens // .metadata.usage.input_tokens // 0) |
+         if type == "number" then . else 0 end) +
+        ((.usage.output_tokens // .metadata.usage.output_tokens // 0) |
+         if type == "number" then . else 0 end)
+    ' "$output_file" 2>/dev/null)
+    echo "${tokens:-0}"
+}
+
+# Accumulate token usage after a Claude invocation
+update_token_count() {
+    local output_file=$1
+    local new_tokens
+    new_tokens=$(extract_token_usage "$output_file")
+    if [[ "$new_tokens" -gt 0 ]] 2>/dev/null; then
+        local current
+        current=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        echo $(( current + new_tokens )) > "$TOKEN_COUNT_FILE"
+        log_status "INFO" "Tokens this hour: $((current + new_tokens))${MAX_TOKENS_PER_HOUR:+/$MAX_TOKENS_PER_HOUR} (+${new_tokens})"
+    fi
+}
+
 # Check if we can make another call
 can_make_call() {
     local calls_made=0
     if [[ -f "$CALL_COUNT_FILE" ]]; then
         calls_made=$(cat "$CALL_COUNT_FILE")
     fi
-    
+
     if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
-        return 1  # Cannot make call
-    else
-        return 0  # Can make call
+        return 1  # Cannot make call — invocation limit reached
     fi
+
+    # Check token limit only when configured (MAX_TOKENS_PER_HOUR > 0)
+    if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]] 2>/dev/null; then
+        local tokens_used=0
+        tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        if [[ $tokens_used -ge $MAX_TOKENS_PER_HOUR ]]; then
+            return 1  # Cannot make call — token limit reached
+        fi
+    fi
+
+    return 0  # Can make call
 }
 
 # Increment call counter
@@ -472,7 +527,12 @@ increment_call_counter() {
 # Wait for rate limit reset with countdown
 wait_for_reset() {
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-    log_status "WARN" "Rate limit reached ($calls_made/$MAX_CALLS_PER_HOUR). Waiting for reset..."
+    local tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+    local limit_reason="calls: $calls_made/$MAX_CALLS_PER_HOUR"
+    if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]]; then
+        limit_reason="$limit_reason, tokens: $tokens_used/$MAX_TOKENS_PER_HOUR"
+    fi
+    log_status "WARN" "Rate limit reached ($limit_reason). Waiting for reset..."
     
     # Calculate time until next hour
     local current_minute=$(date +%M)
@@ -493,8 +553,9 @@ wait_for_reset() {
     done
     printf "\n"
     
-    # Reset counter
+    # Reset counters
     echo "0" > "$CALL_COUNT_FILE"
+    echo "0" > "$TOKEN_COUNT_FILE"
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     log_status "SUCCESS" "Rate limit reset! Ready for new calls."
 }
@@ -1541,6 +1602,9 @@ EOF
             save_claude_session "$output_file"
         fi
 
+        # Accumulate token usage for hourly limit tracking (Issue #223)
+        update_token_count "$output_file"
+
         # Analyze the response
         log_status "INFO" "🔍 Analyzing Claude Code response..."
         analyze_response "$output_file" "$loop_count"
@@ -1771,6 +1835,19 @@ main() {
     if load_ralphrc; then
         if [[ "$RALPHRC_LOADED" == "true" ]]; then
             log_status "INFO" "Loaded configuration from .ralphrc"
+        fi
+    fi
+
+    # Source user shell init file if configured (e.g. ~/.zshrc for zsh environments)
+    # This allows non-bash shells or non-standard setups to export PATH/env vars
+    # needed by the claude command before validation runs.
+    if [[ -n "${RALPH_SHELL_INIT_FILE:-}" ]]; then
+        if [[ -f "$RALPH_SHELL_INIT_FILE" ]]; then
+            # shellcheck source=/dev/null
+            source "$RALPH_SHELL_INIT_FILE"
+            log_status "INFO" "Sourced shell init file: $RALPH_SHELL_INIT_FILE"
+        else
+            log_status "WARN" "RALPH_SHELL_INIT_FILE not found: $RALPH_SHELL_INIT_FILE"
         fi
     fi
 
@@ -2047,6 +2124,7 @@ Files created:
     - .ralph/.ralph_session: Session lifecycle tracking
     - .ralph/.ralph_session_history: Session transition history (last 50)
     - .ralph/.call_count: API call counter for rate limiting
+    - .ralph/.token_count: Cumulative token counter for rate limiting
     - .ralph/.last_reset: Timestamp of last rate limit reset
 
 Example workflow:

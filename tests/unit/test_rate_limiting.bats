@@ -11,7 +11,9 @@ setup() {
     # Set up environment with .ralph/ subfolder structure
     export RALPH_DIR=".ralph"
     export MAX_CALLS_PER_HOUR=100
+    export MAX_TOKENS_PER_HOUR=0
     export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
+    export TOKEN_COUNT_FILE="$RALPH_DIR/.token_count"
     export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 
     # Create temp test directory
@@ -21,6 +23,7 @@ setup() {
 
     # Initialize files
     echo "0" > "$CALL_COUNT_FILE"
+    echo "0" > "$TOKEN_COUNT_FILE"
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
 }
 
@@ -28,6 +31,35 @@ teardown() {
     # Clean up
     cd /
     rm -rf "$TEST_TEMP_DIR"
+}
+
+# Helper function: extract_token_usage (extracted from ralph_loop.sh)
+extract_token_usage() {
+    local output_file=$1
+    if [[ ! -f "$output_file" ]]; then
+        echo "0"
+        return
+    fi
+    local tokens
+    tokens=$(jq -r '
+        ((.usage.input_tokens // .metadata.usage.input_tokens // 0) |
+         if type == "number" then . else 0 end) +
+        ((.usage.output_tokens // .metadata.usage.output_tokens // 0) |
+         if type == "number" then . else 0 end)
+    ' "$output_file" 2>/dev/null)
+    echo "${tokens:-0}"
+}
+
+# Helper function: update_token_count (extracted from ralph_loop.sh)
+update_token_count() {
+    local output_file=$1
+    local new_tokens
+    new_tokens=$(extract_token_usage "$output_file")
+    if [[ "$new_tokens" -gt 0 ]] 2>/dev/null; then
+        local current
+        current=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        echo $(( current + new_tokens )) > "$TOKEN_COUNT_FILE"
+    fi
 }
 
 # Helper function: can_make_call (extracted from ralph_loop.sh)
@@ -38,10 +70,18 @@ can_make_call() {
     fi
 
     if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
-        return 1  # Cannot make call
-    else
-        return 0  # Can make call
+        return 1  # Cannot make call — invocation limit reached
     fi
+
+    if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]] 2>/dev/null; then
+        local tokens_used=0
+        tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        if [[ $tokens_used -ge $MAX_TOKENS_PER_HOUR ]]; then
+            return 1  # Cannot make call — token limit reached
+        fi
+    fi
+
+    return 0  # Can make call
 }
 
 # Helper function: increment_call_counter (extracted from ralph_loop.sh)
@@ -160,5 +200,127 @@ increment_call_counter() {
         echo "Call count file does not contain valid integer: $value"
         return 1
     }
+}
+
+# =============================================================================
+# Issue #223: Token-based rate limiting
+# =============================================================================
+
+@test "can_make_call ignores token limit when MAX_TOKENS_PER_HOUR is 0" {
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "9999999" > "$TOKEN_COUNT_FILE"
+    export MAX_TOKENS_PER_HOUR=0
+
+    run can_make_call
+    assert_success
+}
+
+@test "can_make_call blocks when token limit exceeded" {
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "600000" > "$TOKEN_COUNT_FILE"
+    export MAX_TOKENS_PER_HOUR=500000
+
+    run can_make_call
+    assert_failure
+}
+
+@test "can_make_call blocks when token limit exactly reached" {
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "500000" > "$TOKEN_COUNT_FILE"
+    export MAX_TOKENS_PER_HOUR=500000
+
+    run can_make_call
+    assert_failure
+}
+
+@test "can_make_call allows call when under token limit" {
+    echo "0" > "$CALL_COUNT_FILE"
+    echo "499999" > "$TOKEN_COUNT_FILE"
+    export MAX_TOKENS_PER_HOUR=500000
+
+    run can_make_call
+    assert_success
+}
+
+@test "can_make_call blocks on invocation limit even when tokens are fine" {
+    echo "100" > "$CALL_COUNT_FILE"
+    echo "0" > "$TOKEN_COUNT_FILE"
+    export MAX_CALLS_PER_HOUR=100
+    export MAX_TOKENS_PER_HOUR=500000
+
+    run can_make_call
+    assert_failure
+}
+
+@test "extract_token_usage returns 0 for missing file" {
+    run extract_token_usage "/nonexistent/file.log"
+    assert_output "0"
+}
+
+@test "extract_token_usage reads flat usage format (stream-json)" {
+    local output_file="$RALPH_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"type":"result","result":"done","usage":{"input_tokens":1200,"output_tokens":300}}
+EOF
+    run extract_token_usage "$output_file"
+    assert_output "1500"
+}
+
+@test "extract_token_usage reads nested metadata.usage format (CLI)" {
+    local output_file="$RALPH_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"result":"done","sessionId":"s1","metadata":{"usage":{"input_tokens":2000,"output_tokens":500}}}
+EOF
+    run extract_token_usage "$output_file"
+    assert_output "2500"
+}
+
+@test "extract_token_usage returns 0 when usage fields absent" {
+    local output_file="$RALPH_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"result":"done","sessionId":"s1"}
+EOF
+    run extract_token_usage "$output_file"
+    assert_output "0"
+}
+
+@test "update_token_count accumulates across invocations" {
+    local output_file="$RALPH_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"type":"result","result":"done","usage":{"input_tokens":1000,"output_tokens":200}}
+EOF
+    echo "500" > "$TOKEN_COUNT_FILE"
+
+    update_token_count "$output_file"
+
+    assert_equal "$(cat "$TOKEN_COUNT_FILE")" "1700"
+}
+
+@test "update_token_count is a no-op when file has no token data" {
+    local output_file="$RALPH_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{"result":"done"}
+EOF
+    echo "300" > "$TOKEN_COUNT_FILE"
+
+    update_token_count "$output_file"
+
+    assert_equal "$(cat "$TOKEN_COUNT_FILE")" "300"
+}
+
+@test "ralph_loop.sh defines TOKEN_COUNT_FILE" {
+    run grep 'TOKEN_COUNT_FILE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    assert_success
+}
+
+@test "ralph_loop.sh calls update_token_count after execution" {
+    run grep 'update_token_count' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    assert_success
+}
+
+@test "ralph_loop.sh resets TOKEN_COUNT_FILE in wait_for_reset" {
+    run grep -A5 'Reset counters' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    assert_success
+    [[ "$output" == *"TOKEN_COUNT_FILE"* ]]
 }
 

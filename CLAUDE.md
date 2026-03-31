@@ -208,8 +208,12 @@ The loop is controlled by several key files and environment variables within the
 
 ### Rate Limiting
 - Default: 100 API calls per hour (configurable via `--calls` flag)
+- Optional token limit per hour via `MAX_TOKENS_PER_HOUR` in `.ralphrc` (0 = disabled, default)
+  - Extracts `input_tokens + output_tokens` from each Claude response (both stream-json and CLI formats)
+  - Blocks further calls once the hourly token budget is exhausted
+  - Counters reset together on the hour
 - Automatic hourly reset with countdown display
-- Call tracking persists across script restarts
+- Call and token tracking persists across script restarts
 
 ### Modern CLI Configuration (Phase 1.1)
 
@@ -568,7 +572,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (588 tests total)
+### Test Files (477 unit tests + integration; see `npm test` for current count)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -578,7 +582,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_json_parsing.bats` | 56 | JSON output format parsing + Claude CLI format + session management + array format + question detection (#190) + heuristic exit threshold tests (#224) |
 | `test_session_continuity.bats` | 26 | Session lifecycle management + expiration + circuit breaker integration + issue #91 fix |
 | `test_exit_detection.bats` | 54 | Exit signal detection + EXIT_SIGNAL-based completion indicators + progress detection + question detection integration (#190) + stale exit signal prevention (#194) |
-| `test_rate_limiting.bats` | 11 | Rate limiting behavior |
+| `test_rate_limiting.bats` | 25 | Rate limiting behavior including token-based limiting (Issue #223) |
 | `test_loop_execution.bats` | 20 | Integration tests |
 | `test_edge_cases.bats` | 25 | Edge case handling |
 | `test_installation.bats` | 15 | Global installation/uninstall workflows + dotfile template copying (#174) |

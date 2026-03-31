@@ -186,12 +186,13 @@ setup() {
         return 0
     }
 
-    # load_ralphrc - minimal version for testing CLAUDE_CODE_CMD/MODEL/EFFORT loading
+    # load_ralphrc - minimal version for testing CLAUDE_CODE_CMD/MODEL/EFFORT/SHELL_INIT loading
     RALPHRC_FILE=".ralphrc"
     RALPHRC_LOADED=false
     _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
     _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
     _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
+    _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 
     load_ralphrc() {
         if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -201,6 +202,7 @@ setup() {
         [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
         [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
         [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
+        [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
         RALPHRC_LOADED=true
         return 0
     }
@@ -1219,6 +1221,54 @@ EOF
 @test "generate_ralphrc includes CLAUDE_CODE_CMD field" {
     local script="${BATS_TEST_DIRNAME}/../../lib/enable_core.sh"
     run grep 'CLAUDE_CODE_CMD' "$script"
+    assert_success
+}
+
+# --- Issue #211: RALPH_SHELL_INIT_FILE support ---
+
+@test "RALPH_SHELL_INIT_FILE is loaded from .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+RALPH_SHELL_INIT_FILE="~/.zshrc"
+EOF
+    _env_RALPH_SHELL_INIT_FILE=""
+    RALPH_SHELL_INIT_FILE=""
+
+    load_ralphrc
+    assert_equal "$RALPH_SHELL_INIT_FILE" "~/.zshrc"
+}
+
+@test "RALPH_SHELL_INIT_FILE env var takes precedence over .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+RALPH_SHELL_INIT_FILE="~/.zshrc"
+EOF
+    _env_RALPH_SHELL_INIT_FILE="/custom/.myshellrc"
+    RALPH_SHELL_INIT_FILE="/custom/.myshellrc"
+
+    load_ralphrc
+    assert_equal "$RALPH_SHELL_INIT_FILE" "/custom/.myshellrc"
+}
+
+@test "ralph_loop.sh captures RALPH_SHELL_INIT_FILE env var before defaults" {
+    run grep '_env_RALPH_SHELL_INIT_FILE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    assert_success
+    [[ "$output" == *'${RALPH_SHELL_INIT_FILE:-}'* ]]
+}
+
+@test "ralph_loop.sh sources RALPH_SHELL_INIT_FILE when set and file exists" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'source.*RALPH_SHELL_INIT_FILE' "$script"
+    assert_success
+}
+
+@test "ralph_loop.sh warns when RALPH_SHELL_INIT_FILE is set but file missing" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A3 'RALPH_SHELL_INIT_FILE.*not found' "$script"
+    assert_success
+}
+
+@test "generate_ralphrc template includes commented RALPH_SHELL_INIT_FILE" {
+    local script="${BATS_TEST_DIRNAME}/../../lib/enable_core.sh"
+    run grep 'RALPH_SHELL_INIT_FILE' "$script"
     assert_success
 }
 

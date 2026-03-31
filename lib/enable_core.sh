@@ -708,6 +708,9 @@ CLAUDE_CODE_CMD="${claude_cmd}"
 MAX_CALLS_PER_HOUR=100
 CLAUDE_TIMEOUT_MINUTES=15
 CLAUDE_OUTPUT_FORMAT="json"
+# Token limit per hour (0 = disabled). One invocation can use 100k+ tokens.
+# Recommended: 500000 for light use, 2000000 for heavy use.
+#MAX_TOKENS_PER_HOUR=0
 
 # Tool permissions
 # Comma-separated list of allowed tools
@@ -731,6 +734,12 @@ CB_OUTPUT_DECLINE_THRESHOLD=70
 
 # Auto-update Claude CLI at startup
 CLAUDE_AUTO_UPDATE=true
+
+# Shell init file (optional)
+# Source this file before running claude — useful when claude requires environment
+# variables or PATH entries defined in a non-bash shell config (e.g. ~/.zshrc).
+# Leave commented out unless needed.
+#RALPH_SHELL_INIT_FILE="~/.zshrc"
 RALPHRCEOF
 }
 

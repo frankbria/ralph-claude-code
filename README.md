@@ -404,10 +404,16 @@ PROJECT_TYPE="typescript"
 CLAUDE_CODE_CMD="claude"
 # CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"  # Alternative: use npx
 
+# Shell init file — source before running claude (useful for zsh/fish users
+# whose PATH or env vars are only set in their shell's init file)
+#RALPH_SHELL_INIT_FILE="~/.zshrc"
+
 # Loop settings
 MAX_CALLS_PER_HOUR=100
 CLAUDE_TIMEOUT_MINUTES=15
 CLAUDE_OUTPUT_FORMAT="json"
+# Token budget per hour (0 = disabled). One Claude call can use 100k+ tokens.
+#MAX_TOKENS_PER_HOUR=500000
 
 # Tool permissions
 ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
@@ -432,9 +438,18 @@ ralph --calls 50
 # With integrated monitoring
 ralph --monitor --calls 50
 
-# Check current usage
+# Check current usage (shows calls and tokens used this hour)
 ralph --status
 ```
+
+Rate limiting supports two independent limits — both reset hourly:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MAX_CALLS_PER_HOUR` | `100` | Max Claude invocations per hour |
+| `MAX_TOKENS_PER_HOUR` | `0` (disabled) | Max cumulative tokens per hour |
+
+Token tracking extracts `input_tokens + output_tokens` from each Claude response. A single call can consume 100k+ tokens, so `MAX_TOKENS_PER_HOUR` provides cost control that `MAX_CALLS_PER_HOUR` alone cannot.
 
 The circuit breaker automatically:
 - Detects API errors and rate limit issues with advanced two-stage filtering
@@ -880,7 +895,7 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Dedicated uninstall script
 
 **Test Coverage Breakdown:**
-- Unit Tests: 420 (CLI parsing, JSON, exit detection, rate limiting, session continuity, enable wizard, live streaming, circuit breaker recovery, file protection, integrity checks)
+- Unit Tests: 477 (CLI parsing, JSON, exit detection, rate limiting + token budgets, session continuity, enable wizard, live streaming, circuit breaker recovery, file protection, integrity checks)
 - Integration Tests: 136 (loop execution, edge cases, installation, project setup, PRD import)
 - Test Files: 18
 
