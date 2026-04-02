@@ -233,6 +233,7 @@ CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set false for air-gapped environments)
 CLAUDE_MODEL=""                       # Model override (e.g. claude-sonnet-4-6); empty = CLI default (Issue #228)
 CLAUDE_EFFORT=""                      # Effort level override (e.g. high, low); empty = CLI default (Issue #228)
+ENABLE_NOTIFICATIONS=false            # Desktop notifications (Issue #22); set true or use --notify flag
 ```
 
 **Auto-Update Configuration:**
@@ -601,6 +602,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_integrity_check.bats` | 10 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
 | `test_log_rotation.bats` | 5 | Log rotation (rotate_logs in lib/log_utils.sh): threshold, shift order, content assertions, missing file, stat fallback (Issue #18) |
 | `test_metrics_tracking.bats` | 4 | Metrics tracking: track_metrics() JSON Lines format, per-loop append, ralph-stats output, print_metrics_summary (Issue #21) |
+| `test_notifications.bats` | 5 | Desktop notifications: send_notification() cross-platform (macOS/Linux/bell), disabled by default, --notify flag (Issue #22) |
 
 ### Running Tests
 ```bash

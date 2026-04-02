@@ -50,6 +50,7 @@ _env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
 _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
 _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
 _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
+_env_ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -70,6 +71,7 @@ CLAUDE_MODEL="${CLAUDE_MODEL:-}"                 # Model override (e.g. claude-s
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"               # Effort level override (e.g. high, low); empty = CLI default
 RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source before running claude (e.g. ~/.zshrc)
 DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making actual Claude API calls
+ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications (requires --notify flag)
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -174,6 +176,7 @@ load_ralphrc() {
     [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
     [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
     [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
+    [[ -n "$_env_ENABLE_NOTIFICATIONS" ]] && ENABLE_NOTIFICATIONS="$_env_ENABLE_NOTIFICATIONS"
 
     RALPHRC_LOADED=true
     return 0
@@ -459,6 +462,24 @@ update_status() {
 STATUSEOF
 }
 
+# Send a desktop notification if ENABLE_NOTIFICATIONS is true
+# Cross-platform: macOS (osascript), Linux (notify-send), fallback (terminal bell)
+# Errors are suppressed so notification failures never break the loop.
+send_notification() {
+    local title="$1"
+    local message="$2"
+
+    [[ "$ENABLE_NOTIFICATIONS" == "true" ]] || return 0
+
+    if command -v osascript &>/dev/null; then
+        osascript -e "display notification \"$message\" with title \"$title\"" 2>/dev/null || true
+    elif command -v notify-send &>/dev/null; then
+        notify-send "$title" "$message" 2>/dev/null || true
+    else
+        echo -e "\a"
+    fi
+}
+
 # Extract token usage from a Claude output file
 # Handles both Claude CLI format (metadata.usage) and stream-json result format (.usage)
 # Outputs total tokens (input + output), or 0 on failure
@@ -568,7 +589,8 @@ wait_for_reset() {
         limit_reason="$limit_reason, tokens: $tokens_used/$MAX_TOKENS_PER_HOUR"
     fi
     log_status "WARN" "Rate limit reached ($limit_reason). Waiting for reset..."
-    
+    send_notification "Ralph - Rate Limit" "Rate limit reached ($limit_reason). Waiting for reset..."
+
     # Calculate time until next hour
     local current_minute=$(date +%M)
     local current_second=$(date +%S)
@@ -2003,6 +2025,7 @@ main() {
             reset_session "circuit_breaker_open"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - execution halted"
+            send_notification "Ralph - Circuit Breaker" "Circuit breaker opened - execution halted due to stagnation"
             break
         fi
 
@@ -2055,6 +2078,7 @@ main() {
             fi
 
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
+            send_notification "Ralph - Complete" "Project completed! Exit reason: $exit_reason"
             reset_session "project_complete"
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "graceful_exit" "completed" "$exit_reason"
 
@@ -2094,6 +2118,7 @@ main() {
 
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
+            send_notification "Ralph - Loop Complete" "Loop #$loop_count completed successfully"
 
             # Brief pause between successful executions
             sleep 5
@@ -2103,11 +2128,13 @@ main() {
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "circuit_breaker_open" "halted" "stagnation_detected"
             log_status "ERROR" "🛑 Circuit breaker has opened - halting loop"
             log_status "INFO" "Run 'ralph --reset-circuit' to reset the circuit breaker after addressing issues"
+            send_notification "Ralph - Circuit Breaker" "Circuit breaker opened - execution halted due to stagnation"
             break
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
             log_status "WARN" "🛑 Claude API 5-hour limit reached!"
+            send_notification "Ralph - API Limit" "Claude API 5-hour usage limit reached. User action required."
             
             # Ask user whether to wait or exit
             echo -e "\n${YELLOW}A Claude API usage limit has been reached (5-hour plan limit or Extra Usage quota).${NC}"
@@ -2146,6 +2173,7 @@ main() {
         else
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."
+            send_notification "Ralph - Error" "Claude Code execution failed. Check logs for details."
             sleep 30
         fi
         
@@ -2177,6 +2205,7 @@ Options:
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
     --dry-run               Simulate loop execution without making actual Claude API calls
+    -n, --notify            Enable desktop notifications for key events
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2317,6 +2346,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        -n|--notify)
+            ENABLE_NOTIFICATIONS=true
             shift
             ;;
         *)
