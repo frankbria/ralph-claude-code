@@ -3,38 +3,16 @@
 
 load '../helpers/test_helper'
 
-# rotate_logs - mirrors the function in ralph_loop.sh
-rotate_logs() {
-    local log_file="$LOG_DIR/ralph.log"
-    local max_size=10485760  # 10MB in bytes
-
-    [[ -f "$log_file" ]] || return 0
-
-    local file_size
-    if stat -c%s "$log_file" > /dev/null 2>&1; then
-        file_size=$(stat -c%s "$log_file")
-    else
-        file_size=$(stat -f%z "$log_file" 2>/dev/null || echo "0")
-    fi
-
-    [[ "$file_size" -lt "$max_size" ]] && return 0
-
-    [[ -f "${log_file}.4" ]] && rm -f "${log_file}.4"
-    [[ -f "${log_file}.3" ]] && mv "${log_file}.3" "${log_file}.4"
-    [[ -f "${log_file}.2" ]] && mv "${log_file}.2" "${log_file}.3"
-    [[ -f "${log_file}.1" ]] && mv "${log_file}.1" "${log_file}.2"
-    mv "$log_file" "${log_file}.1"
-}
-
 setup() {
-    source "$(dirname "$BATS_TEST_FILENAME")/../helpers/test_helper.bash"
-
     export TEST_TEMP_DIR
     TEST_TEMP_DIR="$(mktemp -d)"
     cd "$TEST_TEMP_DIR"
 
     export LOG_DIR="$TEST_TEMP_DIR/logs"
     mkdir -p "$LOG_DIR"
+
+    # Source the real production implementation
+    source "$(dirname "$BATS_TEST_FILENAME")/../../lib/log_utils.sh"
 }
 
 teardown() {
@@ -60,19 +38,26 @@ teardown() {
     [ -f "$LOG_DIR/ralph.log.1" ]
 }
 
-@test "rotate_logs: keeps exactly 5 old files and deletes the oldest" {
-    for i in 1 2 3 4; do
-        echo "old log $i" > "$LOG_DIR/ralph.log.$i"
-    done
+@test "rotate_logs: keeps exactly 4 archived files and shifts content correctly" {
+    echo "old log 1" > "$LOG_DIR/ralph.log.1"
+    echo "old log 2" > "$LOG_DIR/ralph.log.2"
+    echo "old log 3" > "$LOG_DIR/ralph.log.3"
+    echo "old log 4" > "$LOG_DIR/ralph.log.4"
     dd if=/dev/zero bs=1048576 count=11 > "$LOG_DIR/ralph.log" 2>/dev/null
 
     rotate_logs
 
+    # .log.4 (the oldest) is deleted and replaced by former .log.3
     [ -f "$LOG_DIR/ralph.log.1" ]
     [ -f "$LOG_DIR/ralph.log.2" ]
     [ -f "$LOG_DIR/ralph.log.3" ]
     [ -f "$LOG_DIR/ralph.log.4" ]
     [ ! -f "$LOG_DIR/ralph.log.5" ]
+
+    # Verify shift order
+    [ "$(cat "$LOG_DIR/ralph.log.4")" = "old log 3" ]
+    [ "$(cat "$LOG_DIR/ralph.log.3")" = "old log 2" ]
+    [ "$(cat "$LOG_DIR/ralph.log.2")" = "old log 1" ]
 }
 
 @test "rotate_logs: handles missing log file gracefully" {
@@ -81,11 +66,32 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-@test "rotate_logs: uses correct cross-platform stat command" {
+@test "rotate_logs: falls back to BSD stat when GNU stat -c%s fails" {
     dd if=/dev/zero bs=1048576 count=11 > "$LOG_DIR/ralph.log" 2>/dev/null
+
+    # Stub stat: fail on -c%s (GNU), succeed on -f%z (BSD) by delegating to real stat -c%s
+    local real_stat
+    real_stat="$(command -v stat)"
+    mkdir -p "$TEST_TEMP_DIR/bin"
+    cat > "$TEST_TEMP_DIR/bin/stat" << STUBEOF
+#!/usr/bin/env bash
+echo "\$1" >> "$TEST_TEMP_DIR/stat_calls"
+if [[ "\$1" == "-c%s" ]]; then
+  exit 1
+fi
+if [[ "\$1" == "-f%z" ]]; then
+  shift
+  exec "$real_stat" -c%s "\$@"
+fi
+exec "$real_stat" "\$@"
+STUBEOF
+    chmod +x "$TEST_TEMP_DIR/bin/stat"
+    PATH="$TEST_TEMP_DIR/bin:$PATH"
 
     rotate_logs
 
     [ -f "$LOG_DIR/ralph.log.1" ]
     [ ! -f "$LOG_DIR/ralph.log" ]
+    grep -q -- "-c%s" "$TEST_TEMP_DIR/stat_calls"
+    grep -q -- "-f%z" "$TEST_TEMP_DIR/stat_calls"
 }
