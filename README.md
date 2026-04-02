@@ -123,11 +123,6 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ### In Progress
 - Expanding test coverage
-- Log rotation functionality
-- Dry-run mode
-- Metrics and analytics tracking
-- Desktop notifications
-- Git backup and rollback system
 - [Automated badge updates](#138)
 
 **Timeline to v1.0**: ~4 weeks | [Full roadmap](IMPLEMENTATION_PLAN.md) | **Contributions welcome!**
@@ -913,9 +908,6 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Dry-run mode
 
 **Advanced Features & Polish**
-- Metrics and analytics tracking
-- Desktop notifications
-- Git backup and rollback system
 - End-to-end tests
 - Final documentation and release prep
 

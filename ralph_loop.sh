@@ -357,6 +357,10 @@ setup_tmux_session() {
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
     fi
+    # Forward --backup if enabled (Issue #23)
+    if [[ "$ENABLE_BACKUP" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --backup"
+    fi
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,
@@ -1325,17 +1329,44 @@ create_backup() {
     local timestamp
     timestamp=$(date +%s)
     local branch_name="ralph-backup-loop-${loop_count}-${timestamp}"
+    local stash_msg="Ralph backup before loop #${loop_count}"
 
-    git checkout -b "$branch_name" -q 2>/dev/null || {
-        log_status "WARN" "Backup failed: could not create branch $branch_name"
+    # Stash any staged/unstaged changes so checkout doesn't lose them
+    local stashed=false
+    if ! git stash push -u -m "$stash_msg" 2>/dev/null; then
+        log_status "WARN" "Backup failed: could not stash local changes for loop #${loop_count}"
         return 0
-    }
+    fi
+    stashed=true
 
-    git add -A 2>/dev/null || true
-    git commit --allow-empty -q -m "Ralph backup before loop #${loop_count}" 2>/dev/null || true
+    if ! git checkout -b "$branch_name" -q 2>/dev/null; then
+        log_status "WARN" "Backup failed: could not create branch $branch_name"
+        git stash pop 2>/dev/null || true
+        return 0
+    fi
 
-    # Return to the branch we were on before creating the backup
-    git checkout - -q 2>/dev/null || true
+    if ! git add -A 2>/dev/null; then
+        log_status "WARN" "Backup failed: could not stage files for loop #${loop_count}"
+        git checkout - -q 2>/dev/null || true
+        git stash pop 2>/dev/null || true
+        return 0
+    fi
+
+    if ! git commit --allow-empty -q -m "$stash_msg" 2>/dev/null; then
+        log_status "WARN" "Backup failed: commit failed for loop #${loop_count}"
+        git checkout - -q 2>/dev/null || true
+        git stash pop 2>/dev/null || true
+        return 0
+    fi
+
+    # Return to the original branch and restore the stash
+    if ! git checkout - -q 2>/dev/null; then
+        log_status "WARN" "Backup: could not switch back from $branch_name — manual cleanup may be needed"
+    fi
+
+    if [[ "$stashed" == "true" ]]; then
+        git stash pop 2>/dev/null || log_status "WARN" "Backup: stash pop failed — run 'git stash pop' to restore your changes"
+    fi
 
     log_status "INFO" "Backup created: $branch_name"
     return 0
@@ -1358,7 +1389,7 @@ rollback_to_backup() {
 
     if [[ -z "$branch" ]]; then
         local backups
-        backups=$(git branch --list "ralph-backup-loop-*" 2>/dev/null | sed 's/^[* ]*//' | sort -rV)
+        backups=$(git branch --list "ralph-backup-loop-*" 2>/dev/null | sed 's/^[* ]*//' | sort -t- -k5,5 -rn)
         if [[ -z "$backups" ]]; then
             log_status "WARN" "No backup branches found"
             return 1
@@ -1992,6 +2023,9 @@ main() {
             log_status "INFO" "Loaded configuration from .ralphrc"
         fi
     fi
+    # Re-apply CLI flags that must take priority over .ralphrc (Issue #23)
+    # _cli_ENABLE_BACKUP is set only when --backup / -b was explicitly passed
+    [[ "${_cli_ENABLE_BACKUP:-false}" == "true" ]] && ENABLE_BACKUP=true
 
     # Source user shell init file if configured (e.g. ~/.zshrc for zsh environments)
     # This allows non-bash shells or non-standard setups to export PATH/env vars
@@ -2446,6 +2480,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -b|--backup)
             ENABLE_BACKUP=true
+            _cli_ENABLE_BACKUP=true
             shift
             ;;
         --rollback)

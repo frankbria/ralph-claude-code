@@ -164,6 +164,12 @@ ralph --auto-reset-circuit   # Auto-reset OPEN state on startup
 
 # Session management
 ralph --reset-session    # Reset session state manually
+
+# Backup and rollback (requires git; Issue #23)
+ralph --backup           # Enable automatic backup before each loop
+ralph -b                 # Short form of --backup
+ralph --rollback         # List available backup branches
+ralph --rollback ralph-backup-loop-3-1775155286  # Roll back to a specific backup
 ```
 
 ### Monitoring

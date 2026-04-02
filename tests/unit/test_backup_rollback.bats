@@ -2,6 +2,8 @@
 # Unit Tests for Backup and Rollback System (Issue #23)
 # Tests create_backup() and rollback_to_backup() functions
 
+bats_require_minimum_version 1.5.0
+
 load '../helpers/test_helper'
 
 RALPH_SCRIPT="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
@@ -56,17 +58,42 @@ create_backup() {
     local timestamp
     timestamp=$(date +%s)
     local branch_name="ralph-backup-loop-${loop_count}-${timestamp}"
+    local stash_msg="Ralph backup before loop #${loop_count}"
 
-    git checkout -b "$branch_name" -q 2>/dev/null || {
-        log_status "WARN" "Backup failed: could not create branch $branch_name"
+    local stashed=false
+    if ! git stash push -u -m "$stash_msg" 2>/dev/null; then
+        log_status "WARN" "Backup failed: could not stash local changes for loop #${loop_count}"
         return 0
-    }
+    fi
+    stashed=true
 
-    git add -A 2>/dev/null || true
-    git commit --allow-empty -q -m "Ralph backup before loop #${loop_count}" 2>/dev/null || true
+    if ! git checkout -b "$branch_name" -q 2>/dev/null; then
+        log_status "WARN" "Backup failed: could not create branch $branch_name"
+        git stash pop 2>/dev/null || true
+        return 0
+    fi
 
-    # Return to the original branch (the one we were on before the backup)
-    git checkout - -q 2>/dev/null || true
+    if ! git add -A 2>/dev/null; then
+        log_status "WARN" "Backup failed: could not stage files for loop #${loop_count}"
+        git checkout - -q 2>/dev/null || true
+        git stash pop 2>/dev/null || true
+        return 0
+    fi
+
+    if ! git commit --allow-empty -q -m "$stash_msg" 2>/dev/null; then
+        log_status "WARN" "Backup failed: commit failed for loop #${loop_count}"
+        git checkout - -q 2>/dev/null || true
+        git stash pop 2>/dev/null || true
+        return 0
+    fi
+
+    if ! git checkout - -q 2>/dev/null; then
+        log_status "WARN" "Backup: could not switch back from $branch_name — manual cleanup may be needed"
+    fi
+
+    if [[ "$stashed" == "true" ]]; then
+        git stash pop 2>/dev/null || log_status "WARN" "Backup: stash pop failed — run 'git stash pop' to restore your changes"
+    fi
 
     log_status "INFO" "Backup created: $branch_name"
     return 0
@@ -81,19 +108,17 @@ rollback_to_backup() {
     fi
 
     if [[ -z "$branch" ]]; then
-        # List available backups newest first
         local backups
-        backups=$(git branch --list "ralph-backup-loop-*" 2>/dev/null | sed 's/^[* ]*//' | sort -rV)
+        backups=$(git branch --list "ralph-backup-loop-*" 2>/dev/null | sed 's/^[* ]*//' | sort -t- -k5,5 -rn)
         if [[ -z "$backups" ]]; then
             log_status "WARN" "No backup branches found"
             return 1
         fi
-        echo "Available backups:"
+        echo "Available backups (newest first):"
         echo "$backups"
         return 0
     fi
 
-    # Verify the branch exists
     if ! git rev-parse --verify "$branch" &>/dev/null 2>&1; then
         log_status "ERROR" "Rollback failed: branch '$branch' not found"
         return 1
@@ -237,4 +262,33 @@ STUB
     local current
     current=$(git rev-parse --abbrev-ref HEAD)
     [[ "$current" == "$branch" ]]
+}
+
+# =============================================================================
+# TEST 7: rollback_to_backup with no args lists available backups
+# =============================================================================
+
+@test "rollback_to_backup with no args lists available backup branches" {
+    export ENABLE_BACKUP=true
+
+    # Create two backups at different loop counts
+    create_backup 1
+    sleep 1  # ensure distinct timestamps
+    create_backup 2
+
+    # With no args it should print the list and exit 0
+    run rollback_to_backup
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Available backups"* ]]
+    [[ "$output" == *"ralph-backup-loop-"* ]]
+}
+
+# =============================================================================
+# TEST 8: rollback_to_backup with non-existent branch fails cleanly
+# =============================================================================
+
+@test "rollback_to_backup with non-existent branch fails cleanly" {
+    run --separate-stderr rollback_to_backup "ralph-backup-loop-99-0000000000"
+    [ "$status" -ne 0 ]
+    [[ "$stderr" == *"not found"* ]]
 }
