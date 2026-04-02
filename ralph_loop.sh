@@ -52,6 +52,7 @@ _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
 _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 _env_ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-}"
 _env_ENABLE_BACKUP="${ENABLE_BACKUP:-}"
+_env_LIVE_SHOW_TOOL_ARGS="${LIVE_SHOW_TOOL_ARGS:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -74,6 +75,7 @@ RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source b
 DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making actual Claude API calls
 ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications; set true or use --notify flag
 ENABLE_BACKUP="${ENABLE_BACKUP:-false}"               # Enable automatic git backups before each loop; set true or use --backup flag
+LIVE_SHOW_TOOL_ARGS="${LIVE_SHOW_TOOL_ARGS:-false}"  # Show tool arguments in live streaming output (file paths, commands, patterns)
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -180,6 +182,7 @@ load_ralphrc() {
     [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
     [[ -n "$_env_ENABLE_NOTIFICATIONS" ]] && ENABLE_NOTIFICATIONS="$_env_ENABLE_NOTIFICATIONS"
     [[ -n "$_env_ENABLE_BACKUP" ]] && ENABLE_BACKUP="$_env_ENABLE_BACKUP"
+    [[ -n "$_env_LIVE_SHOW_TOOL_ARGS" ]] && LIVE_SHOW_TOOL_ARGS="$_env_LIVE_SHOW_TOOL_ARGS"
 
     RALPHRC_LOADED=true
     return 0
@@ -1533,20 +1536,60 @@ execute_claude_code() {
         # These are required for stream-json to work properly
         LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
 
-        # jq filter: show text + tool names + sub-agent progress + newlines for readability
+        # jq filter: show text + tool summaries + sub-agent progress
+        # Two sources of tool info:
+        #   1. stream_event content_block_start: tool name (arrives at start of streaming)
+        #   2. assistant messages: complete tool inputs (arrive after each turn)
+        # We use assistant messages for tool details since stream deltas are fragments
+        # jq filter overview:
+        #   stream_event text_delta    → text as it streams (real-time)
+        #   stream_event tool_use start→ "⚙ Bash..." (immediate, no args yet)
+        #   assistant message          → "⚡ [Bash] actual command" (after turn, with full args)
+        #   system task_started/progress→ agent status
         local jq_filter='
             if .type == "stream_event" then
                 if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
                     .event.delta.text
                 elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
-                    "\n\n⚡ [" + .event.content_block.name + "]\n"
+                    "\n⚙ " + .event.content_block.name + "..."
                 elif .event.type == "content_block_stop" then
                     "\n"
                 else
                     empty
                 end
+            elif .type == "assistant" then
+                [.message.content[] |
+                    if .type == "tool_use" then
+                        # Tool argument details are opt-in via $show_args
+                        # (passed as --argjson from LIVE_SHOW_TOOL_ARGS) to
+                        # avoid logging raw commands/paths/patterns by default.
+                        # Note: "Task" is the legacy name for the "Agent" tool
+                        # (renamed in Claude Code v2.1.63); accept both.
+                        "\n⚡ [" + .name + "] " + (
+                            if $show_args then
+                                (
+                                    if .name == "Bash" then
+                                        (.input.command // "")
+                                    elif .name == "Read" or .name == "Write" or .name == "Edit" then
+                                        (.input.file_path // "")
+                                    elif .name == "Glob" or .name == "Grep" then
+                                        (.input.pattern // "")
+                                    elif .name == "Agent" or .name == "Task" then
+                                        (.input.description // "")
+                                    else
+                                        ""
+                                    end
+                                ) | split("\n") | .[0] | .[0:120]
+                            else
+                                ""
+                            end
+                        ) + "\n"
+                    else
+                        empty
+                    end
+                ] | join("")
             elif .type == "system" and .subtype == "task_started" then
-                "\n\n🚀 Agent: " + (.description // "started") + "\n"
+                "\n🚀 Agent: " + (.description // "started") + "\n"
             elif .type == "system" and .subtype == "task_progress" then
                 "📌 " + (.description // "working...") + "\n"
             else
@@ -1562,8 +1605,16 @@ execute_claude_code() {
         # Redirect stderr to separate file to prevent Node.js warnings (e.g., UNDICI)
         # from corrupting the jq JSON pipeline (Issue #190)
         local stderr_file="${LOG_DIR}/claude_stderr_$(date '+%Y%m%d_%H%M%S').log"
+
+        # Normalize LIVE_SHOW_TOOL_ARGS to strict JSON boolean for --argjson.
+        # Accepts: true/yes/on/1 (case-insensitive) → true; everything else → false.
+        local _show_args=false
+        case "$(printf '%s' "${LIVE_SHOW_TOOL_ARGS:-false}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+            true|yes|on|1) _show_args=true ;;
+        esac
+
         portable_timeout ${timeout_seconds}s "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>"$stderr_file" | tee "$output_file" | jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+            < /dev/null 2>"$stderr_file" | tee "$output_file" | jq --unbuffered -j --argjson show_args "$_show_args" "$jq_filter" 2>>"$stderr_file" | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
@@ -2023,6 +2074,7 @@ main() {
     # Re-apply CLI flags that must take priority over .ralphrc (Issue #23)
     # _cli_ENABLE_BACKUP is set only when --backup / -b was explicitly passed
     [[ "${_cli_ENABLE_BACKUP:-false}" == "true" ]] && ENABLE_BACKUP=true
+    [[ "${_cli_LIVE_SHOW_TOOL_ARGS:-false}" == "true" ]] && LIVE_SHOW_TOOL_ARGS=true
 
     # Source user shell init file if configured (e.g. ~/.zshrc for zsh environments)
     # This allows non-bash shells or non-standard setups to export PATH/env vars
@@ -2328,6 +2380,7 @@ Options:
     --dry-run               Simulate loop execution without making actual Claude API calls
     -n, --notify            Enable desktop notifications for key events
     -b, --backup            Enable automatic git backup branch before each loop (requires git)
+    --show-tool-args        Show tool arguments (commands, file paths) in live streaming output
     --rollback [BRANCH]     Roll back to a backup branch (lists available backups if no branch given)
 
 Modern CLI Options (Phase 1.1):
@@ -2478,6 +2531,11 @@ while [[ $# -gt 0 ]]; do
         -b|--backup)
             ENABLE_BACKUP=true
             _cli_ENABLE_BACKUP=true
+            shift
+            ;;
+        --show-tool-args)
+            LIVE_SHOW_TOOL_ARGS=true
+            _cli_LIVE_SHOW_TOOL_ARGS=true
             shift
             ;;
         --rollback)
