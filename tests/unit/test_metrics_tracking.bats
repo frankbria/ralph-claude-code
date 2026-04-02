@@ -86,7 +86,8 @@ EOF
     assert_success
     [[ "$(echo "$output" | jq -r '.total_loops')" == "3" ]]
     [[ "$(echo "$output" | jq -r '.successful')" == "2" ]]
-    [[ "$(echo "$output" | jq -r '.total_calls')" == "7" ]]
+    # total_calls = sum of per-loop calls: 2+5+7 = 14
+    [[ "$(echo "$output" | jq -r '.total_calls')" == "14" ]]
     # avg_duration: (30+60+45)/3 = 45
     [[ "$(echo "$output" | jq -r '.avg_duration')" == "45" ]]
 }

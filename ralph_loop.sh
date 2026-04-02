@@ -2068,23 +2068,29 @@ main() {
         fi
         
         # Update status
-        local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        local calls_made
+        calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
 
-        # Capture loop start time for duration tracking (Issue #21)
+        # Capture loop start time and pre-execution call count for metrics (Issue #21)
         local loop_start_epoch
         loop_start_epoch=$(get_epoch_seconds)
+        local calls_before_exec="$calls_made"
 
         # Execute Claude Code
         execute_claude_code "$loop_count"
         local exec_result=$?
 
         # Record metrics for this loop (Issue #21)
+        # Use per-loop call delta so total_calls remains accurate across hourly resets
         local loop_duration
         loop_duration=$(( $(get_epoch_seconds) - loop_start_epoch ))
         local loop_success="false"
         [ $exec_result -eq 0 ] && loop_success="true"
-        track_metrics "$loop_count" "$loop_duration" "$loop_success" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)"
+        local calls_after_exec
+        calls_after_exec=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        local calls_this_loop=$(( calls_after_exec > calls_before_exec ? calls_after_exec - calls_before_exec : calls_after_exec ))
+        track_metrics "$loop_count" "$loop_duration" "$loop_success" "$calls_this_loop"
 
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
