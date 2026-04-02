@@ -48,7 +48,7 @@ teardown() {
     local line
     line=$(cat "$LOG_DIR/metrics.jsonl")
     # Validate it is parseable JSON
-    echo "$line" | jq . > /dev/null 2>&1
+    echo "$line" | jq . > /dev/null
     # Check all required fields are present and correct
     [[ "$(echo "$line" | jq -r '.loop')" == "1" ]]
     [[ "$(echo "$line" | jq -r '.duration')" == "45" ]]
@@ -69,7 +69,7 @@ teardown() {
     [ "$line_count" -eq 3 ]
     # Each line must be valid JSON
     while IFS= read -r line; do
-        echo "$line" | jq . > /dev/null 2>&1
+        echo "$line" | jq . > /dev/null || fail "Invalid JSON: $line"
     done < "$LOG_DIR/metrics.jsonl"
 }
 

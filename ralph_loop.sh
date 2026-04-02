@@ -2080,7 +2080,8 @@ main() {
         local exec_result=$?
 
         # Record metrics for this loop (Issue #21)
-        local loop_duration=$(( $(get_epoch_seconds) - loop_start_epoch ))
+        local loop_duration
+        loop_duration=$(( $(get_epoch_seconds) - loop_start_epoch ))
         local loop_success="false"
         [ $exec_result -eq 0 ] && loop_success="true"
         track_metrics "$loop_count" "$loop_duration" "$loop_success" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)"
