@@ -554,7 +554,7 @@ print_metrics_summary() {
         total_loops: length,
         successful: (map(select(.success==true)) | length),
         avg_duration: (if length > 0 then (map(.duration) | add) / length else 0 end),
-        total_calls: (map(.calls) | max // 0)
+        total_calls: (map(.calls) | add // 0)
     }' "$metrics_file" 2>/dev/null)
     [[ -n "$summary" ]] && log_status "INFO" "Metrics summary: $summary"
 }
