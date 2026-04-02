@@ -526,6 +526,39 @@ increment_call_counter() {
     echo "$calls_made"
 }
 
+# Track loop execution metrics to logs/metrics.jsonl (Issue #21)
+# Arguments: loop_num duration_seconds success(true|false) calls_made
+track_metrics() {
+    local loop_num=$1
+    local duration=$2
+    local success=$3
+    local calls=$4
+
+    local ts
+    ts=$(get_iso_timestamp)
+    local metrics_file="$LOG_DIR/metrics.jsonl"
+
+    mkdir -p "$LOG_DIR"
+    printf '{"timestamp":"%s","loop":%d,"duration":%d,"success":%s,"calls":%d}\n' \
+        "$ts" "$loop_num" "$duration" "$success" "$calls" >> "$metrics_file"
+}
+
+# Print a one-line metrics summary from logs/metrics.jsonl (Issue #21)
+print_metrics_summary() {
+    local metrics_file="$LOG_DIR/metrics.jsonl"
+    [[ -f "$metrics_file" ]] || return 0
+    command -v jq &>/dev/null || return 0
+
+    local summary
+    summary=$(jq -s '{
+        total_loops: length,
+        successful: (map(select(.success==true)) | length),
+        avg_duration: (if length > 0 then (map(.duration) | add) / length else 0 end),
+        total_calls: (map(.calls) | max // 0)
+    }' "$metrics_file" 2>/dev/null)
+    [[ -n "$summary" ]] && log_status "INFO" "Metrics summary: $summary"
+}
+
 # Wait for rate limit reset with countdown
 wait_for_reset() {
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
@@ -2029,6 +2062,7 @@ main() {
             log_status "INFO" "  - Total loops: $loop_count"
             log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
             log_status "INFO" "  - Exit reason: $exit_reason"
+            print_metrics_summary
 
             break
         fi
@@ -2036,11 +2070,21 @@ main() {
         # Update status
         local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
-        
+
+        # Capture loop start time for duration tracking (Issue #21)
+        local loop_start_epoch
+        loop_start_epoch=$(get_epoch_seconds)
+
         # Execute Claude Code
         execute_claude_code "$loop_count"
         local exec_result=$?
-        
+
+        # Record metrics for this loop (Issue #21)
+        local loop_duration=$(( $(get_epoch_seconds) - loop_start_epoch ))
+        local loop_success="false"
+        [ $exec_result -eq 0 ] && loop_success="true"
+        track_metrics "$loop_count" "$loop_duration" "$loop_success" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)"
+
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
 

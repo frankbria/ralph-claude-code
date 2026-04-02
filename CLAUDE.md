@@ -363,9 +363,9 @@ Templates in `templates/` provide starting points for new projects:
 ## Global Installation
 
 Ralph installs to:
-- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci)
+- **Commands**: `~/.local/bin/` (ralph, ralph-monitor, ralph-setup, ralph-import, ralph-migrate, ralph-enable, ralph-enable-ci, ralph-stats)
 - **Templates**: `~/.ralph/templates/`
-- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh)
+- **Scripts**: `~/.ralph/` (ralph_loop.sh, ralph_monitor.sh, setup.sh, ralph_import.sh, migrate_to_ralph_folder.sh, ralph_enable.sh, ralph_enable_ci.sh, ralph-stats.sh)
 - **Libraries**: `~/.ralph/lib/` (circuit_breaker.sh, response_analyzer.sh, date_utils.sh, timeout_utils.sh, enable_core.sh, wizard_utils.sh, task_sources.sh, file_protection.sh)
 
 After installation, the following global commands are available:
@@ -376,6 +376,7 @@ After installation, the following global commands are available:
 - `ralph-migrate` - Migrate existing projects from flat structure to `.ralph/` subfolder
 - `ralph-enable` - Interactive wizard to enable Ralph in existing projects
 - `ralph-enable-ci` - Non-interactive version for CI/automation
+- `ralph-stats` - Show metrics summary for loop execution analytics
 
 ## Integration Points
 
@@ -599,6 +600,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_file_protection.bats` | 15 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
 | `test_integrity_check.bats` | 10 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
 | `test_log_rotation.bats` | 5 | Log rotation (rotate_logs in lib/log_utils.sh): threshold, shift order, content assertions, missing file, stat fallback (Issue #18) |
+| `test_metrics_tracking.bats` | 4 | Metrics tracking: track_metrics() JSON Lines format, per-loop append, ralph-stats output, print_metrics_summary (Issue #21) |
 
 ### Running Tests
 ```bash

@@ -95,6 +95,12 @@ EOF
 echo "Ralph enable CI running"
 EOF
 
+    cat > "$MOCK_SOURCE_DIR/ralph-stats.sh" << 'EOF'
+#!/bin/bash
+# Mock ralph-stats.sh
+echo "Ralph stats running"
+EOF
+
     # Create mock lib files for new enable functionality
     cat > "$MOCK_SOURCE_DIR/lib/enable_core.sh" << 'EOF'
 #!/bin/bash
@@ -223,6 +229,7 @@ run_install() {
     [[ -x "$TEST_INSTALL_DIR/ralph-setup" ]]
     [[ -x "$TEST_INSTALL_DIR/ralph-import" ]]
     [[ -x "$TEST_INSTALL_DIR/ralph-migrate" ]]
+    [[ -x "$TEST_INSTALL_DIR/ralph-stats" ]]
 
     # Verify executable bit on main scripts
     [[ -x "$TEST_RALPH_HOME/ralph_loop.sh" ]]
@@ -230,6 +237,7 @@ run_install() {
     [[ -x "$TEST_RALPH_HOME/setup.sh" ]]
     [[ -x "$TEST_RALPH_HOME/ralph_import.sh" ]]
     [[ -x "$TEST_RALPH_HOME/migrate_to_ralph_folder.sh" ]]
+    [[ -x "$TEST_RALPH_HOME/ralph-stats.sh" ]]
 
     # Verify lib scripts are executable
     [[ -x "$TEST_RALPH_HOME/lib/circuit_breaker.sh" ]]
@@ -484,6 +492,7 @@ EOF
     assert_file_exists "$TEST_INSTALL_DIR/ralph-setup"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-import"
     assert_file_exists "$TEST_INSTALL_DIR/ralph-migrate"
+    assert_file_exists "$TEST_INSTALL_DIR/ralph-stats"
 
     # Run uninstall
     run run_install uninstall
@@ -495,6 +504,7 @@ EOF
     assert_file_not_exists "$TEST_INSTALL_DIR/ralph-setup"
     assert_file_not_exists "$TEST_INSTALL_DIR/ralph-import"
     assert_file_not_exists "$TEST_INSTALL_DIR/ralph-migrate"
+    assert_file_not_exists "$TEST_INSTALL_DIR/ralph-stats"
 }
 
 @test "install.sh uninstall cleans up directories" {
