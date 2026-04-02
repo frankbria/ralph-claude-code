@@ -1245,8 +1245,7 @@ execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/claude_output_${timestamp}.log"
     local loop_count=$1
-    local calls_made
-    calls_made=$(increment_call_counter)
+    local calls_made=0
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
     # Store in file for access by progress detection after Claude execution
@@ -1255,10 +1254,6 @@ execute_claude_code() {
         loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
     fi
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
-
-    log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
-    local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
-    log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
     # Dry-run mode: simulate execution without calling Claude API
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -1270,6 +1265,11 @@ execute_claude_code() {
         log_status "INFO" "[DRY RUN] Simulation complete — no API call was made"
         return 0
     fi
+
+    calls_made=$(increment_call_counter)
+    log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
+    log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
     # Build loop context (always, regardless of session mode)
     local loop_context=""

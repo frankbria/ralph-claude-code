@@ -27,6 +27,7 @@ setup() {
     export CLAUDE_CODE_CMD="claude"
     export CLAUDE_OUTPUT_FORMAT="json"
     export CLAUDE_TIMEOUT_MINUTES="15"
+    export MAX_CALLS_PER_HOUR="100"
 
     mkdir -p "$LOG_DIR"
 
@@ -34,33 +35,6 @@ setup() {
     echo "0" > "$CALL_COUNT_FILE"
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-
-    # Color variables expected by log_status
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    PURPLE='\033[0;35m'
-    NC='\033[0m'
-
-    log_status() {
-        local level=$1
-        local message=$2
-        echo "[$level] $message"
-    }
-
-    increment_call_counter() {
-        local count
-        count=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)
-        count=$((count + 1))
-        echo "$count" > "$CALL_COUNT_FILE"
-        echo "$count"
-    }
-
-    build_loop_context() { echo ""; }
-    init_claude_session() { echo ""; }
-    build_claude_command() { return 0; }
-    portable_timeout() { shift; "$@"; }
 }
 
 teardown() {
@@ -89,33 +63,14 @@ teardown() {
 }
 
 @test "--dry-run mode skips actual Claude execution and logs what would run" {
-    # Define execute_claude_code inline to test dry-run behavior in isolation
-    execute_claude_code() {
-        local loop_count=$1
-        local calls_made
-        calls_made=$(increment_call_counter)
+    # Source the real script to exercise the actual execute_claude_code implementation
+    # The guard `if [[ "${BASH_SOURCE[0]}" == "${0}" ]]` prevents main() from running
+    source "$RALPH_SCRIPT"
 
-        log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
-        local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
-        log_status "INFO" "Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
+    # Override build_loop_context to keep the test fast (no file I/O needed)
+    build_loop_context() { echo ""; }
 
-        if [[ "$DRY_RUN" == "true" ]]; then
-            log_status "INFO" "[DRY RUN] Skipping actual Claude Code execution"
-            log_status "INFO" "[DRY RUN] Would execute: $CLAUDE_CODE_CMD with prompt: $PROMPT_FILE"
-            log_status "INFO" "[DRY RUN] Output format: $CLAUDE_OUTPUT_FORMAT, Timeout: ${CLAUDE_TIMEOUT_MINUTES}m"
-            log_status "INFO" "[DRY RUN] Simulating 2-second execution delay..."
-            sleep 2
-            log_status "INFO" "[DRY RUN] Simulation complete — no API call was made"
-            return 0
-        fi
-
-        # In non-dry-run this would call claude; fail in test if reached
-        echo "ERROR: real claude execution attempted in test" >&2
-        return 1
-    }
-
-    DRY_RUN=true
-    MAX_CALLS_PER_HOUR=100
+    export DRY_RUN=true
 
     run execute_claude_code 1
 
@@ -125,11 +80,18 @@ teardown() {
     [[ "$output" == *"no API call was made"* ]]
 }
 
-@test "--dry-run mode does not attempt real execution (no api call on second call either)" {
-    # Verify the script flag sets DRY_RUN and help shows the flag
-    run bash "$RALPH_SCRIPT" --dry-run --help
-    assert_success
-    # Flag accepted and help displayed — confirms parsing works
-    [[ "$output" == *"dry-run"* ]]
-    [[ "$output" == *"Simulate loop execution"* ]]
+@test "--dry-run mode does not increment the API call counter" {
+    # Source the real script
+    source "$RALPH_SCRIPT"
+
+    build_loop_context() { echo ""; }
+
+    export DRY_RUN=true
+    echo "0" > "$CALL_COUNT_FILE"
+
+    execute_claude_code 1
+
+    local counter
+    counter=$(cat "$CALL_COUNT_FILE")
+    [[ "$counter" == "0" ]]
 }
