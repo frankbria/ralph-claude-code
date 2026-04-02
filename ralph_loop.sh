@@ -71,7 +71,7 @@ CLAUDE_MODEL="${CLAUDE_MODEL:-}"                 # Model override (e.g. claude-s
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"               # Effort level override (e.g. high, low); empty = CLI default
 RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source before running claude (e.g. ~/.zshrc)
 DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making actual Claude API calls
-ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications (requires --notify flag)
+ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications; set true or use --notify flag
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -471,12 +471,16 @@ send_notification() {
 
     [[ "$ENABLE_NOTIFICATIONS" == "true" ]] || return 0
 
+    # Strip double quotes to prevent osascript AppleScript string breakage
+    local safe_title="${title//\"/}"
+    local safe_message="${message//\"/}"
+
     if command -v osascript &>/dev/null; then
-        osascript -e "display notification \"$message\" with title \"$title\"" 2>/dev/null || true
+        osascript -e "display notification \"$safe_message\" with title \"$safe_title\"" 2>/dev/null || true
     elif command -v notify-send &>/dev/null; then
         notify-send "$title" "$message" 2>/dev/null || true
     else
-        echo -e "\a"
+        printf '\a\n'
     fi
 }
 

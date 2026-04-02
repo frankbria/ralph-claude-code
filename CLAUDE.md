@@ -233,7 +233,7 @@ CLAUDE_MIN_VERSION="2.0.76"           # Minimum Claude CLI version
 CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set false for air-gapped environments)
 CLAUDE_MODEL=""                       # Model override (e.g. claude-sonnet-4-6); empty = CLI default (Issue #228)
 CLAUDE_EFFORT=""                      # Effort level override (e.g. high, low); empty = CLI default (Issue #228)
-ENABLE_NOTIFICATIONS=false            # Desktop notifications (Issue #22); set true or use --notify flag
+ENABLE_NOTIFICATIONS=false            # Desktop notifications (Issue #22); set true or use --notify / -n flag
 ```
 
 **Auto-Update Configuration:**

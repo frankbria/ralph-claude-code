@@ -32,7 +32,11 @@ teardown() {
 
 # ── Inline send_notification() function under test ───────────────────────────
 # This mirrors the implementation in ralph_loop.sh.
-# Defined here so tests can manipulate PATH and ENABLE_NOTIFICATIONS directly.
+# Defined here so tests can manipulate PATH and ENABLE_NOTIFICATIONS directly
+# without sourcing the full 2300-line script.
+#
+# IMPORTANT: If send_notification() in ralph_loop.sh changes, this copy MUST
+# be updated to match, or these tests will test stale logic.
 
 send_notification() {
     local title="$1"
@@ -40,12 +44,15 @@ send_notification() {
 
     [[ "$ENABLE_NOTIFICATIONS" == "true" ]] || return 0
 
+    local safe_title="${title//\"/}"
+    local safe_message="${message//\"/}"
+
     if command -v osascript &>/dev/null; then
-        osascript -e "display notification \"$message\" with title \"$title\"" 2>/dev/null || true
+        osascript -e "display notification \"$safe_message\" with title \"$safe_title\"" 2>/dev/null || true
     elif command -v notify-send &>/dev/null; then
         notify-send "$title" "$message" 2>/dev/null || true
     else
-        echo -e "\a"
+        printf '\a\n'
     fi
 }
 
@@ -124,12 +131,15 @@ STUB
 @test "send_notification uses osascript on macOS when available" {
     export ENABLE_NOTIFICATIONS=true
 
-    local bin_dir
-    bin_dir=$(make_mock_bin "osascript" "$OSASCRIPT_CALL_FILE")
-    # Ensure notify-send is NOT available
-    make_mock_bin "notify-send" "$NOTIFY_SEND_CALL_FILE" > /dev/null
-    # Only put osascript in PATH
-    export PATH="$bin_dir:$(echo "$PATH" | tr ':' '\n' | grep -v "mock_bin" | tr '\n' ':' | sed 's/:$//')"
+    # Put osascript in its own directory — notify-send is absent from PATH entirely
+    local osx_bin="$TEST_TEMP_DIR/osx_bin"
+    mkdir -p "$osx_bin"
+    cat > "$osx_bin/osascript" << EOF
+#!/bin/bash
+echo "\$@" > "$OSASCRIPT_CALL_FILE"
+EOF
+    chmod +x "$osx_bin/osascript"
+    export PATH="$osx_bin:/usr/bin:/bin"
 
     send_notification "Ralph - Test" "Loop completed"
 
