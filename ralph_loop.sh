@@ -1497,9 +1497,6 @@ execute_claude_code() {
         if ! command -v jq &> /dev/null; then
             log_status "ERROR" "Live mode requires 'jq' but it's not installed. Falling back to background mode."
             LIVE_OUTPUT=false
-        elif ! command -v stdbuf &> /dev/null; then
-            log_status "ERROR" "Live mode requires 'stdbuf' (from coreutils) but it's not installed. Falling back to background mode."
-            LIVE_OUTPUT=false
         fi
     fi
 
@@ -1557,16 +1554,16 @@ execute_claude_code() {
             end'
 
         # Execute with streaming, preserving all flags from build_claude_command()
-        # Use stdbuf to disable buffering for real-time output
-        # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
-        # Capture all pipeline exit codes for proper error handling
-        # stdin must be redirected from /dev/null because newer Claude CLI versions
-        # read from stdin even in -p (print) mode, causing the process to hang
-        # Redirect stderr to separate file to prevent Node.js warnings (e.g., UNDICI)
+        # No stdbuf: it uses DYLD_INSERT_LIBRARIES which crashes arm64e system binaries
+        # on macOS Apple Silicon. Not needed anyway — claude streams per-event,
+        # tee is unbuffered, and jq --unbuffered handles its own flushing.
+        # Use portable_timeout for consistent timeout protection
+        # stdin redirected from /dev/null: newer Claude CLI reads stdin even in -p mode
+        # stderr to separate file: prevents Node.js warnings (e.g., UNDICI)
         # from corrupting the jq JSON pipeline (Issue #190)
         local stderr_file="${LOG_DIR}/claude_stderr_$(date '+%Y%m%d_%H%M%S').log"
-        portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>"$stderr_file" | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
+        portable_timeout ${timeout_seconds}s "${LIVE_CMD_ARGS[@]}" \
+            < /dev/null 2>"$stderr_file" | tee "$output_file" | jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
 
         # Capture exit codes from pipeline
         local -a pipe_status=("${PIPESTATUS[@]}")
