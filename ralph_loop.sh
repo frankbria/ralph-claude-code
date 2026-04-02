@@ -51,6 +51,7 @@ _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
 _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
 _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 _env_ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-}"
+_env_ENABLE_BACKUP="${ENABLE_BACKUP:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -72,6 +73,7 @@ CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"               # Effort level override (e.g. h
 RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source before running claude (e.g. ~/.zshrc)
 DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making actual Claude API calls
 ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications; set true or use --notify flag
+ENABLE_BACKUP="${ENABLE_BACKUP:-false}"               # Enable automatic git backups before each loop; set true or use --backup flag
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -177,6 +179,7 @@ load_ralphrc() {
     [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
     [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
     [[ -n "$_env_ENABLE_NOTIFICATIONS" ]] && ENABLE_NOTIFICATIONS="$_env_ENABLE_NOTIFICATIONS"
+    [[ -n "$_env_ENABLE_BACKUP" ]] && ENABLE_BACKUP="$_env_ENABLE_BACKUP"
 
     RALPHRC_LOADED=true
     return 0
@@ -1299,6 +1302,86 @@ build_claude_command() {
     CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
 }
 
+# create_backup - Create a git backup branch before a loop iteration (Issue #23)
+#
+# Creates a branch named `ralph-backup-loop-{N}-{timestamp}` and commits the
+# current state with `--allow-empty` so a backup is recorded even when there
+# are no staged changes. The function is a no-op when:
+#   - ENABLE_BACKUP is not "true"
+#   - The working directory is not a git repository
+#
+# Usage: create_backup <loop_count>
+#
+create_backup() {
+    local loop_count="${1:-0}"
+
+    [[ "$ENABLE_BACKUP" == "true" ]] || return 0
+
+    if ! command -v git &>/dev/null || ! git rev-parse --git-dir &>/dev/null 2>&1; then
+        log_status "WARN" "Backup skipped: not a git repository"
+        return 0
+    fi
+
+    local timestamp
+    timestamp=$(date +%s)
+    local branch_name="ralph-backup-loop-${loop_count}-${timestamp}"
+
+    git checkout -b "$branch_name" -q 2>/dev/null || {
+        log_status "WARN" "Backup failed: could not create branch $branch_name"
+        return 0
+    }
+
+    git add -A 2>/dev/null || true
+    git commit --allow-empty -q -m "Ralph backup before loop #${loop_count}" 2>/dev/null || true
+
+    # Return to the branch we were on before creating the backup
+    git checkout - -q 2>/dev/null || true
+
+    log_status "INFO" "Backup created: $branch_name"
+    return 0
+}
+
+# rollback_to_backup - Roll back to a previously created backup branch (Issue #23)
+#
+# With no argument: lists all backup branches (newest first).
+# With a branch name: checks out that branch.
+#
+# Usage: rollback_to_backup [branch_name]
+#
+rollback_to_backup() {
+    local branch="${1:-}"
+
+    if ! command -v git &>/dev/null || ! git rev-parse --git-dir &>/dev/null 2>&1; then
+        log_status "ERROR" "Rollback failed: not a git repository"
+        return 1
+    fi
+
+    if [[ -z "$branch" ]]; then
+        local backups
+        backups=$(git branch --list "ralph-backup-loop-*" 2>/dev/null | sed 's/^[* ]*//' | sort -rV)
+        if [[ -z "$backups" ]]; then
+            log_status "WARN" "No backup branches found"
+            return 1
+        fi
+        echo "Available backups (newest first):"
+        echo "$backups"
+        return 0
+    fi
+
+    if ! git rev-parse --verify "$branch" &>/dev/null 2>&1; then
+        log_status "ERROR" "Rollback failed: branch '$branch' not found"
+        return 1
+    fi
+
+    git checkout "$branch" -q 2>/dev/null || {
+        log_status "ERROR" "Rollback failed: could not checkout $branch"
+        return 1
+    }
+
+    log_status "INFO" "Rolled back to: $branch"
+    return 0
+}
+
 # Main execution function
 execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -2105,6 +2188,9 @@ main() {
         loop_start_epoch=$(get_epoch_seconds)
         local calls_before_exec="$calls_made"
 
+        # Create backup branch before execution (Issue #23)
+        create_backup "$loop_count"
+
         # Execute Claude Code
         execute_claude_code "$loop_count"
         local exec_result=$?
@@ -2210,6 +2296,8 @@ Options:
     --reset-session         Reset session state and exit (clears session continuity)
     --dry-run               Simulate loop execution without making actual Claude API calls
     -n, --notify            Enable desktop notifications for key events
+    -b, --backup            Enable automatic git backup branch before each loop (requires git)
+    --rollback [BRANCH]     Roll back to a backup branch (lists available backups if no branch given)
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2355,6 +2443,16 @@ while [[ $# -gt 0 ]]; do
         -n|--notify)
             ENABLE_NOTIFICATIONS=true
             shift
+            ;;
+        -b|--backup)
+            ENABLE_BACKUP=true
+            shift
+            ;;
+        --rollback)
+            SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+            source "$SCRIPT_DIR/lib/date_utils.sh"
+            rollback_to_backup "${2:-}"
+            exit $?
             ;;
         *)
             echo "Unknown option: $1"

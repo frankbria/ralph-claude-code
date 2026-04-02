@@ -843,6 +843,8 @@ ralph [OPTIONS]
   --circuit-status        Show circuit breaker status
   --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
   --reset-session         Reset session state manually
+  -b, --backup            Enable automatic git backup branch before each loop (requires git)
+  --rollback [BRANCH]     Roll back to a backup branch (lists available branches if none given)
 ```
 
 ### Project Commands (Per Project)
