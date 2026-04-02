@@ -93,6 +93,10 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - `get_integrity_report()`: human-readable report with missing files and recovery instructions
    - Lightweight validation that runs every loop iteration
 
+9. **lib/log_utils.sh** - Log management utilities (Issue #18)
+   - `rotate_logs()`: rotates `$LOG_DIR/ralph.log` at 10MB, keeping 4 archived files (`.log.1`–`.log.4`)
+   - Cross-platform `stat` support: GNU (`stat -c%s`) with BSD (`stat -f%z`) fallback
+
 ## Key Commands
 
 ### Installation
@@ -594,6 +598,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_wizard_utils.bats` | 20 | Wizard utility functions (stdout/stderr separation, prompt functions) |
 | `test_file_protection.bats` | 15 | File integrity validation (RALPH_REQUIRED_PATHS, validate_ralph_integrity, get_integrity_report) (Issue #149) |
 | `test_integrity_check.bats` | 10 | Pre-loop integrity check in ralph_loop.sh (startup + in-loop validation) (Issue #149) |
+| `test_log_rotation.bats` | 5 | Log rotation (rotate_logs in lib/log_utils.sh): threshold, shift order, content assertions, missing file, stat fallback (Issue #18) |
 
 ### Running Tests
 ```bash

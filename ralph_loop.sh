@@ -15,6 +15,7 @@ source "$SCRIPT_DIR/lib/timeout_utils.sh" || { echo "FATAL: Failed to source lib
 source "$SCRIPT_DIR/lib/response_analyzer.sh" || { echo "FATAL: Failed to source lib/response_analyzer.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source lib/circuit_breaker.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source lib/file_protection.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/log_utils.sh" || { echo "FATAL: Failed to source lib/log_utils.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -1927,6 +1928,9 @@ main() {
 
     while true; do
         loop_count=$((loop_count + 1))
+
+        # Rotate log if it exceeds 10MB (Issue #18)
+        rotate_logs
 
         # Update session last_used timestamp
         update_session_last_used
