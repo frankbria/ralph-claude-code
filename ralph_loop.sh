@@ -69,6 +69,7 @@ CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"     # Claude Code CLI command (defa
 CLAUDE_MODEL="${CLAUDE_MODEL:-}"                 # Model override (e.g. claude-sonnet-4-6); empty = CLI default
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"               # Effort level override (e.g. high, low); empty = CLI default
 RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source before running claude (e.g. ~/.zshrc)
+DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making actual Claude API calls
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -1259,6 +1260,17 @@ execute_claude_code() {
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
+    # Dry-run mode: simulate execution without calling Claude API
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_status "INFO" "[DRY RUN] Skipping actual Claude Code execution"
+        log_status "INFO" "[DRY RUN] Would execute: $CLAUDE_CODE_CMD with prompt: $PROMPT_FILE"
+        log_status "INFO" "[DRY RUN] Output format: $CLAUDE_OUTPUT_FORMAT, Timeout: ${CLAUDE_TIMEOUT_MINUTES}m"
+        log_status "INFO" "[DRY RUN] Simulating 2-second execution delay..."
+        sleep 2
+        log_status "INFO" "[DRY RUN] Simulation complete — no API call was made"
+        return 0
+    fi
+
     # Build loop context (always, regardless of session mode)
     local loop_context=""
     loop_context=$(build_loop_context "$loop_count")
@@ -2113,6 +2125,7 @@ Options:
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
+    --dry-run               Simulate loop execution without making actual Claude API calls
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2249,6 +2262,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --auto-reset-circuit)
             CB_AUTO_RESET=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
             shift
             ;;
         *)
