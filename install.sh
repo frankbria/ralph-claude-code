@@ -197,6 +197,16 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/ralph_enable_ci.sh" "$@"
 EOF
 
+    # Create ralph-stats command (Issue #21)
+    cat > "$INSTALL_DIR/ralph-stats" << 'EOF'
+#!/bin/bash
+# Ralph Stats - Metrics analytics for Ralph loop execution
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph-stats.sh" "$@"
+EOF
+
     # Copy actual script files to Ralph home with modifications for global operation
     cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
 
@@ -210,6 +220,9 @@ EOF
     cp "$SCRIPT_DIR/ralph_enable.sh" "$RALPH_HOME/"
     cp "$SCRIPT_DIR/ralph_enable_ci.sh" "$RALPH_HOME/"
 
+    # Copy stats script to Ralph home (Issue #21)
+    cp "$SCRIPT_DIR/ralph-stats.sh" "$RALPH_HOME/"
+
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph"
     chmod +x "$INSTALL_DIR/ralph-monitor"
@@ -218,11 +231,13 @@ EOF
     chmod +x "$INSTALL_DIR/ralph-migrate"
     chmod +x "$INSTALL_DIR/ralph-enable"
     chmod +x "$INSTALL_DIR/ralph-enable-ci"
+    chmod +x "$INSTALL_DIR/ralph-stats"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
     chmod +x "$RALPH_HOME/migrate_to_ralph_folder.sh"
     chmod +x "$RALPH_HOME/ralph_enable.sh"
     chmod +x "$RALPH_HOME/ralph_enable_ci.sh"
+    chmod +x "$RALPH_HOME/ralph-stats.sh"
     chmod +x "$RALPH_HOME/lib/"*.sh
 
     log "SUCCESS" "Ralph scripts installed to $INSTALL_DIR"
@@ -320,7 +335,7 @@ case "${1:-install}" in
         ;;
     uninstall)
         log "INFO" "Uninstalling Ralph for Claude Code..."
-        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci"
+        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci" "$INSTALL_DIR/ralph-stats"
         rm -rf "$RALPH_HOME"
         log "SUCCESS" "Ralph for Claude Code uninstalled"
         ;;
