@@ -234,6 +234,7 @@ CLAUDE_AUTO_UPDATE=true               # Auto-update Claude CLI at startup (set f
 CLAUDE_MODEL=""                       # Model override (e.g. claude-sonnet-4-6); empty = CLI default (Issue #228)
 CLAUDE_EFFORT=""                      # Effort level override (e.g. high, low); empty = CLI default (Issue #228)
 ENABLE_NOTIFICATIONS=false            # Desktop notifications (Issue #22); set true or use --notify / -n flag
+ENABLE_BACKUP=false                   # Automatic git backup branches (Issue #23); set true or use --backup / -b flag
 ```
 
 **Auto-Update Configuration:**
@@ -578,7 +579,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 
 ## Test Suite
 
-### Test Files (477 unit tests + integration; see `npm test` for current count)
+### Test Files (483 unit tests + integration; see `npm test` for current count)
 
 | File | Tests | Description |
 |------|-------|-------------|
@@ -603,6 +604,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_log_rotation.bats` | 5 | Log rotation (rotate_logs in lib/log_utils.sh): threshold, shift order, content assertions, missing file, stat fallback (Issue #18) |
 | `test_metrics_tracking.bats` | 4 | Metrics tracking: track_metrics() JSON Lines format, per-loop append, ralph-stats output, print_metrics_summary (Issue #21) |
 | `test_notifications.bats` | 5 | Desktop notifications: send_notification() cross-platform (macOS/Linux/bell), disabled by default, --notify flag (Issue #22) |
+| `test_backup_rollback.bats` | 6 | Backup/rollback: create_backup() branch naming, disabled by default, graceful git-less handling, commit message, --backup flag, rollback_to_backup() checkout (Issue #23) |
 
 ### Running Tests
 ```bash
