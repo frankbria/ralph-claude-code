@@ -50,6 +50,7 @@ FORCE_OVERWRITE=false
 TASK_SOURCE=""
 PRD_FILE=""
 GITHUB_LABEL="ralph-task"
+IMPORT_LIMIT="0"
 PROJECT_NAME=""
 PROJECT_TYPE=""
 OUTPUT_JSON=false
@@ -73,6 +74,7 @@ Options:
     --from <source>       Import tasks from: beads, github, prd, none
     --prd <file>          PRD file to convert (when --from prd)
     --label <label>       GitHub label filter (default: ralph-task)
+    --limit <n>           Max issues to import (default: 0 = all)
     --project-name <name> Override detected project name
     --project-type <type> Override detected type (typescript, python, etc.)
     --force               Overwrite existing .ralph/ configuration
@@ -152,6 +154,15 @@ parse_arguments() {
                     shift 2
                 else
                     output_error "--label requires a label name"
+                    exit $ENABLE_INVALID_ARGS
+                fi
+                ;;
+            --limit)
+                if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                    IMPORT_LIMIT="$2"
+                    shift 2
+                else
+                    output_error "--limit requires a non-negative integer"
                     exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
@@ -322,18 +333,21 @@ main() {
 
     # Import tasks
     local imported_tasks=""
+    local beads_tasks=""
+    local github_tasks=""
+    local prd_tasks=""
     case "$TASK_SOURCE" in
         beads)
-            if beads_tasks=$(fetch_beads_tasks 2>/dev/null); then
+            if beads_tasks=$(fetch_beads_tasks "open" "$IMPORT_LIMIT" 2>/dev/null); then
                 imported_tasks="$beads_tasks"
-                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[' || echo "0")
+                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[') || TASKS_IMPORTED=0
                 output_message "Imported $TASKS_IMPORTED tasks from beads"
             fi
             ;;
         github)
-            if github_tasks=$(fetch_github_tasks "$GITHUB_LABEL" 2>/dev/null); then
+            if github_tasks=$(fetch_github_tasks "$GITHUB_LABEL" "$IMPORT_LIMIT" 2>/dev/null); then
                 imported_tasks="$github_tasks"
-                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[' || echo "0")
+                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[') || TASKS_IMPORTED=0
                 output_message "Imported $TASKS_IMPORTED tasks from GitHub"
             fi
             ;;
@@ -341,7 +355,7 @@ main() {
             if [[ -n "$PRD_FILE" && -f "$PRD_FILE" ]]; then
                 if prd_tasks=$(extract_prd_tasks "$PRD_FILE" 2>/dev/null); then
                     imported_tasks="$prd_tasks"
-                    TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[' || echo "0")
+                    TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[') || TASKS_IMPORTED=0
                     output_message "Extracted $TASKS_IMPORTED tasks from PRD"
                 fi
             else
