@@ -43,6 +43,7 @@ SKIP_TASKS=false
 TASK_SOURCE=""
 PRD_FILE=""
 GITHUB_LABEL=""
+IMPORT_LIMIT="0"
 NON_INTERACTIVE=false
 SHOW_HELP=false
 
@@ -63,6 +64,7 @@ Options:
     --from <source>     Import tasks from: beads, github, prd
     --prd <file>        PRD file to convert (when --from prd)
     --label <label>     GitHub label filter (when --from github)
+    --limit <n>         Max issues to import (default: 0 = all)
     --force             Overwrite existing .ralph/ configuration
     --skip-tasks        Skip task import, use default templates
     --non-interactive   Run with defaults (no prompts)
@@ -139,6 +141,15 @@ parse_arguments() {
                     shift 2
                 else
                     echo "Error: --label requires a label name" >&2
+                    exit $ENABLE_INVALID_ARGS
+                fi
+                ;;
+            --limit)
+                if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                    IMPORT_LIMIT="$2"
+                    shift 2
+                else
+                    echo "Error: --limit requires a non-negative integer" >&2
                     exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
@@ -403,7 +414,7 @@ phase_file_generation() {
 
         if echo "$SELECTED_SOURCES" | grep -qw "beads"; then
             local beads_tasks
-            if beads_tasks=$(fetch_beads_tasks); then
+            if beads_tasks=$(fetch_beads_tasks "open" "$IMPORT_LIMIT"); then
                 imported_tasks="${imported_tasks}${beads_tasks}
 "
                 print_success "Imported tasks from beads"
@@ -412,7 +423,7 @@ phase_file_generation() {
 
         if echo "$SELECTED_SOURCES" | grep -qw "github"; then
             local github_tasks
-            if github_tasks=$(fetch_github_tasks "$CONFIG_GITHUB_LABEL"); then
+            if github_tasks=$(fetch_github_tasks "$CONFIG_GITHUB_LABEL" "$IMPORT_LIMIT"); then
                 imported_tasks="${imported_tasks}${github_tasks}
 "
                 print_success "Imported tasks from GitHub"
