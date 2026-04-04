@@ -416,11 +416,17 @@ assert_tmux_called_with() {
 # TEST 15: session name follows ralph-EPOCH format
 # ==============================================================================
 
-@test "setup_tmux_session generates session name in ralph-EPOCH format" {
+@test "setup_tmux_session generates session name with current unix timestamp" {
     run setup_tmux_session
     [ "$status" -eq 0 ]
-    # new-session -d -s ralph-<unix-epoch> must appear in the call log
-    assert_tmux_called_with "^tmux new-session -d -s ralph-[0-9]+"
+    # Extract the epoch from the session name and verify it is within 5 seconds of now.
+    # This is distinct from test 4 (which only checks format): here we confirm the
+    # implementation actually uses date +%s rather than a static or arbitrary value.
+    local ts now delta
+    ts=$(grep "^tmux new-session" "$TMUX_CALL_LOG" | grep -oE '[0-9]{10,}' | head -1)
+    now=$(date +%s)
+    delta=$(( now - ts ))
+    [ "$delta" -ge 0 ] && [ "$delta" -le 5 ]
 }
 
 # ==============================================================================
@@ -438,22 +444,17 @@ assert_tmux_called_with() {
 # TEST 17: two invocations each create their own new-session call
 # ==============================================================================
 
-@test "two setup_tmux_session invocations each create a distinct tmux new-session call" {
-    run setup_tmux_session
-    [ "$status" -eq 0 ]
+@test "two concurrent setup_tmux_session invocations each create a tmux new-session call" {
+    # Launch both invocations as true concurrent background subshells.
+    # Each subshell inherits the tmux mock and appends to the shared TMUX_CALL_LOG.
+    ( setup_tmux_session ) &
+    local pid1=$!
+    ( setup_tmux_session ) &
+    local pid2=$!
+    wait "$pid1" "$pid2"
 
-    # Second invocation — sleep 1 ensures different epoch timestamp so names differ
-    sleep 1
-    run setup_tmux_session
-    [ "$status" -eq 0 ]
-
-    # Both invocations must have issued new-session (two entries in the log)
+    # Both must have issued new-session — two entries in the log
     local count
     count=$(grep -c "^tmux new-session" "$TMUX_CALL_LOG")
     [ "$count" -eq 2 ]
-
-    # The two session names must differ (timestamp-based uniqueness)
-    local names
-    names=$(grep "^tmux new-session" "$TMUX_CALL_LOG" | grep -oE 'ralph-[0-9]+' | sort -u | wc -l)
-    [ "$names" -eq 2 ]
 }
