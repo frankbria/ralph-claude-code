@@ -57,6 +57,7 @@ teardown() {
     update_status 5 42 "executing" "running" ""
 
     local loop_count calls_made last_action status exit_reason
+    local max_calls timestamp next_reset tokens_used max_tokens
     loop_count=$(jq -r '.loop_count' "$STATUS_FILE")
     calls_made=$(jq -r '.calls_made_this_hour' "$STATUS_FILE")
     last_action=$(jq -r '.last_action' "$STATUS_FILE")
@@ -65,15 +66,19 @@ teardown() {
     max_calls=$(jq -r '.max_calls_per_hour' "$STATUS_FILE")
     timestamp=$(jq -r '.timestamp' "$STATUS_FILE")
     next_reset=$(jq -r '.next_reset' "$STATUS_FILE")
+    tokens_used=$(jq -r '.tokens_used_this_hour' "$STATUS_FILE")
+    max_tokens=$(jq -r '.max_tokens_per_hour' "$STATUS_FILE")
 
     [ "$loop_count" = "5" ]
     [ "$calls_made" = "42" ]
     [ "$last_action" = "executing" ]
     [ "$status" = "running" ]
-    [ "$exit_reason" = "" ]
+    [ -z "$exit_reason" ]
     [ "$max_calls" = "100" ]
     [ "$timestamp" != "null" ]
     [ "$next_reset" != "null" ]
+    [ "$tokens_used" = "0" ]
+    [ "$max_tokens" = "0" ]
 }
 
 @test "update_status() with exit reason" {
@@ -99,8 +104,8 @@ teardown() {
     local timestamp
     timestamp=$(jq -r '.timestamp' "$STATUS_FILE")
 
-    # Verify ISO 8601 format: YYYY-MM-DDTHH:MM:SS±HH:MM or with Z
-    [[ "$timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ]]
+    # Verify full ISO 8601 format: YYYY-MM-DDTHH:MM:SS followed by Z or ±HH:MM
+    [[ "$timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$ ]]
 }
 
 @test "update_status() overwrites existing file" {
@@ -131,21 +136,24 @@ teardown() {
 }
 
 @test "log_status() writes to both log file and stderr" {
-    source "$RALPH_SCRIPT"
+    local stdout_tmp stderr_tmp
+    stdout_tmp=$(mktemp)
+    stderr_tmp=$(mktemp)
 
-    # log_status writes to stderr (not stdout) and to the log file
-    run bash -c "
+    # Redirect stdout and stderr to separate files to verify stderr-only output
+    bash -c "
         source \"$RALPH_SCRIPT\"
-        log_status 'INFO' 'Test log message' 2>&1
-    "
-    assert_success
+        log_status 'INFO' 'Test log message'
+    " >"$stdout_tmp" 2>"$stderr_tmp"
 
-    # Verify the message appears in stderr output (captured via 2>&1)
-    [[ "$output" == *"Test log message"* ]]
-    [[ "$output" == *"INFO"* ]]
+    # Message must appear on stderr, not stdout
+    grep -q "Test log message" "$stderr_tmp"
+    grep -q "INFO" "$stderr_tmp"
+    [ ! -s "$stdout_tmp" ]
 
-    # Verify the log file was written
+    # Verify the log file was also written
     [ -f "$LOG_DIR/ralph.log" ]
-    run grep "Test log message" "$LOG_DIR/ralph.log"
-    assert_success
+    grep -q "Test log message" "$LOG_DIR/ralph.log"
+
+    rm -f "$stdout_tmp" "$stderr_tmp"
 }
