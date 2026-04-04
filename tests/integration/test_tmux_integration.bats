@@ -9,8 +9,14 @@ load '../helpers/test_helper'
 
 # ==============================================================================
 # INLINE FUNCTION DEFINITIONS FOR TESTING
-# These mirror the implementations in ralph_loop.sh.
+# These mirror the implementations in ralph_loop.sh (lines 257-395).
 # IMPORTANT: Keep in sync if ralph_loop.sh changes.
+#
+# Why inline instead of sourcing ralph_loop.sh directly:
+#   ralph_loop.sh has top-level assignments (RALPH_DIR=".ralph", LOG_DIR=...,
+#   etc.) that execute at source time and override exported test variables.
+#   This is the established project pattern — see test_backup_rollback.bats
+#   and test_cli_modern.bats for the same approach.
 # ==============================================================================
 
 log_status() {
@@ -370,8 +376,10 @@ assert_tmux_called_with() {
 @test "setup_tmux_session focuses left pane (pane 0) after setup" {
     run setup_tmux_session
     [ "$status" -eq 0 ]
-    # select-pane -t <session>:0.0 must be called
-    assert_tmux_called_with "tmux select-pane -t .+\.0"
+    # Anchor at end-of-line so this only matches the bare focus call (no -T flag).
+    # Without the anchor, title-setting calls like "select-pane -t S:0.0 -T Ralph Loop"
+    # would also match, hiding regressions in pane-focus behaviour.
+    assert_tmux_called_with '^tmux select-pane -t [^ ]+\.0$'
 }
 
 # ==============================================================================
@@ -402,4 +410,50 @@ assert_tmux_called_with() {
     local pane0_line
     pane0_line=$(grep -E "tmux send-keys -t .+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--prompt"* ]]
+}
+
+# ==============================================================================
+# TEST 15: session name follows ralph-EPOCH format
+# ==============================================================================
+
+@test "setup_tmux_session generates session name in ralph-EPOCH format" {
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+    # new-session -d -s ralph-<unix-epoch> must appear in the call log
+    assert_tmux_called_with "^tmux new-session -d -s ralph-[0-9]+"
+}
+
+# ==============================================================================
+# TEST 16: detach/reattach instructions appear in output
+# ==============================================================================
+
+@test "setup_tmux_session logs detach and reattach instructions" {
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Ctrl+B"* ]]
+    [[ "$output" == *"tmux attach"* ]]
+}
+
+# ==============================================================================
+# TEST 17: two invocations each create their own new-session call
+# ==============================================================================
+
+@test "two setup_tmux_session invocations each create a distinct tmux new-session call" {
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    # Second invocation — sleep 1 ensures different epoch timestamp so names differ
+    sleep 1
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    # Both invocations must have issued new-session (two entries in the log)
+    local count
+    count=$(grep -c "^tmux new-session" "$TMUX_CALL_LOG")
+    [ "$count" -eq 2 ]
+
+    # The two session names must differ (timestamp-based uniqueness)
+    local names
+    names=$(grep "^tmux new-session" "$TMUX_CALL_LOG" | grep -oE 'ralph-[0-9]+' | sort -u | wc -l)
+    [ "$names" -eq 2 ]
 }
