@@ -40,9 +40,11 @@ detect_questions() {
     # Count lines matching question patterns (case-insensitive)
     for pattern in "${QUESTION_PATTERNS[@]}"; do
         local matches
-        matches=$(echo "$content" | grep -ciw "$pattern" 2>/dev/null || echo "0")
-        matches=$(echo "$matches" | tr -d '[:space:]')
-        matches=${matches:-0}
+        # `grep -c || echo "0"` duplicates output on no-match (grep -c prints
+        # "0" AND exits 1, triggering the fallback). Pipe to head -1 and
+        # validate as an integer instead.
+        matches=$(echo "$content" | grep -ciw "$pattern" 2>/dev/null | head -1)
+        [[ "$matches" =~ ^[0-9]+$ ]] || matches=0
         question_count=$((question_count + matches))
     done
 

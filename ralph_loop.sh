@@ -711,8 +711,16 @@ should_exit_gracefully() {
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        # Note: `grep -c ... || echo "0"` duplicates output. `grep -c` prints "0"
+        # AND exits 1 when there are no matches, so the `||` fallback appends
+        # ANOTHER "0", producing a two-line value that breaks arithmetic. Pipe
+        # through `head -1` and validate with a regex instead.
+        local uncompleted_items
+        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null | head -1)
+        [[ "$uncompleted_items" =~ ^[0-9]+$ ]] || uncompleted_items=0
+        local completed_items
+        completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null | head -1)
+        [[ "$completed_items" =~ ^[0-9]+$ ]] || completed_items=0
         local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
@@ -877,7 +885,11 @@ build_loop_context() {
     # Extract incomplete tasks from fix_plan.md
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        # See comment in should_exit_gracefully(): `grep -c || echo "0"` produces
+        # a two-line value on no-match. Sanitize via `head -1` + regex check.
+        local incomplete_tasks
+        incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null | head -1)
+        [[ "$incomplete_tasks" =~ ^[0-9]+$ ]] || incomplete_tasks=0
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
