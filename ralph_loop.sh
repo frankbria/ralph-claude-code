@@ -1599,7 +1599,7 @@ execute_claude_code() {
         # Extract session ID from stream-json output for session continuity
         # Stream-json format has session_id in the final "result" type message
         # Keep full stream output in _stream.log, extract session data separately
-        if [[ "$CLAUDE_USE_CONTINUE" == "true" && -f "$output_file" ]]; then
+        if [[ -f "$output_file" ]]; then
             # Preserve full stream output for analysis (don't overwrite output_file)
             local stream_output_file="${output_file%.log}_stream.log"
             cp "$output_file" "$stream_output_file"
