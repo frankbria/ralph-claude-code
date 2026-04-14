@@ -327,10 +327,7 @@ Ralph uses GitHub Actions for continuous integration:
    - Uploads coverage artifacts
 
 2. **claude.yml** - Claude Code GitHub Actions integration
-   - Automated code review capabilities
-
-3. **claude-code-review.yml** - PR code review workflow
-   - Automated review on pull requests
+   - Responds to `@claude` mentions on issues and pull request reviews
 
 ### Coverage Note
 Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. The `COVERAGE_THRESHOLD` is set to 0 (disabled) because kcov cannot instrument subprocesses spawned by bats. **Test pass rate (100%) is the quality gate.** See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
