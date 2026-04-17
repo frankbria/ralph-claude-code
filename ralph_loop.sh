@@ -274,15 +274,32 @@ get_tmux_base_index() {
     echo "${base_index:-0}"
 }
 
+# Get the tmux pane-base-index (handles custom tmux configurations)
+# Returns: the base pane index (typically 0 or 1)
+# Many popular dotfiles set `setw -g pane-base-index 1` so panes number from 1.
+get_tmux_pane_base_index() {
+    local pane_base_index
+    pane_base_index=$(tmux show-options -gwv pane-base-index 2>/dev/null)
+    # Default to 0 if not set or tmux command fails
+    echo "${pane_base_index:-0}"
+}
+
 # Setup tmux session with monitor
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
     local project_dir="$(pwd)"
 
-    # Get the tmux base-index to handle custom configurations (e.g., base-index 1)
-    local base_win
+    # Get the tmux base-index / pane-base-index to handle custom configurations
+    # (e.g. `set -g base-index 1`, `setw -g pane-base-index 1` — very common in
+    # dotfiles). Without this, pane targets like `.0` don't exist and the Ralph
+    # loop never starts, leaving empty panes. See: tmux pane-base-index.
+    local base_win base_pane
     base_win=$(get_tmux_base_index)
+    base_pane=$(get_tmux_pane_base_index)
+    local pane0=$((base_pane + 0))   # Ralph loop (left)
+    local pane1=$((base_pane + 1))   # Claude output (right-top)
+    local pane2=$((base_pane + 2))   # Status monitor (right-bottom)
 
     log_status "INFO" "Setting up tmux session: $session_name"
 
@@ -296,16 +313,16 @@ setup_tmux_session() {
     tmux split-window -h -t "$session_name" -c "$project_dir"
 
     # Split right pane horizontally (top: Claude output, bottom: status)
-    tmux split-window -v -t "$session_name:${base_win}.1" -c "$project_dir"
+    tmux split-window -v -t "$session_name:${base_win}.${pane1}" -c "$project_dir"
 
-    # Right-top pane (pane 1): Live Claude Code output
-    tmux send-keys -t "$session_name:${base_win}.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+    # Right-top pane: Live Claude Code output
+    tmux send-keys -t "$session_name:${base_win}.${pane1}" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
 
-    # Right-bottom pane (pane 2): Ralph status monitor
+    # Right-bottom pane: Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then
-        tmux send-keys -t "$session_name:${base_win}.2" "ralph-monitor" Enter
+        tmux send-keys -t "$session_name:${base_win}.${pane2}" "ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:${base_win}.2" "'$ralph_home/ralph_monitor.sh'" Enter
+        tmux send-keys -t "$session_name:${base_win}.${pane2}" "'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
@@ -367,15 +384,15 @@ setup_tmux_session() {
     # circuit breaker, error, or manual interrupt). Without this, the
     # tail -f and ralph_monitor.sh panes keep the session alive forever.
     # Issue: https://github.com/frankbria/ralph-claude-code/issues/176
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
+    tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
     # Focus on left pane (main ralph loop)
-    tmux select-pane -t "$session_name:${base_win}.0"
+    tmux select-pane -t "$session_name:${base_win}.${pane0}"
 
     # Set pane titles (requires tmux 2.6+)
-    tmux select-pane -t "$session_name:${base_win}.0" -T "Ralph Loop"
-    tmux select-pane -t "$session_name:${base_win}.1" -T "Claude Output"
-    tmux select-pane -t "$session_name:${base_win}.2" -T "Status"
+    tmux select-pane -t "$session_name:${base_win}.${pane0}" -T "Ralph Loop"
+    tmux select-pane -t "$session_name:${base_win}.${pane1}" -T "Claude Output"
+    tmux select-pane -t "$session_name:${base_win}.${pane2}" -T "Status"
 
     # Set window title
     tmux rename-window -t "$session_name:${base_win}" "Ralph: Loop | Output | Status"
