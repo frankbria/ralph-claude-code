@@ -46,15 +46,28 @@ get_tmux_base_index() {
     echo "${base_index:-0}"
 }
 
+# Get the tmux pane-base-index (handles custom tmux configurations)
+# Returns: the base pane index (typically 0 or 1)
+get_tmux_pane_base_index() {
+    local pane_base_index
+    pane_base_index=$(tmux show-options -gwv pane-base-index 2>/dev/null)
+    # Default to 0 if not set or tmux command fails
+    echo "${pane_base_index:-0}"
+}
+
 # Setup tmux session with monitor
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
     local project_dir="$(pwd)"
 
-    # Get the tmux base-index to handle custom configurations (e.g., base-index 1)
-    local base_win
+    # Get the tmux base-index / pane-base-index to handle custom configurations
+    local base_win base_pane
     base_win=$(get_tmux_base_index)
+    base_pane=$(get_tmux_pane_base_index)
+    local pane0=$((base_pane + 0))
+    local pane1=$((base_pane + 1))
+    local pane2=$((base_pane + 2))
 
     log_status "INFO" "Setting up tmux session: $session_name"
 
@@ -68,16 +81,16 @@ setup_tmux_session() {
     tmux split-window -h -t "$session_name" -c "$project_dir"
 
     # Split right pane horizontally (top: Claude output, bottom: status)
-    tmux split-window -v -t "$session_name:${base_win}.1" -c "$project_dir"
+    tmux split-window -v -t "$session_name:${base_win}.${pane1}" -c "$project_dir"
 
-    # Right-top pane (pane 1): Live Claude Code output
-    tmux send-keys -t "$session_name:${base_win}.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+    # Right-top pane: Live Claude Code output
+    tmux send-keys -t "$session_name:${base_win}.${pane1}" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
 
-    # Right-bottom pane (pane 2): Ralph status monitor
+    # Right-bottom pane: Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then
-        tmux send-keys -t "$session_name:${base_win}.2" "ralph-monitor" Enter
+        tmux send-keys -t "$session_name:${base_win}.${pane2}" "ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:${base_win}.2" "'$ralph_home/ralph_monitor.sh'" Enter
+        tmux send-keys -t "$session_name:${base_win}.${pane2}" "'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
@@ -132,15 +145,15 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --backup"
     fi
 
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
+    tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
     # Focus on left pane (main ralph loop)
-    tmux select-pane -t "$session_name:${base_win}.0"
+    tmux select-pane -t "$session_name:${base_win}.${pane0}"
 
     # Set pane titles
-    tmux select-pane -t "$session_name:${base_win}.0" -T "Ralph Loop"
-    tmux select-pane -t "$session_name:${base_win}.1" -T "Claude Output"
-    tmux select-pane -t "$session_name:${base_win}.2" -T "Status"
+    tmux select-pane -t "$session_name:${base_win}.${pane0}" -T "Ralph Loop"
+    tmux select-pane -t "$session_name:${base_win}.${pane1}" -T "Claude Output"
+    tmux select-pane -t "$session_name:${base_win}.${pane2}" -T "Status"
 
     # Set window title
     tmux rename-window -t "$session_name:${base_win}" "Ralph: Loop | Output | Status"
@@ -189,7 +202,10 @@ setup() {
 
     # Tracking tmux mock: records every invocation to $TMUX_CALL_LOG
     # attach-session returns 0 (does NOT exit) so tests survive the exit 0 in setup_tmux_session
-    # show-options returns "0" for get_tmux_base_index
+    # show-options returns value from MOCK_TMUX_BASE_INDEX / MOCK_TMUX_PANE_BASE_INDEX
+    # (both default to 0; override per-test to simulate custom .tmux.conf settings).
+    export MOCK_TMUX_BASE_INDEX="0"
+    export MOCK_TMUX_PANE_BASE_INDEX="0"
     function tmux() {
         local subcmd="${1:-}"
         shift || true
@@ -205,7 +221,20 @@ setup() {
                 done
                 ;;
             show-options)
-                echo "0"
+                # Resolve which option was requested. Flags like -gv / -gwv
+                # precede the option name.
+                local opt=""
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        -*) shift ;;
+                        *)  opt="$1"; shift ;;
+                    esac
+                done
+                case "$opt" in
+                    base-index)      echo "$MOCK_TMUX_BASE_INDEX" ;;
+                    pane-base-index) echo "$MOCK_TMUX_PANE_BASE_INDEX" ;;
+                    *)               echo "0" ;;
+                esac
                 ;;
         esac
         return 0
@@ -441,7 +470,63 @@ assert_tmux_called_with() {
 }
 
 # ==============================================================================
-# TEST 17: two invocations each create their own new-session call
+# TEST 18: setup_tmux_session respects pane-base-index 1 (regression)
+# ==============================================================================
+# When a user's ~/.tmux.conf sets `setw -g pane-base-index 1` (very common in
+# popular dotfiles / Oh My Zsh), tmux panes are numbered starting at 1, not 0.
+# Previously Ralph hardcoded .0 / .1 / .2, so send-keys to .0 silently failed
+# and the Ralph loop never started — leaving two empty panes and a stray
+# tail -f. See: https://github.com/frankbria/ralph-claude-code/issues/
+@test "setup_tmux_session respects pane-base-index 1 for all pane targets" {
+    export MOCK_TMUX_PANE_BASE_INDEX="1"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    # With pane-base-index=1, the 3 panes are .1 (loop), .2 (output), .3 (status)
+    # Ralph loop command must target pane .1 (NOT .0 which doesn't exist)
+    assert_tmux_called_with "tmux send-keys -t .+\.1 .*(ralph|ralph_loop\.sh).*--live"
+    # live.log tail must target pane .2 (Claude Output)
+    assert_tmux_called_with "tmux send-keys -t .+\.2 tail -f"
+    # monitor must target pane .3 (Status)
+    assert_tmux_called_with "tmux send-keys -t .+\.3 .*(ralph-monitor|ralph_monitor\.sh)"
+    # No send-keys to .0 — that pane does not exist in this config
+    run grep -E '^tmux send-keys -t [^ ]+\.0 ' "$TMUX_CALL_LOG"
+    [ "$status" -ne 0 ]
+}
+
+# ==============================================================================
+# TEST 19: setup_tmux_session handles base-index 1 AND pane-base-index 1
+# ==============================================================================
+# Both values non-zero is also common (users setting both together). Confirms
+# the combination does not regress.
+@test "setup_tmux_session respects both base-index and pane-base-index set to 1" {
+    export MOCK_TMUX_BASE_INDEX="1"
+    export MOCK_TMUX_PANE_BASE_INDEX="1"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    # Window 1 pane 1 = loop, 1.2 = output, 1.3 = status
+    assert_tmux_called_with "tmux send-keys -t [^ ]+:1\.1 .*(ralph|ralph_loop\.sh).*--live"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+:1\.2 tail -f"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+:1\.3 .*(ralph-monitor|ralph_monitor\.sh)"
+    assert_tmux_called_with "tmux rename-window -t [^ ]+:1 Ralph: Loop"
+}
+
+# ==============================================================================
+# TEST 20: get_tmux_pane_base_index returns 0 as default
+# ==============================================================================
+
+@test "get_tmux_pane_base_index returns 0 as default" {
+    local result
+    result=$(get_tmux_pane_base_index)
+    [ "$result" -eq 0 ]
+    assert_tmux_called_with "tmux show-options.*pane-base-index"
+}
+
+# ==============================================================================
+# TEST 21: two concurrent setup_tmux_session invocations each create a tmux new-session call
 # ==============================================================================
 
 @test "two concurrent setup_tmux_session invocations each create a tmux new-session call" {
