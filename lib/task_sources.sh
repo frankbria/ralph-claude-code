@@ -31,6 +31,7 @@ check_beads_available() {
 #
 # Parameters:
 #   $1 (filterStatus) - Status filter (optional, default: "open")
+#   $2 (limit) - Max issues to fetch (optional, default: "0" = all)
 #
 # Outputs:
 #   Tasks in markdown checkbox format, one per line
@@ -42,6 +43,7 @@ check_beads_available() {
 #
 fetch_beads_tasks() {
     local filterStatus="${1:-open}"
+    local limit="${2:-0}"
     local tasks=""
 
     # Check if beads is available
@@ -50,7 +52,7 @@ fetch_beads_tasks() {
     fi
 
     # Build bd list command arguments
-    local bdArgs=("list" "--json")
+    local bdArgs=("list" "--json" "--limit" "$limit")
     if [[ "$filterStatus" == "open" ]]; then
         bdArgs+=("--status" "open")
     elif [[ "$filterStatus" == "in_progress" ]]; then
@@ -78,7 +80,7 @@ fetch_beads_tasks() {
     # Fallback: try plain text output if JSON failed or produced no results
     if [[ -z "$tasks" ]]; then
         # Build fallback args (reuse status logic, but without --json)
-        local fallbackArgs=("list")
+        local fallbackArgs=("list" "--limit" "$limit")
         if [[ "$filterStatus" == "open" ]]; then
             fallbackArgs+=("--status" "open")
         elif [[ "$filterStatus" == "in_progress" ]]; then
@@ -109,11 +111,16 @@ fetch_beads_tasks() {
 
 # get_beads_count - Get count of open beads issues
 #
+# Parameters:
+#   $1 (limit) - Max issues to fetch (optional, default: "0" = all)
+#
 # Returns:
 #   0 and echoes the count
 #   1 if beads unavailable
 #
 get_beads_count() {
+    local limit="${1:-0}"
+
     if ! check_beads_available; then
         echo "0"
         return 1
@@ -122,9 +129,9 @@ get_beads_count() {
     local count
     if command -v jq &>/dev/null; then
         # Note: Use 'select(.status == "closed" | not)' to avoid bash escaping issues with '!='
-        count=$(bd list --json 2>/dev/null | jq '[.[] | select(.status == "closed" | not)] | length' 2>/dev/null || echo "0")
+        count=$(bd list --json --limit "$limit" 2>/dev/null | jq '[.[] | select(.status == "closed" | not)] | length' 2>/dev/null || echo "0")
     else
-        count=$(bd list 2>/dev/null | wc -l | tr -d ' ')
+        count=$(bd list --limit "$limit" 2>/dev/null | wc -l | tr -d ' ')
     fi
 
     echo "${count:-0}"
@@ -163,8 +170,8 @@ check_github_available() {
 # fetch_github_tasks - Fetch issues from GitHub
 #
 # Parameters:
-#   $1 (label) - Label to filter by (optional, default: "ralph-task")
-#   $2 (limit) - Maximum number of issues (optional, default: 50)
+#   $1 (label) - Label to filter by (optional)
+#   $2 (limit) - Maximum number of issues (optional, default: "0" = all)
 #
 # Outputs:
 #   Tasks in markdown checkbox format
@@ -174,34 +181,58 @@ check_github_available() {
 #   0 - Success
 #   1 - Error
 #
+# Note:
+#   `gh issue list --limit` enforces a hard cap of 1000 regardless of the
+#   value supplied. When limit=0 ("all"), we fall back to `gh api --paginate`
+#   against the issues endpoint so large repos are not silently truncated.
+#   The issues endpoint returns pull requests as well, so those are filtered
+#   out via `.pull_request | not`.
+#
 fetch_github_tasks() {
     local label="${1:-}"
-    local limit="${2:-50}"
+    local limit="${2:-0}"
     local tasks=""
+    local json_output
 
     # Check if GitHub is available
     if ! check_github_available; then
         return 1
     fi
 
-    # Build gh command
-    local gh_args=("issue" "list" "--state" "open" "--limit" "$limit" "--json" "number,title,labels")
-    if [[ -n "$label" ]]; then
-        gh_args+=("--label" "$label")
-    fi
-
-    # Fetch issues
-    local json_output
-    if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
-        return 1
-    fi
-
-    # Parse JSON and format as markdown tasks
-    if command -v jq &>/dev/null; then
-        tasks=$(echo "$json_output" | jq -r '
-            .[] |
-            "- [ ] [#\(.number)] \(.title)"
-        ' 2>/dev/null)
+    if [[ "$limit" == "0" ]]; then
+        # Fetch all open issues via the REST API with automatic pagination.
+        # `-f` passes URL-encoded string fields so labels with spaces or
+        # special characters are handled correctly.
+        local api_args=("api" "--method" "GET" "repos/{owner}/{repo}/issues"
+                        "-f" "state=open" "-f" "per_page=100" "--paginate")
+        if [[ -n "$label" ]]; then
+            api_args+=("-f" "labels=$label")
+        fi
+        if ! json_output=$(gh "${api_args[@]}" 2>/dev/null); then
+            return 1
+        fi
+        # Parse and format, filtering out pull requests
+        if command -v jq &>/dev/null; then
+            tasks=$(echo "$json_output" | jq -r '
+                .[] | select(.pull_request | not) |
+                "- [ ] [#\(.number)] \(.title)"
+            ' 2>/dev/null)
+        fi
+    else
+        # Bounded fetch via `gh issue list` which already excludes PRs
+        local gh_args=("issue" "list" "--state" "open" "--limit" "$limit" "--json" "number,title,labels")
+        if [[ -n "$label" ]]; then
+            gh_args+=("--label" "$label")
+        fi
+        if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
+            return 1
+        fi
+        if command -v jq &>/dev/null; then
+            tasks=$(echo "$json_output" | jq -r '
+                .[] |
+                "- [ ] [#\(.number)] \(.title)"
+            ' 2>/dev/null)
+        fi
     fi
 
     if [[ -n "$tasks" ]]; then
@@ -490,6 +521,7 @@ prioritize_tasks() {
 #   $1 (sources) - Space-separated list of sources: beads, github, prd
 #   $2 (prd_file) - Path to PRD file (required if prd in sources)
 #   $3 (github_label) - GitHub label filter (optional)
+#   $4 (limit) - Max issues to fetch per source (optional, default: "0" = all)
 #
 # Outputs:
 #   Combined tasks in markdown format
@@ -502,6 +534,7 @@ import_tasks_from_sources() {
     local sources=$1
     local prd_file="${2:-}"
     local github_label="${3:-}"
+    local limit="${4:-0}"
 
     local all_tasks=""
     local source_count=0
@@ -509,7 +542,7 @@ import_tasks_from_sources() {
     # Import from beads
     if echo "$sources" | grep -qw "beads"; then
         local beads_tasks
-        if beads_tasks=$(fetch_beads_tasks); then
+        if beads_tasks=$(fetch_beads_tasks "open" "$limit"); then
             if [[ -n "$beads_tasks" ]]; then
                 all_tasks="${all_tasks}
 # Tasks from beads
@@ -523,7 +556,7 @@ ${beads_tasks}
     # Import from GitHub
     if echo "$sources" | grep -qw "github"; then
         local github_tasks
-        if github_tasks=$(fetch_github_tasks "$github_label"); then
+        if github_tasks=$(fetch_github_tasks "$github_label" "$limit"); then
             if [[ -n "$github_tasks" ]]; then
                 all_tasks="${all_tasks}
 # Tasks from GitHub
