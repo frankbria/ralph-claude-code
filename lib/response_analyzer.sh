@@ -40,7 +40,7 @@ detect_questions() {
     # Count lines matching question patterns (case-insensitive)
     for pattern in "${QUESTION_PATTERNS[@]}"; do
         local matches
-        matches=$(echo "$content" | grep -ciw "$pattern" 2>/dev/null || echo "0")
+        matches=$(echo "$content" | grep -ciw "$pattern" 2>/dev/null) || matches=0
         matches=$(echo "$matches" | tr -d '[:space:]')
         matches=${matches:-0}
         question_count=$((question_count + matches))
@@ -524,8 +524,8 @@ analyze_response() {
     local implementation_count=0
     local error_count=0
 
-    test_command_count=$(grep -c -i "running tests\|npm test\|bats\|pytest\|jest" "$output_file" 2>/dev/null | head -1 || echo "0")
-    implementation_count=$(grep -c -i "implementing\|creating\|writing\|adding\|function\|class" "$output_file" 2>/dev/null | head -1 || echo "0")
+    test_command_count=$(grep -c -i "running tests\|npm test\|bats\|pytest\|jest" "$output_file" 2>/dev/null | head -1) || test_command_count=0
+    implementation_count=$(grep -c -i "implementing\|creating\|writing\|adding\|function\|class" "$output_file" 2>/dev/null | head -1) || implementation_count=0
 
     # Strip whitespace and ensure it's a number
     test_command_count=$(echo "$test_command_count" | tr -d '[:space:]')

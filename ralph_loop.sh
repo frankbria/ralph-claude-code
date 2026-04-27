@@ -711,8 +711,10 @@ should_exit_gracefully() {
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local uncompleted_items
+        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null) || uncompleted_items=0
+        local completed_items
+        completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null) || completed_items=0
         local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
@@ -877,7 +879,8 @@ build_loop_context() {
     # Extract incomplete tasks from fix_plan.md
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local incomplete_tasks
+        incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null) || incomplete_tasks=0
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 

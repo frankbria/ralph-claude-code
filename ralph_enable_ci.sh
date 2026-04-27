@@ -326,14 +326,14 @@ main() {
         beads)
             if beads_tasks=$(fetch_beads_tasks 2>/dev/null); then
                 imported_tasks="$beads_tasks"
-                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[' || echo "0")
+                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[') || TASKS_IMPORTED=0
                 output_message "Imported $TASKS_IMPORTED tasks from beads"
             fi
             ;;
         github)
             if github_tasks=$(fetch_github_tasks "$GITHUB_LABEL" 2>/dev/null); then
                 imported_tasks="$github_tasks"
-                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[' || echo "0")
+                TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[') || TASKS_IMPORTED=0
                 output_message "Imported $TASKS_IMPORTED tasks from GitHub"
             fi
             ;;
@@ -341,7 +341,7 @@ main() {
             if [[ -n "$PRD_FILE" && -f "$PRD_FILE" ]]; then
                 if prd_tasks=$(extract_prd_tasks "$PRD_FILE" 2>/dev/null); then
                     imported_tasks="$prd_tasks"
-                    TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[' || echo "0")
+                    TASKS_IMPORTED=$(echo "$imported_tasks" | grep -c '^\- \[') || TASKS_IMPORTED=0
                     output_message "Extracted $TASKS_IMPORTED tasks from PRD"
                 fi
             else
