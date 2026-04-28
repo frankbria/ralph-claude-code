@@ -711,8 +711,17 @@ should_exit_gracefully() {
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        # BSD grep (macOS) prints "0" to stdout AND exits 1 when no matches,
+        # so the previous `grep -c ... || echo "0"` fallback appended a second
+        # "0", producing a multi-line "0\n0" value that broke the $((...))
+        # arithmetic with: "syntax error in expression (error token is "0")".
+        # Pipe through `head -n1` to mask the non-zero exit and keep one line.
+        local uncompleted_items
+        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null | head -n1)
+        local completed_items
+        completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null | head -n1)
+        uncompleted_items=${uncompleted_items:-0}
+        completed_items=${completed_items:-0}
         local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
