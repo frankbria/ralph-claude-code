@@ -46,25 +46,56 @@ fi
 # This block does it in ~3 subprocesses total.
 _status_block=$(echo "$response_text" | sed -n '/---RALPH_STATUS---/,/---END_RALPH_STATUS---/p' || true)
 
+# PARSER-HARDENING (2026-04-30): two real bugs caused exit-gate bypass when
+# Claude correctly reported STATUS: BLOCKED + EXIT_SIGNAL: true on a fully-
+# blocked Linear backlog (NLTlabsPE incident, 10 wasted loops + CB trip):
+#   1. Field-name case drift. Projects whose PROMPT.md uses lowercase
+#      `linear_open_count: 0` had the value silently dropped because the
+#      original grep was case-sensitive. The awk pre-pass below uppercases
+#      the field-identifier portion of every "<ident>:..." line so the
+#      downstream greps work regardless of project-side case.
+#   2. Unanchored greps + prose colon. A RECOMMENDATION line containing
+#      "STATUS:BLOCKED" in free-text prose poisoned `grep "STATUS:"` —
+#      `tail -1` picked the recommendation line, sed stripped up to the
+#      *last* "STATUS:" and yielded `BLOCKED)` (the closing paren of the
+#      parenthetical), which broke the EXIT-CLEAN equality check at
+#      line 607. Anchoring every field grep to ^[[:space:]] makes prose
+#      mid-line uncatchable.
 if [[ -n "$_status_block" ]]; then
-  exit_signal=$(echo "$_status_block" | grep "EXIT_SIGNAL:" | tail -1 | sed 's/.*EXIT_SIGNAL:[[:space:]]*//' | tr -d '[:space:]' || echo "false")
-  status=$(echo "$_status_block" | grep "STATUS:" | grep -v "TESTS_STATUS\|END_RALPH" | tail -1 | sed 's/.*STATUS:[[:space:]]*//' | tr -d '[:space:]' || echo "UNKNOWN")
-  tasks_done=$(echo "$_status_block" | grep "TASKS_COMPLETED_THIS_LOOP:" | tail -1 | sed 's/.*TASKS_COMPLETED_THIS_LOOP:[[:space:]]*//' | tr -d '[:space:]' || echo "0")
-  files_modified_reported=$(echo "$_status_block" | grep "FILES_MODIFIED:" | tail -1 | sed 's/.*FILES_MODIFIED:[[:space:]]*//' | tr -d '[:space:]' || echo "0")
-  work_type=$(echo "$_status_block" | grep "WORK_TYPE:" | tail -1 | sed 's/.*WORK_TYPE:[[:space:]]*//' | tr -d '[:space:]' || echo "UNKNOWN")
-  recommendation=$(echo "$_status_block" | grep "RECOMMENDATION:" | tail -1 | sed 's/.*RECOMMENDATION:[[:space:]]*//' || echo "")
+  _status_block=$(echo "$_status_block" | awk '
+    {
+      pos = index($0, ":")
+      if (pos > 0) {
+        field = substr($0, 1, pos - 1)
+        rest  = substr($0, pos)
+        match(field, /^[[:space:]]*/); ws = substr(field, RSTART, RLENGTH)
+        sub(/^[[:space:]]*/, "", field)
+        if (field ~ /^[A-Za-z_][A-Za-z_0-9]*$/) {
+          print ws toupper(field) rest
+          next
+        }
+      }
+      print
+    }
+  ')
+  exit_signal=$(echo "$_status_block" | grep -E "^[[:space:]]*EXIT_SIGNAL:" | tail -1 | sed -E 's/^[[:space:]]*EXIT_SIGNAL:[[:space:]]*//' | tr -d '[:space:]' || echo "false")
+  status=$(echo "$_status_block" | grep -E "^[[:space:]]*STATUS:" | tail -1 | sed -E 's/^[[:space:]]*STATUS:[[:space:]]*//' | tr -d '[:space:]' || echo "UNKNOWN")
+  tasks_done=$(echo "$_status_block" | grep -E "^[[:space:]]*TASKS_COMPLETED_THIS_LOOP:" | tail -1 | sed -E 's/^[[:space:]]*TASKS_COMPLETED_THIS_LOOP:[[:space:]]*//' | tr -d '[:space:]' || echo "0")
+  files_modified_reported=$(echo "$_status_block" | grep -E "^[[:space:]]*FILES_MODIFIED:" | tail -1 | sed -E 's/^[[:space:]]*FILES_MODIFIED:[[:space:]]*//' | tr -d '[:space:]' || echo "0")
+  work_type=$(echo "$_status_block" | grep -E "^[[:space:]]*WORK_TYPE:" | tail -1 | sed -E 's/^[[:space:]]*WORK_TYPE:[[:space:]]*//' | tr -d '[:space:]' || echo "UNKNOWN")
+  recommendation=$(echo "$_status_block" | grep -E "^[[:space:]]*RECOMMENDATION:" | tail -1 | sed -E 's/^[[:space:]]*RECOMMENDATION:[[:space:]]*//' || echo "")
   # LINEAR-DASH: optional Linear-driven fields. Absent in file-mode projects.
-  linear_issue=$(echo "$_status_block" | grep "LINEAR_ISSUE:" | tail -1 | sed 's/.*LINEAR_ISSUE:[[:space:]]*//' | tr -d '[:space:]' || echo "")
-  linear_url=$(echo "$_status_block" | grep "LINEAR_URL:" | tail -1 | sed 's/.*LINEAR_URL:[[:space:]]*//' | tr -d '[:space:]' || echo "")
-  linear_epic=$(echo "$_status_block" | grep "LINEAR_EPIC:" | grep -v "LINEAR_EPIC_DONE\|LINEAR_EPIC_TOTAL" | tail -1 | sed 's/.*LINEAR_EPIC:[[:space:]]*//' | tr -d '[:space:]' || echo "")
-  linear_epic_done=$(echo "$_status_block" | grep "LINEAR_EPIC_DONE:" | tail -1 | sed 's/.*LINEAR_EPIC_DONE:[[:space:]]*//' | tr -d '[:space:]' || echo "")
-  linear_epic_total=$(echo "$_status_block" | grep "LINEAR_EPIC_TOTAL:" | tail -1 | sed 's/.*LINEAR_EPIC_TOTAL:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_issue=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_ISSUE:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_ISSUE:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_url=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_URL:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_URL:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_epic=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_EPIC:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_EPIC:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_epic_done=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_EPIC_DONE:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_EPIC_DONE:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_epic_total=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_EPIC_TOTAL:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_EPIC_TOTAL:[[:space:]]*//' | tr -d '[:space:]' || echo "")
   # TAP-741: project-wide counts Claude reports via Linear MCP. These feed the
   # push-mode read path in lib/linear_backend.sh so the harness can run the
   # exit-gate and preflight checks without LINEAR_API_KEY.
-  linear_open_count=$(echo "$_status_block" | grep "LINEAR_OPEN_COUNT:" | tail -1 | sed 's/.*LINEAR_OPEN_COUNT:[[:space:]]*//' | tr -d '[:space:]' || echo "")
-  linear_done_count=$(echo "$_status_block" | grep "LINEAR_DONE_COUNT:" | tail -1 | sed 's/.*LINEAR_DONE_COUNT:[[:space:]]*//' | tr -d '[:space:]' || echo "")
-  tests_status=$(echo "$_status_block" | grep "TESTS_STATUS:" | tail -1 | sed 's/.*TESTS_STATUS:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_open_count=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_OPEN_COUNT:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_OPEN_COUNT:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  linear_done_count=$(echo "$_status_block" | grep -E "^[[:space:]]*LINEAR_DONE_COUNT:" | tail -1 | sed -E 's/^[[:space:]]*LINEAR_DONE_COUNT:[[:space:]]*//' | tr -d '[:space:]' || echo "")
+  tests_status=$(echo "$_status_block" | grep -E "^[[:space:]]*TESTS_STATUS:" | tail -1 | sed -E 's/^[[:space:]]*TESTS_STATUS:[[:space:]]*//' | tr -d '[:space:]' || echo "")
 else
   # No structured status block found — extract from full text
   exit_signal="false"
