@@ -114,7 +114,7 @@ atomic_write() {
 }
 
 # Version
-RALPH_VERSION="2.11.3"
+RALPH_VERSION="2.11.4"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -2281,11 +2281,27 @@ build_loop_context() {
 _coordinator_invoke_claude() {
     local input="$1"
     local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
-    timeout 60 "$claude_cmd" \
-        --agent ralph-coordinator \
-        --permission-mode bypassPermissions \
-        -p "$input" \
-        >/dev/null 2>&1
+    # COORDINATOR-TIMEOUT (2026-04-30): default raised from 60s → 120s.
+    # 60s was too tight for setups with multiple MCP servers (tapps-mcp,
+    # docs-mcp, tapps-brain, Linear plugin) where the coordinator agent's
+    # session_start + Linear queue scan + brief write often exceeds 60s
+    # cold. NLTlabsPE saw 3 timeouts in 10 loops at the old default.
+    # Configurable via RALPH_COORDINATOR_TIMEOUT_SECONDS for projects
+    # with even slower MCP cold-start (set to 0 to use no timeout).
+    local _coord_timeout="${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}"
+    if [[ "$_coord_timeout" == "0" ]]; then
+        "$claude_cmd" \
+            --agent ralph-coordinator \
+            --permission-mode bypassPermissions \
+            -p "$input" \
+            >/dev/null 2>&1
+    else
+        timeout "$_coord_timeout" "$claude_cmd" \
+            --agent ralph-coordinator \
+            --permission-mode bypassPermissions \
+            -p "$input" \
+            >/dev/null 2>&1
+    fi
 }
 
 ralph_spawn_coordinator() {
@@ -2334,8 +2350,17 @@ TASK_INPUT: ${task_input}
 
 Write ${brief_target} per the schema in lib/brief.sh, then return a one-line summary."
 
-    if ! _coordinator_invoke_claude "$coord_input"; then
-        log_status "WARN" "coordinator: spawn failed or timed out — continuing without brief"
+    _coordinator_invoke_claude "$coord_input"
+    local _coord_rc=$?
+    if [[ $_coord_rc -ne 0 ]]; then
+        # Distinguish timeout (124) from other spawn failures so the operator
+        # can tell whether to raise RALPH_COORDINATOR_TIMEOUT_SECONDS or
+        # debug a CLI/agent-config issue.
+        if [[ $_coord_rc -eq 124 ]]; then
+            log_status "WARN" "coordinator: timed out after ${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}s — continuing without brief (raise RALPH_COORDINATOR_TIMEOUT_SECONDS or set RALPH_COORDINATOR_DISABLED=true)"
+        else
+            log_status "WARN" "coordinator: spawn failed (exit $_coord_rc) — continuing without brief"
+        fi
         return 0
     fi
 
@@ -2711,14 +2736,28 @@ ralph_initialize_session() {
     local now
     now=$(get_iso_timestamp)
 
-    # Write new session with timestamps populated (session_id left empty for lazy init)
+    # SESSION-ID-FIX (2026-04-30): the prior version wrote an empty
+    # `session_id: ""` "for lazy init" — but the lazy-init step that was
+    # supposed to fill it later never existed. `save_claude_session` writes
+    # the Claude CLI's session ID to `.claude_session_id` (a separate file),
+    # not to `.ralph_session`. `get_session_id()` is also vestigial — defined
+    # but called nowhere. Net effect: `.ralph_session.session_id` was empty
+    # forever, `ralph_validate_session` warned `session_id is empty` every
+    # loop, then re-called this function which wrote empty again. Chronic
+    # warning, infinite loop. Fix: generate a real Ralph-internal session ID
+    # via the existing helper (same pattern as `init_session_tracking`), so
+    # the file always has a non-empty session_id when valid.
+    local new_session_id
+    new_session_id=$(generate_session_id)
+
     local tmpfile="${RALPH_SESSION_FILE}.tmp.$$"
     jq -n \
+        --arg session_id "$new_session_id" \
         --arg created "$now" \
         --arg last_used "$now" \
         --arg reset_reason "reinitialized" \
         '{
-            session_id: "",
+            session_id: $session_id,
             created_at: $created,
             last_used: $last_used,
             reset_at: $created,
@@ -2727,7 +2766,7 @@ ralph_initialize_session() {
     mv "$tmpfile" "$RALPH_SESSION_FILE"
     rm -f "$tmpfile" 2>/dev/null  # WSL cleanup
 
-    log_status "INFO" "Session reinitialized at $now (awaiting session_id from next Claude invocation)"
+    log_status "INFO" "Session reinitialized at $now (id: $new_session_id)"
 }
 
 # Log session state transitions to history file

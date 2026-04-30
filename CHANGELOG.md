@@ -10,6 +10,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.11.4] — 2026-04-30
+
+### Fixed
+
+- **Session-ID lazy-init was a lie (chronic `session_id is empty` warning).** `ralph_initialize_session` wrote `session_id: ""` "for lazy init" — but the lazy-init step that was supposed to fill it later never existed. `save_claude_session` writes the Claude CLI's session ID to `.claude_session_id` (a separate file), not `.ralph_session`. `get_session_id()` is also vestigial — defined but called nowhere. Net effect: every loop fired `WARN: Session file exists but session_id is empty — reinitializing`, the function rewrote empty, the next loop warned again, forever. The fix has `ralph_initialize_session` generate a real Ralph-internal ID via the existing `generate_session_id` helper (matching `init_session_tracking`'s pattern) so the file always has a non-empty session_id when valid. The misleading `(awaiting session_id from next Claude invocation)` log line is replaced with the actual generated id.
+
+### Changed
+
+- **Coordinator timeout configurable + default raised 60s → 120s.** The TAP-915 coordinator sub-agent that writes `.ralph/brief.json` had a hardcoded `timeout 60` that was too tight for setups with multiple MCP servers (tapps-mcp, docs-mcp, tapps-brain, Linear plugin) — the coordinator's `session_start` + Linear queue scan + brief write often exceeds 60s on cold start. NLTlabsPE saw 3 timeouts in 10 loops at the old default. New env var `RALPH_COORDINATOR_TIMEOUT_SECONDS` (default `120`); set `0` to disable the timeout altogether. The coordinator's failure log now distinguishes `timed out after Ns` (rc=124) from `spawn failed (exit N)` so the operator can tell whether to raise the timeout or debug a CLI/agent-config issue. Original "spawn failed or timed out" generic message removed.
+
+### Tests
+
+- 3 new regression tests in `tests/unit/test_session_init_repair.bats`:
+  - `SESSION-ID-FIX: ralph_initialize_session writes a non-empty session_id` — asserts the generated id matches the canonical `ralph-<epoch>-<rand>` format.
+  - `SESSION-ID-FIX: ralph_validate_session does NOT loop after ralph_initialize_session` — repro of the chronic-warning loop; asserts validate returns 0 with no `session_id is empty` warning after initialize.
+  - `SESSION-ID-FIX: log message names the generated id` — asserts the misleading `awaiting session_id` text is gone.
+- 1 new regression test in `tests/unit/test_coordinator_spawn.bats`:
+  - `COORDINATOR-TIMEOUT: rc=124 emits 'timed out' message + names the env var to raise` — asserts the rc=124 path now emits the duration and the env var name so operators know the lever.
+- Existing `TAP-915: spawn failure WARNs and leaves no brief` test updated: mock now returns rc=1 (generic spawn failure) instead of 124 (timeout), and asserts the new `spawn failed (exit 1)` message format. The rc=124 case is covered by the new COORDINATOR-TIMEOUT test.
+
+---
+
 ## [2.11.3] — 2026-04-30
 
 ### Fixed

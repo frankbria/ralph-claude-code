@@ -107,8 +107,9 @@ EOF
 }
 
 @test "TAP-915: spawn failure WARNs and leaves no brief" {
-    # Mock claude — fail (non-zero) and write nothing.
-    _coordinator_invoke_claude() { return 124; }   # 124 = timeout exit code
+    # Mock claude — non-zero exit, NOT 124 (124 = timeout, gets a distinct
+    # message — see the COORDINATOR-TIMEOUT regression test below).
+    _coordinator_invoke_claude() { return 1; }
     export CLAUDE_CODE_CMD=bash
 
     # Pre-place a stale brief — spawn should clear it before invocation,
@@ -117,10 +118,28 @@ EOF
 
     run ralph_spawn_coordinator 7
     [[ "$status" -eq 0 ]] || fail "expected zero exit (best-effort) on spawn failure"
-    [[ "$output" == *"spawn failed or timed out"* ]] \
-        || fail "expected WARN about spawn failure, got: $output"
+    [[ "$output" == *"spawn failed (exit 1)"* ]] \
+        || fail "expected WARN with exit code, got: $output"
     [[ ! -e "$RALPH_DIR/brief.json" ]] \
         || fail "stale brief should have been cleared before spawn"
+}
+
+@test "COORDINATOR-TIMEOUT: rc=124 emits 'timed out' message + names the env var to raise" {
+    # Reproduces the NLTlabsPE 2026-04-30 incident — coordinator timed out 3
+    # times in 10 loops at the old hardcoded 60s. The fix raised default to
+    # 120s and made it configurable via RALPH_COORDINATOR_TIMEOUT_SECONDS.
+    # The log message must distinguish timeout (rc=124) from other failures
+    # so the operator knows whether to raise the timeout or debug the CLI.
+    _coordinator_invoke_claude() { return 124; }
+    export CLAUDE_CODE_CMD=bash
+    export RALPH_COORDINATOR_TIMEOUT_SECONDS=120
+
+    run ralph_spawn_coordinator 7
+    [[ "$status" -eq 0 ]] || fail "expected zero exit (best-effort) on timeout"
+    [[ "$output" == *"timed out after 120s"* ]] \
+        || fail "expected timeout message naming the duration, got: $output"
+    [[ "$output" == *"RALPH_COORDINATOR_TIMEOUT_SECONDS"* ]] \
+        || fail "expected message to name the env var to raise, got: $output"
 }
 
 @test "TAP-915: invalid brief is cleared and WARNed" {

@@ -227,6 +227,7 @@ Project-level config lives in `.ralphrc` (sourced as bash). Key variables:
 - `RALPH_SKILL_AUTO_TUNE` — When `true`, `skill_retro_apply` installs up to 1 recommended skill per loop automatically (default: `false`)
 - `RALPH_SKILL_RETRO_WINDOW` — Number of recent loops to examine for friction patterns (default: 5)
 - `RALPH_SKILL_REDETECT_INTERVAL` — Run periodic Tier A skill re-detection every N loops (default: 10)
+- `RALPH_COORDINATOR_TIMEOUT_SECONDS` — Per-loop timeout for the TAP-915 coordinator sub-agent that writes `.ralph/brief.json` (default: `120`). Raised from the original 60s to accommodate setups with multiple MCP servers — the coordinator's session_start + Linear queue scan + brief write often exceeds 60s on cold start. Set `0` to disable the timeout entirely; the coordinator will then run to completion without a watchdog (only useful when MCP cold-start latency is highly variable). Set `RALPH_COORDINATOR_DISABLED=true` to skip the coordinator altogether.
 
 Environment variables override `.ralphrc` settings.
 
