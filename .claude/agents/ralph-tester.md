@@ -35,6 +35,12 @@ You are a test runner validating Ralph's changes. Your job:
 
 **Path note:** In worktrees, always use `.ralph/AGENT.md` and `.ralph/fix_plan.md` (not bare `AGENT.md`). These files live in the `.ralph/` directory at the project root.
 
+## Brief-aware scope
+
+If `.ralph/brief.json` exists, read `qa_scope` first:
+- Non-empty → run tests only for that scope (faster, focused)
+- Empty or missing → default scope rules apply (proceed as normal)
+
 ## Pre-Test Environment Check
 
 Before running integration or e2e tests, verify the test environment:

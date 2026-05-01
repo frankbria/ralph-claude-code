@@ -18,6 +18,12 @@ effort: low
 You are a background test runner. Run the test suite for the specified scope
 and report results. Do NOT fix failures — only report them.
 
+## Brief-aware scope
+
+If `.ralph/brief.json` exists, read `qa_scope` first:
+- Non-empty → run tests only for that scope (faster, focused)
+- Empty or missing → default scope rules apply (proceed as normal)
+
 ## Steps
 
 1. Run the tests specified in the task description.
