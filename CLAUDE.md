@@ -235,20 +235,21 @@ Environment variables override `.ralphrc` settings.
 
 ### Model Routing Decisions (.model_routing.jsonl)
 
-When `RALPH_MODEL_ROUTING_ENABLED=true`, every loop appends a JSON line to `.ralph/.model_routing.jsonl` describing the routing decision:
+When `RALPH_MODEL_ROUTING_ENABLED=true`, every loop appends a JSON line to `.ralph/.model_routing.jsonl` describing the routing decision — including loops where Claude bailed out before picking up a task (TAP-1210):
 
 ```json
 {"timestamp":"2026-04-30T14:23:45Z","task_type":"code","model":"sonnet","retry_count":0,"reason":"type_code"}
 {"timestamp":"2026-04-30T14:24:12Z","task_type":"docs","model":"haiku","retry_count":0,"reason":"type_haiku"}
 {"timestamp":"2026-04-30T14:25:30Z","task_type":"code","model":"opus","retry_count":3,"reason":"qa_failure_escalation"}
+{"timestamp":"2026-04-30T14:26:08Z","task_type":"none","model":"sonnet","retry_count":0,"reason":"no_task_fallback"}
 ```
 
 **Fields**:
 - `timestamp`: ISO-8601 time of routing decision
-- `task_type`: `docs`, `tools`, `code`, or `arch`
+- `task_type`: `docs`, `tools`, `code`, `arch`, or `none` (empty-task / fallback path)
 - `model`: Selected model (`haiku`, `sonnet`, `opus`)
 - `retry_count`: QA failure count for the current issue (0–N)
-- `reason`: Routing signal (`type_haiku`, `type_code`, `type_arch`, `qa_failure_escalation`)
+- `reason`: Routing signal (`type_haiku`, `type_code`, `type_arch`, `qa_failure_escalation`, `no_task_fallback`)
 
 **Observability queries**:
 

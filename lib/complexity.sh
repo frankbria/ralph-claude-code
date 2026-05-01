@@ -219,8 +219,17 @@ ralph_select_model() {
     # Escalation: 3+ consecutive failures on same task → force Opus
     if [[ "$retry_count" -ge 3 ]]; then
         model="opus"
+        task_type="${task_type:-unknown}"
         routing_reason="qa_failure_escalation"
         _complexity_debug "Retry escalation: $retry_count failures → force Opus"
+    elif [[ -z "$task_text" ]]; then
+        # TAP-1210: empty-task fallback — Claude bailed out before picking
+        # an issue (e.g. all backlog blocked, session resume short-circuit).
+        # Still log a routing decision so .model_routing.jsonl is complete.
+        model="$RALPH_DEFAULT_MODEL"
+        task_type="none"
+        routing_reason="no_task_fallback"
+        _complexity_debug "Empty task text → fallback to RALPH_DEFAULT_MODEL"
     else
         # Task-type primary routing
         task_type=$(ralph_classify_task_type "$task_text")
@@ -248,11 +257,13 @@ ralph_select_model() {
         esac
     fi
 
-    # Log routing decision with task type and retry context
+    # Log routing decision with task type and retry context.
+    # Compact (-c) so each decision is one line, matching the JSONL format
+    # the observability queries in CLAUDE.md and the TAP-1210 contract expect.
     local routing_log="${RALPH_DIR:-.ralph}/.model_routing.jsonl"
     if command -v jq &>/dev/null; then
         local routing_entry
-        routing_entry=$(jq -n \
+        routing_entry=$(jq -nc \
             --arg ts "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
             --arg task_type "${task_type:-unknown}" \
             --arg model "$model" \

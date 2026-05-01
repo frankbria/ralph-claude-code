@@ -2917,6 +2917,23 @@ ralph_scope_prompt_for_service() {
         "$prompt_content" "$service_name" "$service_dir" "$service_dir" "$service_dir"
 }
 
+# ralph_should_skip_resume — TAP-1209.
+# Returns 0 (true) when --resume should be skipped this loop because a fresh
+# LINOPT locality hint is present at <ralph_dir>/.linear_next_issue.
+#
+# Why: Claude on a resumed session replays its prior judgment ("nothing
+# actionable") and never re-reads the user-turn hint, so the hint file
+# remains on disk with mtime unchanged. Forcing a cold start for hint loops
+# bypasses the session-cached state. One-shot helper kept tiny so the
+# TAP-1209 BATS regression can exercise it without re-sourcing the whole
+# loop script.
+#
+# Usage: ralph_should_skip_resume "/path/to/.ralph"
+ralph_should_skip_resume() {
+    local ralph_dir="${1:-${RALPH_DIR:-.ralph}}"
+    [[ -f "$ralph_dir/.linear_next_issue" ]]
+}
+
 # build_claude_command — assemble the Claude CLI invocation array.
 #
 # Always invokes `claude --agent <RALPH_AGENT_NAME>` (default "ralph").
@@ -2945,20 +2962,21 @@ build_claude_command() {
     fi
 
     # Model + effort flags
-    # Per-task routing (lib/complexity.sh): when RALPH_MODEL_ROUTING_ENABLED=true
-    # and the current task text is known, ralph_select_model returns a tier model
-    # (haiku/sonnet/opus) based on task type + QA failure count escalation.
+    # Per-task routing (lib/complexity.sh): when RALPH_MODEL_ROUTING_ENABLED=true,
+    # ralph_select_model returns a tier model (haiku/sonnet/opus) based on task
+    # type + QA failure count escalation, and appends a row to .model_routing.jsonl.
     # RALPH_CURRENT_QA_FAILURE_COUNT tracks consecutive failures per Linear issue;
     # when >= 3, escalates to Opus as a safety net. Defaults to 0 if not set.
-    # Falls back to CLAUDE_MODEL when routing is disabled or task text is empty.
+    # Empty task text is intentionally NOT guarded out (TAP-1210): the router
+    # logs a `task_type=none / reason=no_task_fallback` row so observability is
+    # complete for no-task / fallback loops.
     # Local var so we don't mutate CLAUDE_MODEL across iterations.
     local effective_model="$CLAUDE_MODEL"
     local qa_failure_count="${RALPH_CURRENT_QA_FAILURE_COUNT:-0}"
     if [[ "${RALPH_MODEL_ROUTING_ENABLED:-true}" == "true" ]] \
-        && declare -f ralph_select_model &>/dev/null \
-        && [[ -n "${RALPH_CURRENT_TASK_TEXT:-}" ]]; then
+        && declare -f ralph_select_model &>/dev/null; then
         local _routed_model
-        _routed_model=$(ralph_select_model "$RALPH_CURRENT_TASK_TEXT" "$qa_failure_count" 2>/dev/null) || _routed_model=""
+        _routed_model=$(ralph_select_model "${RALPH_CURRENT_TASK_TEXT:-}" "$qa_failure_count" 2>/dev/null) || _routed_model=""
         if [[ -n "$_routed_model" ]]; then
             effective_model="$_routed_model"
             if [[ "$effective_model" != "$CLAUDE_MODEL" ]]; then
@@ -2982,8 +3000,17 @@ build_claude_command() {
     # Session continuity: --resume with explicit session ID. --continue is
     # avoided because it picks "most recent session in cwd" and can
     # hijack active interactive Claude Code sessions (Issue #151).
+    # TAP-1209: Skip --resume when a fresh LINOPT locality hint is present.
+    # Resumed sessions replay the prior "nothing actionable" judgment and
+    # silently ignore the hint (proven by .linear_next_issue mtime never
+    # changing). Cold-starting one loop costs ~5-10s but reclaims the
+    # ~$0.30-$0.50 of a wasted no-op loop.
     if [[ "$CLAUDE_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
-        CLAUDE_CMD_ARGS+=("--resume" "$session_id")
+        if ralph_should_skip_resume "${RALPH_DIR:-.ralph}"; then
+            log_status "INFO" "TAP-1209: Skipping --resume for this loop to honor LINOPT locality hint (cold-start session)"
+        else
+            CLAUDE_CMD_ARGS+=("--resume" "$session_id")
+        fi
     fi
 
     # Build the user-turn payload. Agent mode does not honor

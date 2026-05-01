@@ -426,3 +426,50 @@ teardown() {
     # docs task → haiku when routing is on; → empty/passthrough when off
     [[ "$model" == "haiku" ]]
 }
+
+# TAP-1210 — empty-task fallback observability
+
+@test "TAP-1210: ralph_select_model with empty task returns RALPH_DEFAULT_MODEL" {
+    export RALPH_MODEL_ROUTING_ENABLED="true"
+    export RALPH_DEFAULT_MODEL="sonnet"
+    local model
+    model=$(ralph_select_model "" 0)
+    [[ "$model" == "sonnet" ]]
+}
+
+@test "TAP-1210: ralph_select_model writes routing entry on empty task" {
+    export RALPH_MODEL_ROUTING_ENABLED="true"
+    export RALPH_DIR="$BATS_TEST_TMPDIR/.ralph"
+    mkdir -p "$RALPH_DIR"
+    ralph_select_model "" 0 >/dev/null
+    [[ -f "$RALPH_DIR/.model_routing.jsonl" ]]
+}
+
+@test "TAP-1210: empty-task routing entry has task_type=none" {
+    export RALPH_MODEL_ROUTING_ENABLED="true"
+    export RALPH_DIR="$BATS_TEST_TMPDIR/.ralph"
+    mkdir -p "$RALPH_DIR"
+    ralph_select_model "" 0 >/dev/null
+    grep -q '"task_type":"none"' "$RALPH_DIR/.model_routing.jsonl"
+}
+
+@test "TAP-1210: empty-task routing entry has reason=no_task_fallback" {
+    export RALPH_MODEL_ROUTING_ENABLED="true"
+    export RALPH_DIR="$BATS_TEST_TMPDIR/.ralph"
+    mkdir -p "$RALPH_DIR"
+    ralph_select_model "" 0 >/dev/null
+    grep -q '"reason":"no_task_fallback"' "$RALPH_DIR/.model_routing.jsonl"
+}
+
+@test "TAP-1210: empty-task at QA failure count >=3 still escalates to opus (escalation wins)" {
+    # Safety: even if Claude bailed out without a task, if the prior QA
+    # failure count is high we still want the opus escalation to fire so
+    # the breakage signal isn't lost on the no-task loop.
+    export RALPH_MODEL_ROUTING_ENABLED="true"
+    export RALPH_DIR="$BATS_TEST_TMPDIR/.ralph"
+    mkdir -p "$RALPH_DIR"
+    local model
+    model=$(ralph_select_model "" 3)
+    [[ "$model" == "opus" ]]
+    grep -q '"reason":"qa_failure_escalation"' "$RALPH_DIR/.model_routing.jsonl"
+}
