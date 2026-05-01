@@ -18,6 +18,10 @@ concurrency:
   group: codeql-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   analyze:
     name: Analyze
