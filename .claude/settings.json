@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-session-start.sh"
+            "command": "bash .claude/hooks/tapps-session-start.sh"
           }
         ]
       },
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-session-compact.sh"
+            "command": "bash .claude/hooks/tapps-session-compact.sh"
           }
         ]
       }
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-post-edit.sh"
+            "command": "bash .claude/hooks/tapps-post-edit.sh"
           }
         ]
       },
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-post-validate.sh",
+            "command": "bash .claude/hooks/tapps-post-validate.sh",
             "timeout": 10
           }
         ]
@@ -88,7 +88,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-post-report.sh",
+            "command": "bash .claude/hooks/tapps-post-report.sh",
             "timeout": 10
           }
         ]
@@ -99,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-post-edit.sh"
+            "command": "bash .claude/hooks/tapps-post-edit.sh"
           }
         ]
       }
@@ -153,7 +153,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-pre-compact.sh"
+            "command": "bash .claude/hooks/tapps-pre-compact.sh"
           }
         ]
       }
@@ -163,7 +163,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-subagent-start.sh"
+            "command": "bash .claude/hooks/tapps-subagent-start.sh"
           }
         ]
       }
@@ -173,7 +173,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/tapps-user-prompt-submit.sh"
+            "command": "bash .claude/hooks/tapps-user-prompt-submit.sh"
           }
         ]
       }
