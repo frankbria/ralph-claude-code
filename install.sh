@@ -381,8 +381,29 @@ install_secrets_example() {
 # Claude CLI subprocess and its MCP handshakes.
 
 # tapps-brain HTTP MCP bearer token. Must match the token the brain container
-# was started with (see ~/code/tapps-brain/.env → TAPPS_BRAIN_AUTH_TOKEN).
-# Referenced from per-project .mcp.json as ${TAPPS_BRAIN_AUTH_TOKEN}.
+# was started with. Referenced from per-project .mcp.json as
+# ${TAPPS_BRAIN_AUTH_TOKEN}.
+#
+# Where the value comes from:
+#   1. Generated when the tapps-brain container is first launched. The brain
+#      project's setup script writes the same value to its own .env (see
+#      ~/code/tapps-brain/.env -> TAPPS_BRAIN_AUTH_TOKEN) and prints the
+#      value to stdout.
+#   2. Inspect the running container directly:
+#        docker exec tapps-brain-http env | grep TAPPS_BRAIN_AUTH_TOKEN
+#
+# How to rotate (TAP-1105):
+#   When the brain container is rebuilt with a fresh token, the value here
+#   goes stale and Ralph's startup probe reports
+#   `tapps-brain NOT reachable -- bearer token is likely missing or wrong`
+#   even though `claude mcp list` shows the server connected (the Linear MCP
+#   plugin's auth path differs and stays green; that's why the two disagree).
+#
+#   Fix:
+#     1. docker exec tapps-brain-http env | grep TAPPS_BRAIN_AUTH_TOKEN
+#     2. Paste the value below.
+#     3. ralph --mcp-status   # confirm: tapps-brain: true
+#
 # TAPPS_BRAIN_AUTH_TOKEN=
 EOF
     chmod 644 "$example"

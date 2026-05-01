@@ -331,6 +331,16 @@ MCP servers are registered **by the project**, not by Ralph. Check `.mcp.json`:
 jq '.mcpServers | keys' .mcp.json
 ```
 
+### tapps-brain probe returns 403 even though `claude mcp list` shows ✓ Connected (TAP-1105)
+
+The `TAPPS_BRAIN_AUTH_TOKEN` in `~/.ralph/secrets.env` is stale — the brain container was rebuilt with a fresh token and the local file wasn't updated. Linear MCP plugin auth uses a different path so `claude mcp list` stays green; that's why the two disagree.
+
+```bash
+docker exec tapps-brain-http env | grep TAPPS_BRAIN_AUTH_TOKEN  # canonical value
+$EDITOR ~/.ralph/secrets.env                                     # paste the new value
+ralph --mcp-status                                               # confirm: tapps-brain: true
+```
+
 ### tapps-mcp rejects every tool call
 
 Permission issue in Claude Code:
