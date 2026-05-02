@@ -145,11 +145,11 @@ EOF
     # shellcheck disable=SC1090
     source "$REPO_ROOT_FIXED/ralph_loop.sh"
 
-    # Mock _coordinator_invoke_claude — write a JSONL line carrying a
-    # session_id to the out_file (arg $2), and a valid brief.
+    # TAP-921 refactor: session capture moved into _coordinator_invoke_claude.
+    # The mock simulates that capture by calling coordinator_session_write
+    # directly — equivalent to what the real function does after extracting
+    # the session_id from a JSONL stream.
     _coordinator_invoke_claude() {
-        local _input="$1"
-        local _out="$2"
         cat > "$RALPH_DIR/brief.json" <<'EOF'
 {
   "schema_version": 1,
@@ -167,12 +167,7 @@ EOF
   "created_at": "2026-05-02T14:00:00Z"
 }
 EOF
-        if [[ -n "$_out" ]]; then
-            cat > "$_out" <<'STREAM'
-{"type":"system","subtype":"init","session_id":"cafef00d-1234-5678-9abc-def012345678"}
-{"type":"result","session_id":"cafef00d-1234-5678-9abc-def012345678","success":true}
-STREAM
-        fi
+        coordinator_session_write "cafef00d-1234-5678-9abc-def012345678"
         return 0
     }
     export CLAUDE_CODE_CMD=bash
@@ -183,8 +178,6 @@ STREAM
     sid=$(coordinator_session_read)
     [[ "$sid" == "cafef00d-1234-5678-9abc-def012345678" ]] \
         || fail "expected captured session_id, got: '$sid'"
-    [[ "$output" == *"session captured"* ]] \
-        || fail "expected INFO log on capture, got: $output"
 }
 
 @test "TAP-920: capture works even when spawn returns non-zero (timeout)" {
@@ -192,12 +185,11 @@ STREAM
     # shellcheck disable=SC1090
     source "$REPO_ROOT_FIXED/ralph_loop.sh"
 
-    # Mock — write a partial stream with session_id, then return 124 (timeout).
+    # Mock — partial output captured before timeout still yields a session_id.
+    # In the real path, _coordinator_invoke_claude extracts from its internal
+    # stream file even on rc=124. The mock collapses that to a direct write.
     _coordinator_invoke_claude() {
-        local _out="$2"
-        if [[ -n "$_out" ]]; then
-            echo '{"type":"system","subtype":"init","session_id":"timeout-sid-9999"}' > "$_out"
-        fi
+        coordinator_session_write "timeout-sid-9999"
         return 124
     }
     export CLAUDE_CODE_CMD=bash

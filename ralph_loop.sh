@@ -2281,30 +2281,44 @@ build_loop_context() {
 # in lib/linear_optimizer.sh.
 _coordinator_invoke_claude() {
     local input="$1"
-    # TAP-920: when $2 is a file path, redirect stdout there so the caller
-    # can extract the coordinator's session_id from the JSONL stream.
-    # Default ("") preserves the pre-TAP-920 silent behavior.
-    local out_file="${2:-}"
+    # TAP-921: when $2 is set to "fresh", suppress the resume-or-spawn
+    # branch even if a session file exists — used by callers that need
+    # a clean session (currently none, reserved for future debug paths).
+    local force_fresh="${2:-}"
     local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
-    # COORDINATOR-TIMEOUT (2026-04-30): default raised from 60s → 120s.
-    # 60s was too tight for setups with multiple MCP servers (tapps-mcp,
-    # docs-mcp, tapps-brain, Linear plugin) where the coordinator agent's
-    # session_start + Linear queue scan + brief write often exceeds 60s
-    # cold. NLTlabsPE saw 3 timeouts in 10 loops at the old default.
-    # Configurable via RALPH_COORDINATOR_TIMEOUT_SECONDS for projects
-    # with even slower MCP cold-start (set to 0 to use no timeout).
     local _coord_timeout="${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}"
-    # When capturing output, also request stream-json so each line is a
-    # parseable JSON object (the first one carries `session_id`).
+
+    # TAP-921: resume-or-spawn — if a fresh persisted session_id exists,
+    # pass `--resume <sid>` so the coordinator's accumulated context (prior
+    # learnings, brief decisions, brain_recall results) persists across
+    # loops. coordinator_session_read already filters out stale files.
+    local _continue_args=()
+    if [[ "$force_fresh" != "fresh" ]] && declare -F coordinator_session_read >/dev/null 2>&1; then
+        local _sid
+        _sid=$(coordinator_session_read 2>/dev/null)
+        if [[ -n "$_sid" ]]; then
+            _continue_args=(--resume "$_sid")
+            log_status "DEBUG" "coordinator: resuming session ${_sid:0:8}…"
+        fi
+    fi
+
+    # TAP-920: capture stdout to an internal temp file so we can extract
+    # the session_id from the JSONL stream — both on first spawn (to
+    # persist it) and on resume (to confirm it stayed stable). Tolerate
+    # mktemp failure: fall back to /dev/null and skip the capture.
+    local _stream_file
+    _stream_file=$(mktemp -t "coord_stream.XXXXXX" 2>/dev/null || echo "")
+    local _stdout_target="${_stream_file:-/dev/null}"
     local _fmt_args=()
-    if [[ -n "$out_file" ]]; then
+    if [[ -n "$_stream_file" ]]; then
         _fmt_args=(--output-format stream-json --verbose)
     fi
-    local _stdout_target="${out_file:-/dev/null}"
+
     if [[ "$_coord_timeout" == "0" ]]; then
         "$claude_cmd" \
             --agent ralph-coordinator \
             --permission-mode bypassPermissions \
+            "${_continue_args[@]}" \
             "${_fmt_args[@]}" \
             -p "$input" \
             >"$_stdout_target" 2>&1
@@ -2312,10 +2326,58 @@ _coordinator_invoke_claude() {
         timeout "$_coord_timeout" "$claude_cmd" \
             --agent ralph-coordinator \
             --permission-mode bypassPermissions \
+            "${_continue_args[@]}" \
             "${_fmt_args[@]}" \
             -p "$input" \
             >"$_stdout_target" 2>&1
     fi
+    local _rc=$?
+
+    # Always try to extract session_id, even on timeout/failure — partial
+    # output usually still carries the system/init line with the session_id.
+    if [[ -n "$_stream_file" && -s "$_stream_file" ]] \
+       && declare -F coordinator_session_extract_from_stream >/dev/null 2>&1; then
+        local _new_sid
+        _new_sid=$(coordinator_session_extract_from_stream "$_stream_file" 2>/dev/null)
+        if [[ -n "$_new_sid" ]]; then
+            coordinator_session_write "$_new_sid" 2>/dev/null && \
+                log_status "DEBUG" "coordinator: session captured (${_new_sid:0:8}…)"
+        fi
+    fi
+    [[ -n "$_stream_file" ]] && rm -f -- "$_stream_file" 2>/dev/null
+    return $_rc
+}
+
+# TAP-921: ralph_coordinator_invoke — public, mode-aware entry point that
+# wraps `_coordinator_invoke_claude` with a MODE= header and the standard
+# disabled / DRY_RUN / missing-CLI guards. Honors resume-or-spawn via the
+# session_id captured at TAP-920. Use this from code paths that need
+# direct access to the coordinator (story 2.3 mid-task consult). The
+# brief- and debrief-mode wrappers (`ralph_spawn_coordinator`,
+# `ralph_debrief_coordinator`) delegate here for the actual invocation.
+#
+# Args:
+#   $1 — mode: brief | debrief | consult
+#   $2 — body: free-form prompt (MODE= line is added automatically)
+ralph_coordinator_invoke() {
+    local mode="${1:?mode required: brief|debrief|consult}"
+    local body="${2:-}"
+
+    if [[ "${RALPH_COORDINATOR_DISABLED:-false}" == "true" ]]; then
+        return 0
+    fi
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
+    if ! command -v "$claude_cmd" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local input="MODE=${mode}
+${body}"
+    _coordinator_invoke_claude "$input"
 }
 
 ralph_spawn_coordinator() {
@@ -2356,33 +2418,17 @@ ralph_spawn_coordinator() {
     # recommendation.
     brief_clear
 
-    local coord_input
-    coord_input="MODE=brief
-TASK_SOURCE=${task_source}
+    # TAP-921: brief body — MODE= header added by ralph_coordinator_invoke,
+    # session capture + resume-or-spawn handled by _coordinator_invoke_claude.
+    local coord_body
+    coord_body="TASK_SOURCE=${task_source}
 LOOP=${loop_count}
 TASK_INPUT: ${task_input}
 
 Write ${brief_target} per the schema in lib/brief.sh, then return a one-line summary."
 
-    # TAP-920: capture coordinator stdout to a temp stream file so we can
-    # extract its session_id. Tolerated to fail — if the temp file can't
-    # be created we fall back to the silent path (no session capture).
-    local _coord_stream
-    _coord_stream=$(mktemp -t "coord_stream.XXXXXX" 2>/dev/null || echo "")
-    _coordinator_invoke_claude "$coord_input" "$_coord_stream"
+    ralph_coordinator_invoke brief "$coord_body"
     local _coord_rc=$?
-    # Always try to extract session_id, even if the spawn timed out — the
-    # stream may have a partial result line with the session_id we want
-    # to resume against on the next loop.
-    if [[ -n "$_coord_stream" && -s "$_coord_stream" ]]; then
-        local _sid
-        _sid=$(coordinator_session_extract_from_stream "$_coord_stream" 2>/dev/null)
-        if [[ -n "$_sid" ]]; then
-            coordinator_session_write "$_sid" 2>/dev/null && \
-                log_status "INFO" "coordinator: session captured (${_sid:0:8}…)"
-        fi
-        rm -f -- "$_coord_stream" 2>/dev/null || true
-    fi
     if [[ $_coord_rc -ne 0 ]]; then
         # Distinguish timeout (124) from other spawn failures so the operator
         # can tell whether to raise RALPH_COORDINATOR_TIMEOUT_SECONDS or
@@ -2417,26 +2463,16 @@ ralph_debrief_coordinator() {
     local outcome="${1:-success}"
     local detail="${2:-}"
 
-    if [[ "${RALPH_COORDINATOR_DISABLED:-false}" == "true" ]]; then
-        return 0
-    fi
-    if [[ "${DRY_RUN:-false}" == "true" ]]; then
-        return 0
-    fi
-
-    local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
-    if ! command -v "$claude_cmd" >/dev/null 2>&1; then
-        return 0
-    fi
-
-    local debrief_input
-    debrief_input="MODE=debrief
-OUTCOME=${outcome}
+    # TAP-921: delegate to ralph_coordinator_invoke so debrief also
+    # benefits from resume-or-spawn (debrief on the same session that
+    # wrote the brief = continuity for brain_learn tagging).
+    local body
+    body="OUTCOME=${outcome}
 OUTCOME_DETAIL: ${detail}
 
 Read .ralph/brief.json (if present), call brain_learn_success or brain_learn_failure with task_id and a short summary, then call brief_clear by deleting the brief file."
 
-    _coordinator_invoke_claude "$debrief_input"
+    ralph_coordinator_invoke debrief "$body"
     local _rc=$?
     if [[ $_rc -ne 0 ]]; then
         log_status "WARN" "coordinator: debrief failed (exit $_rc) — continuing"
