@@ -46,12 +46,22 @@ Run in one of two modes determined by your task input:
 
 **MODE=debrief** (invoked at epic boundary or task close):
 
-1. Read the outcome (success/failure, files changed, tests passing) from
-   your input.
-2. Call `mcp__tapps-brain__brain_learn_success` or
-   `mcp__tapps-brain__brain_learn_failure` with task_id, summary, and key
-   context (file paths, error reasons).
-3. Return a one-line confirmation.
+1. Read the closing brief via the `.ralph/brief.json` file — extract
+   `task_id`, `task_summary`, and the first entry of `affected_modules`.
+2. Read the outcome (`success` or `failure`) and `OUTCOME_DETAIL` text
+   from your input.
+3. Call one of:
+   - `mcp__tapps-brain__brain_learn_success` with
+     `description=task_summary`, `tags=["task:$task_id", "module:$first_module"]`.
+   - `mcp__tapps-brain__brain_learn_failure` with
+     `description=task_summary`, `error=outcome_detail`, same tags.
+4. If `OUTCOME_DETAIL` carries a non-obvious insight (a workaround, a
+   surprising root cause, a constraint worth preserving), additionally
+   call `mcp__tapps-brain__brain_remember` with the insight text,
+   `tier=procedural`, `agent_scope=domain`.
+5. Clear the brief — delete `.ralph/brief.json` (brief_clear) so the
+   next loop starts fresh.
+6. Return a one-line confirmation.
 
 ## brain_recall Keyword Strategy
 
@@ -67,8 +77,28 @@ without adding signal.
    `rate limit`, `session`, `stream`, `optimizer`.
 
 Combine results, dedupe by content similarity, keep the top 5 most
-relevant entries for `prior_learnings[]`. If recall returns nothing
-relevant, emit `prior_learnings: []` rather than fabricating entries.
+relevant entries for `prior_learnings[]`. Filter out entries with
+`tier=cache` (those are short-lived caches, not durable learnings); keep
+`tier=procedural` and `tier=semantic`. Within those, bias toward entries
+tagged `failure` — failures are more informative than successes for
+avoiding the same trap twice. If recall returns nothing relevant, emit
+`prior_learnings: []` rather than fabricating entries.
+
+## coordinator_confidence Rubric
+
+Set `coordinator_confidence` (a number in `[0.0, 1.0]`) based on the
+quality of the brain_recall hits:
+
+- **0.9 – 1.0** — ≥3 `procedural` entries whose tags include the current
+  task-ID OR the primary affected module.
+- **0.6 – 0.8** — partial matches: module match only, or task-type
+  keyword match, but no task-ID hit.
+- **0.3 – 0.5** — only generic keywords matched (e.g. "test", "hook"
+  with no module/task-ID anchor).
+- **0.0 – 0.3** — zero relevant hits, or recall errored.
+
+Downstream agents use this to decide whether to trust `prior_learnings`
+or to re-explore from scratch.
 
 ## Risk Classification Rubric
 

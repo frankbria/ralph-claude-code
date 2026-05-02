@@ -2374,6 +2374,46 @@ Write ${brief_target} per the schema in lib/brief.sh, then return a one-line sum
     fi
 }
 
+# TAP-917: ralph_debrief_coordinator — invoke ralph-coordinator (Haiku) at
+# epic boundary / post-iteration to record outcomes via brain_learn_*.
+# Stateless, best-effort. Failure NEVER blocks the loop. Honors the same
+# disable / DRY_RUN / missing-CLI guards as the brief spawn.
+#
+# Args:
+#   $1 — outcome: "success" or "failure" (default: "success")
+#   $2 — outcome_detail: short text (e.g. error reason); may be empty
+ralph_debrief_coordinator() {
+    local outcome="${1:-success}"
+    local detail="${2:-}"
+
+    if [[ "${RALPH_COORDINATOR_DISABLED:-false}" == "true" ]]; then
+        return 0
+    fi
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
+    if ! command -v "$claude_cmd" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local debrief_input
+    debrief_input="MODE=debrief
+OUTCOME=${outcome}
+OUTCOME_DETAIL: ${detail}
+
+Read .ralph/brief.json (if present), call brain_learn_success or brain_learn_failure with task_id and a short summary, then call brief_clear by deleting the brief file."
+
+    _coordinator_invoke_claude "$debrief_input"
+    local _rc=$?
+    if [[ $_rc -ne 0 ]]; then
+        log_status "WARN" "coordinator: debrief failed (exit $_rc) — continuing"
+        return 0
+    fi
+    log_status "INFO" "coordinator: debrief recorded (outcome=${outcome})"
+}
+
 # Get session file age in hours (cross-platform)
 # Returns: age in hours on stdout, or -1 if stat fails
 # Note: Returns 0 for files less than 1 hour old
@@ -4207,6 +4247,19 @@ EOF
             log_status "WARN" "Exit signal update failed; continuing with stale signals"
         fi
 
+        # TAP-917: Debrief coordinator on real outcomes so brain_learn_*
+        # captures success/failure for next loop's brain_recall.
+        local _debrief_tasks _debrief_pd
+        _debrief_tasks=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+        _debrief_pd=$(jq -r '.permission_denial_count // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+        if cb_is_open || [[ "${_debrief_pd:-0}" -gt 0 ]]; then
+            local _detail
+            _detail=$(jq -r '.recommendation // ""' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
+            ralph_debrief_coordinator "failure" "$_detail"
+        elif [[ "${_debrief_tasks:-0}" -gt 0 ]]; then
+            ralph_debrief_coordinator "success" ""
+        fi
+
         # LOGFIX-6: Track consecutive TESTS_STATUS: DEFERRED to detect environment stalls
         local _tests_status
         _tests_status=$(jq -r '.tests_status // "UNKNOWN"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "UNKNOWN")
@@ -4337,6 +4390,18 @@ CBEOF
                 fi
                 if ! log_status_summary; then
                     log_status "WARN" "Analysis summary logging failed; non-critical, continuing"
+                fi
+
+                # TAP-917: Debrief coordinator on the productive-timeout path too.
+                local _debrief_tasks_t _debrief_pd_t
+                _debrief_tasks_t=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+                _debrief_pd_t=$(jq -r '.permission_denial_count // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+                if cb_is_open || [[ "${_debrief_pd_t:-0}" -gt 0 ]]; then
+                    local _detail_t
+                    _detail_t=$(jq -r '.recommendation // ""' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
+                    ralph_debrief_coordinator "failure" "$_detail_t"
+                elif [[ "${_debrief_tasks_t:-0}" -gt 0 ]]; then
+                    ralph_debrief_coordinator "success" ""
                 fi
 
                 # Check if on-stop.sh hook transitioned circuit breaker to OPEN
