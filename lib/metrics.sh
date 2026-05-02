@@ -219,18 +219,30 @@ ralph_show_brain_stats() {
     [[ -f "$brain_file" ]] || return 0
     command -v jq &>/dev/null || return 0
 
+    # TAP-918: split metrics by `source` field so the operator can see
+    # whether the coordinator (debrief path) or the hook (fallback path)
+    # is doing the writes. Pre-this-story rows have no `source` field —
+    # bucket those as `hook` for backward compatibility.
     local stats
-    stats=$(jq -s '{
-        total: length,
-        ok: (map(select(.ok == true)) | length),
-        err: (map(select(.ok == false)) | length),
-        success_writes: (map(select(.op == "success")) | length),
-        failure_writes: (map(select(.op == "failure")) | length),
-        avg_ms: (
-            (map(select(.ok == true) | .latency_ms) | if length == 0 then 0 else (add / length) end) | floor
-        ),
-        last_code: (.[-1].http_code // "")
-    }' "$brain_file" 2>/dev/null)
+    stats=$(jq -s '
+        def src: (.source // "hook");
+        {
+            total: length,
+            ok: (map(select(.ok == true)) | length),
+            err: (map(select(.ok == false)) | length),
+            success_writes: (map(select(.op == "success")) | length),
+            failure_writes: (map(select(.op == "failure")) | length),
+            coordinator_success:        (map(select(src == "coordinator" and .op == "success")) | length),
+            coordinator_failure:        (map(select(src == "coordinator" and .op == "failure")) | length),
+            fallback_success:           (map(select(src == "coordinator-fallback" and .op == "success")) | length),
+            fallback_failure:           (map(select(src == "coordinator-fallback" and .op == "failure")) | length),
+            hook_success:               (map(select(src == "hook" and .op == "success")) | length),
+            hook_failure:               (map(select(src == "hook" and .op == "failure")) | length),
+            avg_ms: (
+                (map(select(.ok == true) | .latency_ms) | if length == 0 then 0 else (add / length) end) | floor
+            ),
+            last_code: (.[-1].http_code // "")
+        }' "$brain_file" 2>/dev/null)
 
     [[ -z "$stats" || "$stats" == "null" ]] && return 0
 
@@ -240,11 +252,18 @@ ralph_show_brain_stats() {
     fi
 
     local total ok err sw fw avg_ms last_code
+    local coord_s coord_f fb_s fb_f hook_s hook_f
     total=$(echo "$stats" | jq -r '.total // 0')
     ok=$(echo "$stats" | jq -r '.ok // 0')
     err=$(echo "$stats" | jq -r '.err // 0')
     sw=$(echo "$stats" | jq -r '.success_writes // 0')
     fw=$(echo "$stats" | jq -r '.failure_writes // 0')
+    coord_s=$(echo "$stats" | jq -r '.coordinator_success // 0')
+    coord_f=$(echo "$stats" | jq -r '.coordinator_failure // 0')
+    fb_s=$(echo "$stats" | jq -r '.fallback_success // 0')
+    fb_f=$(echo "$stats" | jq -r '.fallback_failure // 0')
+    hook_s=$(echo "$stats" | jq -r '.hook_success // 0')
+    hook_f=$(echo "$stats" | jq -r '.hook_failure // 0')
     avg_ms=$(echo "$stats" | jq -r '.avg_ms // 0')
     last_code=$(echo "$stats" | jq -r '.last_code // ""')
 
@@ -257,6 +276,15 @@ ralph_show_brain_stats() {
     echo "  Errors:              $err"
     echo "  Success memories:    $sw"
     echo "  Failure memories:    $fw"
+    if [[ "$coord_s" != "0" || "$coord_f" != "0" ]]; then
+        echo "  Coordinator (primary):  ${coord_s} success / ${coord_f} failure"
+    fi
+    if [[ "$fb_s" != "0" || "$fb_f" != "0" ]]; then
+        echo "  Hook fallback:          ${fb_s} success / ${fb_f} failure"
+    fi
+    if [[ "$hook_s" != "0" || "$hook_f" != "0" ]]; then
+        echo "  Hook (legacy):          ${hook_s} success / ${hook_f} failure"
+    fi
     [[ "$ok" != "0" ]] && echo "  Avg latency:         ${avg_ms}ms"
     [[ -n "$last_code" ]] && echo "  Last HTTP code:      $last_code"
 }

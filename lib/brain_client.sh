@@ -96,6 +96,11 @@ brain_client_record_metric() {
     local http_code="${3:-000}"
     local ms="${4:-0}"
     local reason="${5:-}"
+    # TAP-918: tag each row with its origin so `ralph --stats` can show how
+    # often the coordinator-debrief path is taking over from the hook path.
+    # Pre-this-story rows have no `source` field — `ralph_show_brain_stats`
+    # treats those as `hook` for backward compatibility.
+    local source="${6:-hook}"               # hook | coordinator-fallback | coordinator
 
     local metrics_dir="$ralph_dir/metrics"
     mkdir -p "$metrics_dir" 2>/dev/null || return 0
@@ -114,7 +119,8 @@ brain_client_record_metric() {
             --argjson ms "$ms" \
             --arg reason "$reason" \
             --argjson ok "$ok" \
-            '{timestamp:$ts, op:$op, http_code:$code, latency_ms:$ms, reason:$reason, ok:$ok}' \
+            --arg source "$source" \
+            '{timestamp:$ts, op:$op, http_code:$code, latency_ms:$ms, reason:$reason, ok:$ok, source:$source}' \
             >> "$file" 2>/dev/null || true
     fi
 
@@ -199,6 +205,7 @@ brain_client_write_success() {
     local ralph_dir="${1:?ralph_dir required}"
     local description="${2:?description required}"
     local task_id="${3:-}"
+    local source="${4:-hook}"   # TAP-918: caller marks origin for metrics
 
     brain_client_enabled "$ralph_dir" || return 0
 
@@ -239,7 +246,7 @@ brain_client_write_success() {
     result=$(_brain_client_post "$url" "$project_id" "$body")
     code="${result% *}"
     ms="${result#* }"
-    brain_client_record_metric "$ralph_dir" "success" "$code" "$ms" ""
+    brain_client_record_metric "$ralph_dir" "success" "$code" "$ms" "" "$source"
 }
 
 # =============================================================================
@@ -252,6 +259,7 @@ brain_client_write_failure() {
     local description="${2:?description required}"
     local error_msg="${3:-}"
     local task_id="${4:-}"
+    local source="${5:-hook}"   # TAP-918: caller marks origin for metrics
 
     brain_client_enabled "$ralph_dir" || return 0
 
@@ -293,5 +301,5 @@ brain_client_write_failure() {
     result=$(_brain_client_post "$url" "$project_id" "$body")
     code="${result% *}"
     ms="${result#* }"
-    brain_client_record_metric "$ralph_dir" "failure" "$code" "$ms" "${error_msg:0:80}"
+    brain_client_record_metric "$ralph_dir" "failure" "$code" "$ms" "${error_msg:0:80}" "$source"
 }

@@ -776,13 +776,25 @@ if [[ -n "$_brain_lib" ]]; then
   # shellcheck source=/dev/null
   source "$_brain_lib"
 
+  # TAP-918: if the coordinator wrote a brief at the top of this loop AND
+  # is not disabled, its debrief pass owns the brain write — skip the
+  # hook write to avoid double-counting. The hook write stays as fallback
+  # when the coordinator is disabled or its brief is missing (spawn failed
+  # before it could write). This check runs in on-stop, which executes
+  # BEFORE the coordinator's debrief in the loop sequence — so brief.json
+  # is still present here on the coordinator-active path.
+  _brain_skip_hook="false"
+  if [[ -f "$RALPH_DIR/brief.json" ]] && [[ "${RALPH_COORDINATOR_DISABLED:-false}" != "true" ]]; then
+    _brain_skip_hook="true"
+  fi
+
   # Success signal: this loop made real progress. Record what got done so
   # future loops can recall. Task id from Linear field when available.
-  if [[ "$files_modified" -gt 0 && "$tasks_done" -gt 0 ]]; then
+  if [[ "$_brain_skip_hook" != "true" && "$files_modified" -gt 0 && "$tasks_done" -gt 0 ]]; then
     _brain_desc="Loop $loop_count completed $tasks_done task(s) touching $files_modified file(s)"
     [[ -n "$recommendation" ]] && _brain_desc="${_brain_desc}. ${recommendation:0:200}"
     _brain_task_id="${linear_issue:-}"
-    brain_client_write_success "$RALPH_DIR" "$_brain_desc" "$_brain_task_id" >/dev/null 2>&1 || true
+    brain_client_write_success "$RALPH_DIR" "$_brain_desc" "$_brain_task_id" "coordinator-fallback" >/dev/null 2>&1 || true
   fi
 
   # Failure signal: permission denials OR circuit breaker just opened.
@@ -792,7 +804,7 @@ if [[ -n "$_brain_lib" ]]; then
   if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
     _cb_now=$(jq -r '.state // "CLOSED"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null || echo "CLOSED")
   fi
-  if [[ "$has_permission_denials" == "true" || "$_cb_now" == "OPEN" ]]; then
+  if [[ "$_brain_skip_hook" != "true" && ( "$has_permission_denials" == "true" || "$_cb_now" == "OPEN" ) ]]; then
     _brain_desc="Loop $loop_count stalled"
     _brain_err=""
     if [[ "$has_permission_denials" == "true" ]]; then
@@ -805,7 +817,7 @@ if [[ -n "$_brain_lib" ]]; then
       _brain_err="circuit_breaker_open"
     fi
     _brain_task_id="${linear_issue:-}"
-    brain_client_write_failure "$RALPH_DIR" "$_brain_desc" "$_brain_err" "$_brain_task_id" >/dev/null 2>&1 || true
+    brain_client_write_failure "$RALPH_DIR" "$_brain_desc" "$_brain_err" "$_brain_task_id" "coordinator-fallback" >/dev/null 2>&1 || true
   fi
 fi
 
