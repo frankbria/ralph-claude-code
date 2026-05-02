@@ -36,6 +36,7 @@ source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source l
 # TAP-914 / TAP-915: brief.json read/write/validate helpers used by the
 # coordinator spawn point and by build_loop_context.
 [[ -f "$SCRIPT_DIR/lib/brief.sh" ]] && source "$SCRIPT_DIR/lib/brief.sh"
+[[ -f "$SCRIPT_DIR/lib/coordinator_session.sh" ]] && source "$SCRIPT_DIR/lib/coordinator_session.sh"
 
 # TAP-535: Bash 4+ required for `${BASH_VERSINFO[@]}`, mapfile/readarray, named
 # refs, and the rest of the modern bash features used throughout this script.
@@ -2280,6 +2281,10 @@ build_loop_context() {
 # in lib/linear_optimizer.sh.
 _coordinator_invoke_claude() {
     local input="$1"
+    # TAP-920: when $2 is a file path, redirect stdout there so the caller
+    # can extract the coordinator's session_id from the JSONL stream.
+    # Default ("") preserves the pre-TAP-920 silent behavior.
+    local out_file="${2:-}"
     local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
     # COORDINATOR-TIMEOUT (2026-04-30): default raised from 60s → 120s.
     # 60s was too tight for setups with multiple MCP servers (tapps-mcp,
@@ -2289,18 +2294,27 @@ _coordinator_invoke_claude() {
     # Configurable via RALPH_COORDINATOR_TIMEOUT_SECONDS for projects
     # with even slower MCP cold-start (set to 0 to use no timeout).
     local _coord_timeout="${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}"
+    # When capturing output, also request stream-json so each line is a
+    # parseable JSON object (the first one carries `session_id`).
+    local _fmt_args=()
+    if [[ -n "$out_file" ]]; then
+        _fmt_args=(--output-format stream-json --verbose)
+    fi
+    local _stdout_target="${out_file:-/dev/null}"
     if [[ "$_coord_timeout" == "0" ]]; then
         "$claude_cmd" \
             --agent ralph-coordinator \
             --permission-mode bypassPermissions \
+            "${_fmt_args[@]}" \
             -p "$input" \
-            >/dev/null 2>&1
+            >"$_stdout_target" 2>&1
     else
         timeout "$_coord_timeout" "$claude_cmd" \
             --agent ralph-coordinator \
             --permission-mode bypassPermissions \
+            "${_fmt_args[@]}" \
             -p "$input" \
-            >/dev/null 2>&1
+            >"$_stdout_target" 2>&1
     fi
 }
 
@@ -2350,8 +2364,25 @@ TASK_INPUT: ${task_input}
 
 Write ${brief_target} per the schema in lib/brief.sh, then return a one-line summary."
 
-    _coordinator_invoke_claude "$coord_input"
+    # TAP-920: capture coordinator stdout to a temp stream file so we can
+    # extract its session_id. Tolerated to fail — if the temp file can't
+    # be created we fall back to the silent path (no session capture).
+    local _coord_stream
+    _coord_stream=$(mktemp -t "coord_stream.XXXXXX" 2>/dev/null || echo "")
+    _coordinator_invoke_claude "$coord_input" "$_coord_stream"
     local _coord_rc=$?
+    # Always try to extract session_id, even if the spawn timed out — the
+    # stream may have a partial result line with the session_id we want
+    # to resume against on the next loop.
+    if [[ -n "$_coord_stream" && -s "$_coord_stream" ]]; then
+        local _sid
+        _sid=$(coordinator_session_extract_from_stream "$_coord_stream" 2>/dev/null)
+        if [[ -n "$_sid" ]]; then
+            coordinator_session_write "$_sid" 2>/dev/null && \
+                log_status "INFO" "coordinator: session captured (${_sid:0:8}…)"
+        fi
+        rm -f -- "$_coord_stream" 2>/dev/null || true
+    fi
     if [[ $_coord_rc -ne 0 ]]; then
         # Distinguish timeout (124) from other spawn failures so the operator
         # can tell whether to raise RALPH_COORDINATOR_TIMEOUT_SECONDS or
