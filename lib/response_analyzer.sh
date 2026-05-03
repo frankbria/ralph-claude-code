@@ -166,12 +166,15 @@ parse_json_response() {
     #        RALPH_STATUS:
     #          EXIT_SIGNAL: true
     #          reason: "..."
+    # The regex anchors at start-of-line (with optional leading whitespace) so prose
+    # mentions of "RALPH_STATUS:" inline (e.g. in commit messages, doc strings, or
+    # tool-result echoes) DO NOT trigger the gate; only block-header lines do.
     # The downstream EXIT_SIGNAL extraction (grep "EXIT_SIGNAL:" | cut | xargs) handles
     # both layouts uniformly because both emit one EXIT_SIGNAL: <bool> line.
     # See also the parallel check at the structured-output text-parsing fallback below.
     if [[ "$exit_signal" == "false" && "$has_result_field" == "true" ]]; then
         local result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
-        if [[ -n "$result_text" ]] && echo "$result_text" | grep -qE -- "---RALPH_STATUS---|RALPH_STATUS:"; then
+        if [[ -n "$result_text" ]] && echo "$result_text" | grep -qE -- "^[[:space:]]*(---RALPH_STATUS---|RALPH_STATUS:)"; then
             # Extract EXIT_SIGNAL value from RALPH_STATUS block within result text
             local embedded_exit_sig
             embedded_exit_sig=$(echo "$result_text" | grep "EXIT_SIGNAL:" | cut -d: -f2 | xargs)
@@ -501,10 +504,13 @@ analyze_response() {
     # 1. Check for explicit structured output (if Claude follows schema)
     # Match both the canonical "---RALPH_STATUS---" separator-marker format AND
     # the YAML colon-block format ("RALPH_STATUS:" with indented keys) some agent
-    # prompts emit. The downstream EXIT_SIGNAL/STATUS extraction handles both
-    # uniformly because each emits one "EXIT_SIGNAL: <bool>" line.
+    # prompts emit. The regex anchors at start-of-line (with optional leading
+    # whitespace) so prose mentions of these tokens inline DO NOT trigger the
+    # gate; only block-header lines do. The downstream EXIT_SIGNAL/STATUS
+    # extraction handles both layouts uniformly because each emits one
+    # "EXIT_SIGNAL: <bool>" line.
     # See also the parallel check in the JSON-mode .result text path above.
-    if grep -qE -- "---RALPH_STATUS---|RALPH_STATUS:" "$output_file"; then
+    if grep -qE -- "^[[:space:]]*(---RALPH_STATUS---|RALPH_STATUS:)" "$output_file"; then
         # Parse structured output
         local status=$(grep "STATUS:" "$output_file" | cut -d: -f2 | xargs)
         local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | cut -d: -f2 | xargs)
