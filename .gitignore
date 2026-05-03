@@ -19,6 +19,12 @@
 .ralph/.last_completed_files
 .ralph/.linear_next_issue
 .ralph/.linear_optimizer_cache.json
+.ralph/.model_routing.jsonl
+.ralph/.qa_failures.json
+.ralph/.current_issue
+.ralph/.coordinator_session
+.ralph/brief.json
+.ralph/forensic-*/
 .claude/scheduled_tasks.lock
 
 # tapps-mcp runtime probe output (timestamped, host-specific)
