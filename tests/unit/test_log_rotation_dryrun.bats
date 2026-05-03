@@ -207,13 +207,14 @@ EOF
     [[ "$output" == *"1 done"* ]]
 }
 
-@test "dry_run_simulate logs allowed tools count" {
-    source_ralph
-    CLAUDE_ALLOWED_TOOLS="Write,Read,Edit"
-    run dry_run_simulate "" 1
-    assert_success
-    [[ "$output" == *"3 tools"* ]]
-}
+# Removed: "dry_run_simulate logs allowed tools count" — asserted a log
+# line about CLAUDE_ALLOWED_TOOLS that dry_run_simulate stopped emitting
+# when ADR-0006 (legacy `-p` mode + --allowedTools allowlist) deleted
+# the underlying code path. The test silently became "not run" because
+# `source ralph_loop.sh` from the helper triggers an early `exit` in
+# the post-ADR-0006 startup preflight when invoked in the bats env, so
+# bats counted the @test in `1..N` but never produced an `ok N` line —
+# surfacing as "Executed 35 instead of expected 36" once CI was enabled.
 
 @test "--dry-run flag is parsed correctly" {
     run bash "$RALPH_SCRIPT" --dry-run --help 2>&1
