@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.11.5] — 2026-05-02
+
+### Changed
+
+- **TappsMCP tooling refresh to 3.8.0.** Ran `tapps_upgrade` to resync project-managed agents, skills, hooks, and platform configs against TappsMCP 3.8.0. `AGENTS.md` excised the Karpathy block and refreshed the platform-hooks section. Claude Code platform: `CLAUDE.md` updated; new hooks (`tapps-pre-bash.sh`, `tapps-pre-linear-write.sh`, `tapps-pre-linear-list.sh`, `tapps-post-docs-validate.sh`, `tapps-post-linear-snapshot-get.sh`); 4 tapps agents and 14 skills updated; 2 new skills (`linear-read`, `linear-release-update`); new `.claude/rules/integration-hygiene.md`. Cursor platform: regenerated MCP config, 4 agents + 15 skills + 3 cursor rule types. GitHub: Copilot agent profiles, path instructions, issue/PR templates, dependabot, and ruleset scripts created; CodeQL workflow updated. Backup at `.tapps-mcp/backups/2026-05-02-171935`. No Ralph runtime behavior changed — tooling/dev-environment refresh only.
+
+---
+
 ## [2.11.4] — 2026-04-30
 
 ### Fixed

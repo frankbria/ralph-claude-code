@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "tapps-mcp": {
+      "type": "stdio",
+      "command": "tapps-mcp",
+      "args": [
+        "serve"
+      ],
+      "env": {
+        "TAPPS_MCP_PROJECT_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}

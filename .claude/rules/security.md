@@ -8,7 +8,7 @@ paths:
 
 Run `tapps_security_scan(file_path)` after editing any security-related file.
 
-Run `tapps_consult_expert(question, domain="security")` for security design decisions.
+Use `tapps_lookup_docs(library, topic)` for security design decisions (e.g. `tapps_lookup_docs(library="cryptography", topic="symmetric encryption")` or `tapps_lookup_docs(library="oauth2", topic="PKCE")`).
 
 ## Mandatory Checks
 

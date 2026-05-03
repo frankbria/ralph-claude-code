@@ -1,4 +1,4 @@
-<!-- tapps-agents-version: 3.6.0 -->
+<!-- tapps-agents-version: 3.8.0 -->
 # TappsMCP - instructions for AI assistants
 
 When the **TappsMCP** MCP server is configured, you have access to tools for **code quality, doc lookup, and domain expert advice**. Use them to avoid hallucinated APIs, missed quality steps, and inconsistent output.
@@ -175,7 +175,9 @@ When `tapps_init` generates platform-specific files, it also creates **hooks**, 
 
 Opt-in `PreToolUse` gates are independent flags in `.tapps-mcp.yaml` — enable each based on what you want blocked:
 - `destructive_guard: true` — blocks destructive Bash commands (`rm -rf`, `format c:`, etc.).
-- `linear_enforce_gate: true` — blocks `mcp__plugin_linear_linear__save_issue` unless the `linear-issue` skill flow (with `docs_validate_linear_issue`) was used recently. Bypass: `TAPPS_LINEAR_SKIP_VALIDATE=1`. Bash-only for now.
+- `linear_enforce_gate: true` — blocks `mcp__plugin_linear_linear__save_issue` unless the `linear-issue` skill flow (with `docs_validate_linear_issue`) was used recently. Bypass: `TAPPS_LINEAR_SKIP_VALIDATE=1`. Bash + PowerShell. Default: on at medium/high engagement, off at low.
+- `linear_enforce_cache_gate: "off" | "warn" | "block"` (TAP-1224) — gates `mcp__plugin_linear_linear__list_issues` behind a recent `tapps_linear_snapshot_get` for the same `(team, project, state, label, limit)` slice. **Warn mode** (default at medium/high engagement) logs violations to `.tapps-mcp/.cache-gate-violations.jsonl` and allows the call. **Block mode** rejects with exit 2 unless a matching sentinel < 300s old exists. Single-issue lookups must use `mcp__plugin_linear_linear__get_issue` instead. Pairs with the `linear-read` skill which routes the cache-first dance. Bypass: `TAPPS_LINEAR_SKIP_CACHE_GATE=1`. `tapps doctor` reports current mode + 24h violation count.
+- `install_git_hooks: true` (TAP-979) — writes `.githooks/pre-commit` and sets `core.hooksPath = .githooks`. Runs `tapps-mcp validate-changed --quick` on staged Python files and fails the commit on gate failure. Bypass: `TAPPS_SKIP_GATE=1`. Default: off.
 
 Run `tapps-mcp doctor` to list wired matchers.
 

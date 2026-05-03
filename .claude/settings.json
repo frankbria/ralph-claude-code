@@ -61,6 +61,24 @@
             "statusMessage": "Checking file protection..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_linear_linear__save_issue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/tapps-pre-linear-write.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_linear_linear__list_issues",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/tapps-pre-linear-list.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -100,6 +118,24 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/tapps-post-edit.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__docs-mcp__docs_validate_linear_issue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/tapps-post-docs-validate.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__tapps-mcp__tapps_linear_snapshot_get",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/tapps-post-linear-snapshot-get.sh"
           }
         ]
       }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tapps-mcp-hook-version: 3.6.0
+# tapps-mcp-hook-version: 3.8.0
 # TappsMCP TaskCompleted hook
 # Reminds to run quality checks but does NOT block.
 # Reads sidecar progress file for richer context when available.
