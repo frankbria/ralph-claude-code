@@ -1155,3 +1155,86 @@ EOF
     exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "false"
 }
+
+# =============================================================================
+# YAML COLON-BLOCK RALPH_STATUS FORMAT TESTS
+# =============================================================================
+# Some agent prompts emit the structured-status block as YAML (colon heading +
+# indented keys) instead of the canonical "---RALPH_STATUS---" separator
+# markers. The detection regex extends to match either form so EXIT_SIGNAL is
+# read out of both layouts; the downstream `grep "EXIT_SIGNAL:" | cut | xargs`
+# extraction is layout-agnostic.
+
+@test "text mode: YAML colon-block RALPH_STATUS with EXIT_SIGNAL=true triggers exit" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+Investigation complete.
+
+RALPH_STATUS:
+  EXIT_SIGNAL: true
+  reason: "All tasks complete"
+
+End of response.
+EOF
+
+    analyze_response "$output_file" 1
+
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "true"
+}
+
+@test "text mode: YAML colon-block RALPH_STATUS with EXIT_SIGNAL=false does not trigger exit" {
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+Made progress on the auth module.
+
+RALPH_STATUS:
+  EXIT_SIGNAL: false
+  reason: "More work needed on the session layer"
+EOF
+
+    analyze_response "$output_file" 1
+
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "false"
+}
+
+@test "JSON mode .result field with YAML colon-block RALPH_STATUS triggers exit" {
+    # Claude CLI JSON wrapper format: structured response with .result string
+    # containing a YAML colon-block RALPH_STATUS section. Mirrors the
+    # ".result + ---RALPH_STATUS---" path tested elsewhere; verifies the
+    # extended regex catches the YAML form too.
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Implementation done.\n\nRALPH_STATUS:\n  EXIT_SIGNAL: true\n  reason: \"Project complete\"\n",
+    "sessionId": "test-session-001"
+}
+EOF
+
+    analyze_response "$output_file" 1
+
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "true"
+}
+
+@test "JSON mode .result field with YAML colon-block EXIT_SIGNAL=false respects continue intent" {
+    # YAML emit can also signal "continue working" — explicit EXIT_SIGNAL: false
+    # must be respected the same way the separator-marker form is.
+    local output_file="$LOG_DIR/test_output.log"
+
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Phase 1 done.\n\nRALPH_STATUS:\n  EXIT_SIGNAL: false\n  reason: \"Phase 2 still pending\"\n",
+    "sessionId": "test-session-002"
+}
+EOF
+
+    analyze_response "$output_file" 1
+
+    local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
+    assert_equal "$exit_signal" "false"
+}
