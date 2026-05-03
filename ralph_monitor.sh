@@ -7,10 +7,16 @@
 STATUS_FILE=".ralph/status.json"
 LOG_FILE=".ralph/logs/ralph.log"
 LIVE_LOG=".ralph/live.log"
+CURRENT_ISSUE_FILE=".ralph/.current_issue"
 REFRESH_INTERVAL=2
 # Staleness thresholds (seconds since status.json .timestamp)
 STALE_WARN_SECS=${MONITOR_STALE_WARN_SECS:-600}
 STALE_DEAD_SECS=${MONITOR_STALE_DEAD_SECS:-1800}
+# TAP-1201: live-log freshness threshold for "ralph is mid-loop, not dead".
+# A fresh status.json is preferred, but during a long Claude call status.json
+# can age past STALE_DEAD_SECS while the loop is doing real work — live.log
+# (the JSONL stream tail) updates within seconds of any tool call.
+LIVE_LOG_FRESH_SECS=${MONITOR_LIVE_LOG_FRESH_SECS:-60}
 # UNKNOWN-status streak threshold before the monitor flags "silent Claude"
 UNKNOWN_STREAK_WARN=${MONITOR_UNKNOWN_STREAK_WARN:-3}
 
@@ -34,6 +40,75 @@ _iso_to_epoch() {
       || epoch=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$ts" +%s 2>/dev/null) \
       || epoch=0
     echo "${epoch:-0}"
+}
+
+# TAP-1201: Detect whether a ralph_loop.sh process is currently alive.
+# Returns 0 if at least one matching process exists, 1 otherwise.
+# Uses pgrep on Linux/macOS; degrades to "unknown alive" on platforms
+# without pgrep (returns 0 to avoid false-positive DEAD warnings).
+_ralph_loop_alive() {
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -f "ralph_loop\.sh" >/dev/null 2>&1
+        return $?
+    fi
+    return 0
+}
+
+# TAP-1201: mtime of a file in epoch seconds; -1 when missing/unreadable.
+# Cross-platform stat wrapper (Linux GNU stat / macOS BSD stat).
+_file_mtime_epoch() {
+    local f="$1"
+    [[ -e "$f" ]] || { echo -1; return; }
+    stat -c %Y "$f" 2>/dev/null \
+      || stat -f %m "$f" 2>/dev/null \
+      || echo -1
+}
+
+# TAP-1201: classify the loop's overall liveness.
+# Echoes one of: HEALTHY | STALE | DEAD | UNKNOWN
+# Inputs: $1 = status.json age in seconds (-1 when unknown).
+# Rules:
+#   - DEAD only when status_age >= STALE_DEAD_SECS AND ralph_loop process gone.
+#   - HEALTHY when ralph_loop alive AND live.log mtime within LIVE_LOG_FRESH_SECS,
+#     even if status.json is technically stale (mid-loop case).
+#   - STALE for the in-between range (loop alive but no recent activity).
+#   - UNKNOWN only when we have no status.json signal AND no liveness signal.
+_classify_liveness() {
+    local status_age="$1"
+    local live_log_mtime now_epoch live_log_age
+    live_log_mtime=$(_file_mtime_epoch "$LIVE_LOG")
+    now_epoch=$(date -u +%s)
+    if (( live_log_mtime > 0 )); then
+        live_log_age=$(( now_epoch - live_log_mtime ))
+    else
+        live_log_age=-1
+    fi
+
+    local loop_alive=0
+    _ralph_loop_alive && loop_alive=1
+
+    # Mid-loop healthy: process up + log churning.
+    if (( loop_alive == 1 )) && (( live_log_age >= 0 )) \
+       && (( live_log_age < LIVE_LOG_FRESH_SECS )); then
+        echo "HEALTHY"
+        return
+    fi
+
+    # No information at all.
+    if (( status_age < 0 )) && (( live_log_age < 0 )) && (( loop_alive == 0 )); then
+        echo "UNKNOWN"
+        return
+    fi
+
+    # DEAD requires BOTH stale status.json AND no live process.
+    if (( status_age >= STALE_DEAD_SECS )) && (( loop_alive == 0 )); then
+        echo "DEAD"
+        return
+    fi
+
+    # Everything else: stale (loop alive but not actively working, or
+    # process gone but status.json still within the dead threshold).
+    echo "STALE"
 }
 
 # Count the trailing streak of UNKNOWN statuses in .ralph/live.log.
@@ -183,24 +258,70 @@ display_status() {
         # - <STALE_WARN_SECS: green ("fresh")
         # - STALE_WARN_SECS .. STALE_DEAD_SECS: yellow ("stale — hook slow")
         # - >STALE_DEAD_SECS: red ("ralph appears dead")
+        # TAP-1201: liveness now factors in PID + live.log mtime so a long
+        # Claude call doesn't get flagged DEAD just because status.json hasn't
+        # been re-written by on-stop.sh yet.
+        local liveness; liveness=$(_classify_liveness "$status_age")
         local status_color="$GREEN"
         local age_str=""
         if (( status_age < 0 )); then
             age_str="${YELLOW}n/a${NC}"
-        elif (( status_age >= STALE_DEAD_SECS )); then
-            status_color="$RED"
-            age_str="${RED}${status_age}s ago — LIKELY DEAD${NC}"
-        elif (( status_age >= STALE_WARN_SECS )); then
-            status_color="$YELLOW"
-            age_str="${YELLOW}${status_age}s ago${NC}"
         else
-            age_str="${GREEN}${status_age}s ago${NC}"
+            age_str="${status_age}s ago"
         fi
+        case "$liveness" in
+            DEAD)
+                status_color="$RED"
+                age_str="${RED}${age_str} — LIKELY DEAD (loop process exited)${NC}"
+                ;;
+            STALE)
+                status_color="$YELLOW"
+                if (( status_age >= STALE_WARN_SECS )); then
+                    age_str="${YELLOW}${age_str}${NC}"
+                else
+                    age_str="${YELLOW}${age_str} — loop quiet${NC}"
+                fi
+                ;;
+            HEALTHY)
+                # Mid-loop signal: live.log is recent. If status.json is also
+                # warn-old, hint that it's stale-but-OK so the operator
+                # doesn't second-guess.
+                if (( status_age >= STALE_WARN_SECS )); then
+                    age_str="${GREEN}${age_str} — mid-loop, live.log fresh${NC}"
+                else
+                    age_str="${GREEN}${age_str}${NC}"
+                fi
+                ;;
+            UNKNOWN|*)
+                status_color="$YELLOW"
+                age_str="${YELLOW}n/a (no signal)${NC}"
+                ;;
+        esac
 
         echo -e "${CYAN}┌─ Current Status ────────────────────────────────────────────────────────┐${NC}"
         echo -e "${CYAN}│${NC} Loop Count:     ${WHITE}#$loop_count${NC}"
         echo -e "${CYAN}│${NC} Status:         ${status_color}$status${NC}"
         echo -e "${CYAN}│${NC} Last update:    ${age_str}"
+        # TAP-1201: always render "Working on" — mid-loop the on-stop hook
+        # hasn't fired yet but Claude may have written .current_issue from
+        # an MCP linear call. Falls back to last known issue, then placeholder.
+        local _working_on=""
+        if [[ -f "$CURRENT_ISSUE_FILE" ]]; then
+            _working_on=$(head -1 "$CURRENT_ISSUE_FILE" 2>/dev/null | tr -dc 'A-Z0-9-')
+        fi
+        if [[ -z "$_working_on" && -n "$linear_issue" && "$linear_issue" != "null" ]]; then
+            _working_on="$linear_issue"
+        fi
+        if [[ -z "$_working_on" && -n "$last_linear_issue" && "$last_linear_issue" != "null" ]]; then
+            _working_on="$last_linear_issue (last)"
+        fi
+        if [[ -z "$_working_on" ]]; then
+            _working_on="${YELLOW}(awaiting first loop)${NC}"
+        else
+            _working_on="${WHITE}${_working_on}${NC}"
+        fi
+        echo -e "${CYAN}│${NC} Working on:     ${_working_on}"
+        # TAP-1201: always render Model — placeholder when no signal yet.
         if [[ -n "$loop_model" && "$loop_model" != "null" ]]; then
             # If the router picked a different model than the hook saw last,
             # that means a sub-agent (Haiku explorer, coordinator, etc.) ran
@@ -218,6 +339,8 @@ display_status() {
             # No loop_model from hook yet (first loop, transcript empty) —
             # fall back to the routing log so the panel isn't blank.
             echo -e "${CYAN}│${NC} Model (routed): ${GREEN}${routed_model}${NC}"
+        else
+            echo -e "${CYAN}│${NC} Model:          ${YELLOW}(awaiting first loop)${NC}"
         fi
         # Routing-health line: surface decision count + stale warning so an
         # operator can see at a glance whether routing is actually firing.
