@@ -25,7 +25,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, field_validator
 
-from ralph_sdk.config import RalphConfig
+from ralph_sdk.config import RalphConfig, RalphConfigError
 from ralph_sdk.context import (
     ContextManager,
     PromptCacheStats,
@@ -818,6 +818,11 @@ class RalphAgent:
         # thread can schedule work safely via call_soon_threadsafe.
         self._loop = asyncio.get_running_loop()
 
+        # TAP-1104: hard-fail if Claude CLI is older than the agent contract
+        # requires. Mirror of bash check_claude_version (ralph_loop.sh:1645);
+        # SDK refuses to start rather than silently producing wrong commands.
+        await self._preflight_claude_version()
+
         logger.info("Ralph SDK starting (v%s) [%s]", self.config.model, self.correlation_id,
                      extra={"correlation_id": self.correlation_id})
         logger.info("Project: %s (%s)", self.config.project_name, self.config.project_type,
@@ -1310,6 +1315,45 @@ class RalphAgent:
 
         return prompt_parts.full_prompt()
 
+    async def _preflight_claude_version(self) -> None:
+        """Verify Claude CLI >= config.claude_min_version, else raise.
+
+        TAP-1104: SDK only supports agent mode. The `--agent` flag landed in
+        Claude CLI 2.1.0; older binaries will silently ignore it and fall
+        back to legacy `-p` mode, which is the failure the bash side already
+        deleted via ADR-0006. We detect at startup and refuse to proceed.
+
+        Network/exec errors degrade to a WARN log (matches bash behavior at
+        ralph_loop.sh:1649-1652) — never raise on "could not detect".
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.config.claude_code_cmd, "--version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        except (TimeoutError, FileNotFoundError, OSError) as e:
+            logger.warning("Cannot detect Claude CLI version (%s); assuming compatible", e)
+            return
+
+        match = re.search(rb"(\d+)\.(\d+)\.(\d+)", stdout)
+        if not match:
+            logger.warning("Cannot parse Claude CLI version from %r; assuming compatible", stdout[:80])
+            return
+
+        installed = tuple(int(g) for g in match.groups())
+        required = tuple(
+            int(g) for g in (self.config.claude_min_version.split(".") + ["0", "0", "0"])[:3]
+        )
+        if installed < required:
+            raise RalphConfigError(
+                f"Claude CLI version {'.'.join(map(str, installed))} is older than "
+                f"required {self.config.claude_min_version}. Agent mode (--agent) "
+                f"requires CLI >= 2.1.0. Upgrade with: "
+                f"npm update -g @anthropic-ai/claude-code"
+            )
+
     def _build_claude_command(
         self,
         prompt: str,
@@ -1318,9 +1362,11 @@ class RalphAgent:
         """Build Claude CLI command (matching bash build_claude_command())."""
         cmd = [self.config.claude_code_cmd]
 
-        # Agent mode (v1.0+)
-        if self.config.use_agent:
-            cmd.extend(["--agent", self.config.agent_name])
+        # TAP-1104: agent mode is the only execution path. The
+        # `--allowedTools` flag is incompatible with `--agent` and is
+        # therefore intentionally not emitted; tool surface is set by the
+        # agent file's `tools:` allowlist + `disallowedTools:` blocklist.
+        cmd.extend(["--agent", self.config.agent_name])
 
         # System prompt (for TheStudio DeveloperRoleConfig injection)
         if system_prompt:
@@ -1331,10 +1377,6 @@ class RalphAgent:
 
         # Output format
         cmd.extend(["--output-format", self.config.output_format])
-
-        # Allowed tools
-        if self.config.allowed_tools:
-            cmd.extend(["--allowedTools", ",".join(self.config.allowed_tools)])
 
         # Session continuity
         if self.config.session_continuity and self.session_id:

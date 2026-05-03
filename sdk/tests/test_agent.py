@@ -1,12 +1,13 @@
 """Tests for Ralph SDK Agent (async + Pydantic v2 models)."""
 
+import asyncio
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ralph_sdk.agent import RalphAgent, TaskInput, TaskResult
-from ralph_sdk.config import RalphConfig
+from ralph_sdk.config import RalphConfig, RalphConfigError
 from ralph_sdk.state import NullStateBackend
 from ralph_sdk.status import CircuitBreakerState, RalphLoopStatus, RalphStatus, WorkType
 
@@ -249,3 +250,67 @@ class TestExtractSessionId:
         agent._extract_session_id(stdout)
         assert agent._last_tokens_in == 1
         assert agent._last_tokens_out == 2
+
+
+class TestTAP1104AgentMode:
+    """TAP-1104: SDK only supports agent mode; legacy use_agent flag deleted."""
+
+    def _agent(self, project_dir, config):
+        return RalphAgent(config=config, project_dir=project_dir)
+
+    def test_use_agent_field_removed(self):
+        """RalphConfig must not expose a use_agent attribute."""
+        cfg = RalphConfig()
+        assert not hasattr(cfg, "use_agent")
+        # And the export round-trip must not include the legacy key.
+        assert "useAgent" not in cfg.to_dict()
+
+    def test_command_always_emits_agent(self, project_dir, config):
+        agent = self._agent(project_dir, config)
+        cmd = agent._build_claude_command("hello")
+        assert "--agent" in cmd
+        assert cmd[cmd.index("--agent") + 1] == config.agent_name
+
+    def test_command_never_emits_allowedtools(self, project_dir, config):
+        config.allowed_tools = ["Read", "Write", "Bash(git *)"]
+        agent = self._agent(project_dir, config)
+        cmd = agent._build_claude_command("hello")
+        assert "--allowedTools" not in cmd
+
+    def test_min_version_is_2_1_0(self):
+        assert RalphConfig().claude_min_version == "2.1.0"
+
+    @pytest.mark.asyncio
+    async def test_preflight_raises_on_old_cli(self, project_dir, config, monkeypatch):
+        agent = self._agent(project_dir, config)
+
+        async def fake_exec(*args, **kwargs):
+            proc = MagicMock()
+            proc.communicate = AsyncMock(return_value=(b"2.0.50 (Claude Code)\n", b""))
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        with pytest.raises(RalphConfigError, match="2.1.0"):
+            await agent._preflight_claude_version()
+
+    @pytest.mark.asyncio
+    async def test_preflight_passes_on_new_cli(self, project_dir, config, monkeypatch):
+        agent = self._agent(project_dir, config)
+
+        async def fake_exec(*args, **kwargs):
+            proc = MagicMock()
+            proc.communicate = AsyncMock(return_value=(b"2.5.1 (Claude Code)\n", b""))
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        await agent._preflight_claude_version()  # no raise
+
+    @pytest.mark.asyncio
+    async def test_preflight_warns_when_cannot_detect(self, project_dir, config, monkeypatch):
+        agent = self._agent(project_dir, config)
+
+        async def fake_exec(*args, **kwargs):
+            raise FileNotFoundError("claude not on PATH")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        await agent._preflight_claude_version()  # no raise — degrades to warn

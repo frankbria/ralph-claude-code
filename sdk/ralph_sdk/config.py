@@ -11,6 +11,14 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
+class RalphConfigError(RuntimeError):
+    """Raised when SDK configuration is invalid or environment fails preflight.
+
+    TAP-1104: emitted on Claude CLI version mismatch instead of silently
+    falling back to legacy `-p` mode (mirrors bash ADR-0006).
+    """
+
+
 class RalphConfig(BaseModel):
     """Configuration for Ralph SDK agent.
 
@@ -81,12 +89,11 @@ class RalphConfig(BaseModel):
     # Advanced
     claude_code_cmd: str = "claude"
     claude_auto_update: bool = True
-    claude_min_version: str = "2.0.76"
+    claude_min_version: str = "2.1.0"
     verbose: bool = False
 
     # Agent settings
     agent_name: str = "ralph"
-    use_agent: bool = True
 
     # Teams (experimental)
     enable_teams: bool = False
@@ -194,7 +201,6 @@ class RalphConfig(BaseModel):
             "CLAUDE_CODE_CMD": ("claude_code_cmd", str),
             "CLAUDE_AUTO_UPDATE": ("claude_auto_update", lambda v: v.lower() == "true"),
             "RALPH_VERBOSE": ("verbose", lambda v: v.lower() == "true"),
-            "RALPH_USE_AGENT": ("use_agent", lambda v: v.lower() == "true"),
             "RALPH_AGENT_NAME": ("agent_name", str),
             "RALPH_ENABLE_TEAMS": ("enable_teams", lambda v: v.lower() == "true"),
             "RALPH_MAX_TEAMMATES": ("max_teammates", int),
@@ -279,7 +285,6 @@ class RalphConfig(BaseModel):
             "claudeMinVersion": "claude_min_version",
             "verbose": "verbose",
             "agentName": "agent_name",
-            "useAgent": "use_agent",
             "enableTeams": "enable_teams",
             "maxTeammates": "max_teammates",
             "bgTesting": "bg_testing",
@@ -414,7 +419,6 @@ class RalphConfig(BaseModel):
             "claudeMinVersion": self.claude_min_version,
             "verbose": self.verbose,
             "agentName": self.agent_name,
-            "useAgent": self.use_agent,
             "enableTeams": self.enable_teams,
             "maxTeammates": self.max_teammates,
             "bgTesting": self.bg_testing,
