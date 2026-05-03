@@ -51,17 +51,36 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user for security
 RUN useradd -m -s /bin/bash ralph
+# TAP-668: HOME is not auto-exported when USER drops to a non-root user on
+# minimal base images. Several Ralph code paths (npm, gh, claude config)
+# read $HOME for state directories; without this set explicitly they fall
+# back to "/" which the ralph user cannot write to.
+ENV HOME=/home/ralph
 USER ralph
 
 # Working directory (project mounted here)
+#
+# NOTE on bind-mounted .ralph/: When the host bind-mounts $(pwd) into
+# /workspace, the contents arrive owned by the host UID. If that UID is
+# not the same as the in-container ralph user (UID 1000 by default with
+# `useradd -m`), the HEALTHCHECK below will fail with "permission denied"
+# because ralph cannot read host-root-owned files. Either:
+#   - run the host loop as a UID 1000 user, or
+#   - chown the bind-mount to 1000:1000 before `ralph --sandbox`, or
+#   - add an entrypoint that chowns /workspace/.ralph to ralph before
+#     dropping privileges (out of scope for the bare sandbox image).
 WORKDIR /workspace
 
 # Copy version manifest (generated at build time)
 COPY --chown=ralph:ralph version.json /workspace/version.json
 
 # Health check
+# TAP-668: use `test -r` (readable) not `test -f` (exists) so the check
+# fails for permission errors AND missing-file, and emit the cause to
+# stderr so `docker inspect --format='{{json .State.Health}}'` shows it.
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD test -f /workspace/.ralph/status.json || exit 1
+    CMD test -r /workspace/.ralph/status.json \
+        || { echo "ralph healthcheck: cannot read /workspace/.ralph/status.json (missing or unreadable as user $(id -un))" >&2; exit 1; }
 
 # Default: run Ralph loop
 ENTRYPOINT ["bash"]
