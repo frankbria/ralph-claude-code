@@ -1,17 +1,15 @@
 """Tests for Ralph SDK structured response parsing."""
 
 import json
-import pytest
 
 from ralph_sdk.parsing import (
     RalphStatusBlock,
-    TestsStatus,
-    parse_ralph_status,
     _parse_json_block,
     _parse_jsonl_result,
     _parse_text_fallback,
+    parse_ralph_status,
 )
-from ralph_sdk.status import RalphLoopStatus, RalphStatus, WorkType
+from ralph_sdk.status import RalphLoopStatus, WorkType
 
 
 class TestRalphStatusBlock:

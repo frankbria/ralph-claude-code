@@ -6,9 +6,7 @@ to provide a single source of truth for all component versions at runtime.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -29,7 +27,7 @@ class VersionManifest(BaseModel):
     build_time: str = "unknown"
 
 
-def get_versions(manifest_path: Optional[str] = None) -> VersionManifest:
+def get_versions(manifest_path: str | None = None) -> VersionManifest:
     """Load the version manifest from disk.
 
     Args:

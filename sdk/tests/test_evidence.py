@@ -1,15 +1,12 @@
 """Tests for Ralph SDK EvidenceBundle output."""
 
-import pytest
 
 from ralph_sdk.agent import TaskResult
 from ralph_sdk.evidence import (
     EvidenceBundle,
-    TestEvidence,
-    LintEvidence,
-    to_evidence_bundle,
-    _extract_test_results,
     _extract_lint_results,
+    _extract_test_results,
+    to_evidence_bundle,
 )
 from ralph_sdk.status import RalphStatus
 

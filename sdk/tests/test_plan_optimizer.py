@@ -1,14 +1,15 @@
 """SDK plan_optimizer tests."""
 
-from dataclasses import dataclass, field
 
-import pytest
 
 from ralph_sdk.plan_optimizer import Task, _validate_equivalence
 
 
 def _task(idx: int, raw_line: str, text: str | None = None) -> Task:
-    return Task(idx=idx, raw_line=raw_line, text=text or raw_line.lstrip("- [ ]").strip())
+    # lstrip with a charset (not a substring) intentionally — strips any
+    # leading run of "- [ ]" chars rather than the literal prefix. Behavior
+    # matches the production parser.
+    return Task(idx=idx, raw_line=raw_line, text=text or raw_line.lstrip("- [ ]").strip())  # noqa: B005
 
 
 class TestTap628Equivalence:

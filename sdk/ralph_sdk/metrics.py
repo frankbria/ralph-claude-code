@@ -10,14 +10,13 @@ Provides a Protocol-based metrics pipeline with two concrete implementations:
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger("ralph.sdk.metrics")
 
@@ -32,7 +31,7 @@ class MetricEvent(BaseModel):
     All fields are optional beyond ``event_type`` so callers can record partial
     events (e.g. an error event may lack ``tokens_in``).
     """
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     event_type: str = ""
     loop_count: int = 0
     duration_seconds: float = 0.0
@@ -126,7 +125,7 @@ class JsonlMetricsCollector:
         events: list[MetricEvent] = []
         for path in sorted(self._metrics_dir.glob("metrics-*.jsonl")):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -135,8 +134,10 @@ class JsonlMetricsCollector:
                             event = MetricEvent.model_validate_json(line)
                             if self._matches_filter(event, filter):
                                 events.append(event)
-                        except Exception:
-                            # Skip malformed lines
+                        except (ValidationError, ValueError) as e:
+                            # Skip malformed JSONL lines (partial writes from a
+                            # crashed process); log at debug for diagnosis.
+                            logger.debug("Skipping malformed metric line: %s", e)
                             continue
             except OSError:
                 logger.debug("Failed to read metrics file %s", path, exc_info=True)

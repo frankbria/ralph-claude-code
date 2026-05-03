@@ -74,6 +74,40 @@ jobs:
         echo "✅ Integration tests passed" >> $GITHUB_STEP_SUMMARY
         echo "✅ Deterministic evals passed" >> $GITHUB_STEP_SUMMARY
 
+  sdk-quality:
+    # TAP-542: SDK quality gate — ruff lint + mypy type-check + pytest.
+    # All three are blocking. Runs in parallel with the bash test job; both
+    # must pass to merge. Strictness is intentionally pragmatic at
+    # introduction (see sdk/pyproject.toml comments) so the gate stays green
+    # while it's being adopted; ratchet up in follow-up tickets.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install uv
+      run: pip install uv
+
+    - name: Install SDK + dev deps
+      run: uv pip install --system -e ".[dev]"
+
+    - name: ruff (lint)
+      run: ruff check .
+
+    - name: mypy (type-check)
+      run: mypy .
+
+    - name: pytest
+      run: pytest -q
+
   coverage:
     runs-on: ubuntu-latest
     needs: test

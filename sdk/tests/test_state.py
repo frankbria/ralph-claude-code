@@ -1,11 +1,8 @@
 """Tests for Ralph SDK pluggable state backend (async)."""
 
-import json
 import pytest
-from pathlib import Path
 
 from ralph_sdk.state import FileStateBackend, NullStateBackend, RalphStateBackend
-from ralph_sdk.status import CircuitBreakerState, RalphStatus
 
 
 @pytest.fixture
@@ -203,7 +200,7 @@ class TestTap625AtomicWrites:
                 async def __aexit__(self, *a):
                     return False
                 async def write(self, *a, **k):
-                    raise IOError("simulated SIGTERM")
+                    raise OSError("simulated SIGTERM")
             return Boom()
 
         monkeypatch.setattr(aiofiles, "open", exploding_open)

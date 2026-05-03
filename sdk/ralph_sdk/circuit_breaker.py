@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
-from dataclasses import dataclass, field
 from typing import Any
 
 from ralph_sdk.config import RalphConfig

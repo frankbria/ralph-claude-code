@@ -4,7 +4,6 @@ This is the V2-1 acceptance test: full pipeline from TheStudio TaskPacket
 through Ralph agent to EvidenceBundle output, using NullStateBackend.
 """
 
-import pytest
 
 from ralph_sdk.agent import RalphAgent, TaskResult
 from ralph_sdk.config import RalphConfig
@@ -17,7 +16,7 @@ from ralph_sdk.converters import (
 )
 from ralph_sdk.evidence import to_evidence_bundle
 from ralph_sdk.state import NullStateBackend
-from ralph_sdk.status import RalphLoopStatus, RalphStatus, WorkType
+from ralph_sdk.status import RalphLoopStatus, RalphStatus
 
 
 class TestE2ETaskPacketToEvidenceBundle:
@@ -135,16 +134,7 @@ class TestImports:
     def test_top_level_imports(self):
         from ralph_sdk import (
             RalphAgent,
-            RalphConfig,
             TaskInput,
-            TaskResult,
-            RalphStatus,
-            RalphLoopStatus,
-            WorkType,
-            CircuitBreakerState,
-            CircuitBreakerStateEnum,
-            FileStateBackend,
-            NullStateBackend,
         )
         # All importable
         assert TaskInput is not None

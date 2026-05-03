@@ -4,7 +4,6 @@ import pytest
 
 from ralph_sdk.circuit_breaker import CircuitBreaker
 from ralph_sdk.state import NullStateBackend
-from ralph_sdk.status import CircuitBreakerStateEnum
 
 
 @pytest.fixture

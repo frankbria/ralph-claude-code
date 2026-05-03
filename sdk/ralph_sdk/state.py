@@ -137,7 +137,7 @@ class FileStateBackend(RalphStateBackend):
         if not path.exists():
             return {}
         try:
-            async with aiofiles.open(path, "r", encoding="utf-8") as f:
+            async with aiofiles.open(path, encoding="utf-8") as f:
                 content = await f.read()
             return json.loads(content)
         except (json.JSONDecodeError, OSError):
@@ -148,7 +148,7 @@ class FileStateBackend(RalphStateBackend):
         if not path.exists():
             return ""
         try:
-            async with aiofiles.open(path, "r", encoding="utf-8") as f:
+            async with aiofiles.open(path, encoding="utf-8") as f:
                 content = await f.read()
             return content.strip()
         except OSError:

@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import math
-import os
 import re
 import signal
 import sys
@@ -27,21 +26,21 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field, field_validator
 
 from ralph_sdk.config import RalphConfig
-from ralph_sdk.cost import AlertLevel, CostTracker, TokenRateLimiter
 from ralph_sdk.context import (
     ContextManager,
     PromptCacheStats,
-    PromptParts,
     estimate_tokens,
     split_prompt,
 )
-from ralph_sdk.metrics import MetricsCollector, MetricEvent, NullMetricsCollector
+from ralph_sdk.cost import AlertLevel, CostTracker, TokenRateLimiter
+from ralph_sdk.import_graph import CachedImportGraph
+from ralph_sdk.metrics import MetricEvent, MetricsCollector, NullMetricsCollector
 from ralph_sdk.parsing import (
-    PermissionDenialEvent,
     detect_permission_denials,
     extract_files_changed,
     parse_ralph_status,
 )
+from ralph_sdk.plan_optimizer import optimize_plan
 from ralph_sdk.state import FileStateBackend, RalphStateBackend
 from ralph_sdk.status import (
     CircuitBreakerState,
@@ -56,8 +55,6 @@ from ralph_sdk.tools import (
     ralph_status_tool,
     ralph_task_update_tool,
 )
-from ralph_sdk.import_graph import CachedImportGraph
-from ralph_sdk.plan_optimizer import optimize_plan
 
 logger = logging.getLogger("ralph.sdk")
 
@@ -235,6 +232,17 @@ def _estimate_complexity(status: RalphStatus) -> int:
 # =============================================================================
 # Abstract Interface (SDK-3: Hybrid Architecture)
 # =============================================================================
+
+class TracerProtocol(Protocol):
+    """Minimal OpenTelemetry-style tracer surface used by the agent.
+
+    Defined as a Protocol so callers can inject any tracer (real OTel,
+    a no-op stub, a test double) without importing OTel here. Only the
+    `start_as_current_span` context-manager surface is touched today.
+    """
+
+    def start_as_current_span(self, name: str, **kwargs: Any) -> Any: ...
+
 
 class RalphAgentInterface(Protocol):
     """Abstract interface for Ralph agent implementations (CLI and SDK)."""
@@ -528,7 +536,7 @@ class RalphAgent:
         project_dir: str | Path = ".",
         state_backend: RalphStateBackend | None = None,
         correlation_id: str | None = None,
-        tracer: Any | None = None,
+        tracer: TracerProtocol | None = None,
         metrics_collector: MetricsCollector | None = None,
     ) -> None:
         self.config = config or RalphConfig.load(project_dir)
@@ -660,7 +668,9 @@ class RalphAgent:
                     except (ProcessLookupError, OSError):
                         pass
             except Exception:
-                logger.debug("Failed to send termination signal", exc_info=True)
+                # Broad: cancel() must never propagate from a cleanup path —
+                # the caller is asking us to stop, not to discover new errors.
+                logger.exception("Failed to send termination signal")
 
             # Wait for graceful exit (TAP-675: use get_running_loop() +
             # stored loop reference instead of deprecated get_event_loop()).
@@ -668,7 +678,7 @@ class RalphAgent:
                 nonlocal was_forced
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=grace)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     try:
                         proc.kill()
                         was_forced = True
@@ -716,8 +726,10 @@ class RalphAgent:
                     partial_output = bytes(proc.stdout._buffer).decode(
                         "utf-8", errors="replace"
                     )
-            except Exception:
-                pass
+            except (AttributeError, OSError, UnicodeDecodeError) as e:
+                # Best-effort buffer read; failure here just means the
+                # subprocess closed mid-decode. Surface at debug for triage.
+                logger.debug("partial_output capture failed: %s", e)
 
         # Fallback to last captured partial output
         if partial_output is None:
@@ -1148,7 +1160,7 @@ class RalphAgent:
 
             return status
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             timeout_minutes_used = timeout_seconds / 60.0
             logger.warning(
                 "Claude CLI timed out after %.1f minutes", timeout_minutes_used,
@@ -1159,8 +1171,10 @@ class RalphAgent:
             try:
                 proc.kill()
                 await proc.wait()
-            except Exception:
-                pass
+            except (ProcessLookupError, OSError) as e:
+                # Process already dead or wait() race — both are benign on
+                # the timeout path; everything else has already given up.
+                logger.debug("post-timeout proc cleanup: %s", e)
             status = RalphStatus(
                 status="TIMEOUT",
                 work_type="UNKNOWN",
@@ -1491,7 +1505,9 @@ class RalphAgent:
         try:
             self.metrics_collector.record(event)
         except Exception:
-            logger.debug("Failed to record metrics", exc_info=True)
+            # Broad: metrics is observability — a backend bug must never
+            # crash the agent loop. Surface stack at debug for triage.
+            logger.exception("Failed to record metrics")
 
     # -------------------------------------------------------------------------
     # SDK-CONTEXT-3: Session Lifecycle Management

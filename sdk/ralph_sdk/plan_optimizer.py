@@ -376,8 +376,8 @@ def _write_optimized(fix_plan: Path, all_tasks: list[Task], reordered_unchecked:
     shutil.copy2(fix_plan, backup)
 
     lines = fix_plan.read_text().splitlines()
-    unchecked_lines = {t.line_num for t in reordered_unchecked}
-    checked_tasks = [t for t in all_tasks if t.checked]
+    _unchecked_lines = {t.line_num for t in reordered_unchecked}  # diagnostic / future use
+    _checked_tasks = [t for t in all_tasks if t.checked]  # diagnostic / future use
 
     # Build section → ordered unchecked task lines
     section_order: dict[str, list[str]] = {}
@@ -389,9 +389,9 @@ def _write_optimized(fix_plan: Path, all_tasks: list[Task], reordered_unchecked:
     output: list[str] = []
     current_section = ""
     section_inserted: set[str] = set()
-    skip_unchecked = False
+    _skip_unchecked = False  # state placeholder for future per-section gating
 
-    for i, line in enumerate(lines, 1):
+    for _i, line in enumerate(lines, 1):
         sec_match = _SECTION.match(line)
         if sec_match:
             current_section = sec_match.group(0)

@@ -1,9 +1,8 @@
 """Tests for Ralph SDK configuration loading (Pydantic v2 model)."""
 
 import json
-import os
+
 import pytest
-from pathlib import Path
 from pydantic import ValidationError
 
 from ralph_sdk.config import RalphConfig

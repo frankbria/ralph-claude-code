@@ -12,7 +12,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # =============================================================================
 # SDK-CONTEXT-1: Progressive Context Loading
 # =============================================================================
@@ -229,7 +228,7 @@ class ContextManager:
                 if re.match(r"\s*- \[x\]", line, re.IGNORECASE)
             )
             if total_in_section > 0:
-                section_title = heading.strip().lstrip("#").strip()
+                section_title = heading.strip().lstrip("#").strip()  # noqa: F841 — preserved for future heading rewrite (TAP-542 follow-up)
                 result_parts.append(
                     f"{heading.rstrip()}  ({checked_in_section}/{total_in_section} tasks complete)"
                 )

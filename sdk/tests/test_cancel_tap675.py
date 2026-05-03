@@ -4,7 +4,7 @@ loop reference for cross-thread safety, not deprecated get_event_loop()."""
 import asyncio
 import threading
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

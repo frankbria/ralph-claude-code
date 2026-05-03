@@ -1,8 +1,8 @@
 """Tests for Ralph SDK status and circuit breaker (Pydantic v2 models)."""
 
-import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 from ralph_sdk.status import (
     CircuitBreakerState,

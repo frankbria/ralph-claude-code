@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
 
 from ralph_sdk.agent import TaskResult
-from ralph_sdk.status import RalphLoopStatus
 
 
 class TestEvidence(BaseModel):

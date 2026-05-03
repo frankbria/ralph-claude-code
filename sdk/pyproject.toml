@@ -30,6 +30,10 @@ classifiers = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21",
+    "pytest-timeout>=2.1",
+    "mypy>=1.0",
+    "ruff>=0.2",
 ]
 tracing = [
     "opentelemetry-api>=1.20",
@@ -44,3 +48,48 @@ include = ["ralph_sdk*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
+timeout = 30
+
+# TAP-542: lint + type-check gates. Config is intentionally pragmatic at
+# introduction — strictness can be ratcheted up incrementally without
+# blocking the merge that wires the gates into CI.
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+# Start with the rule families that catch real bugs without churning style.
+# E/W = pycodestyle, F = pyflakes, I = isort, B = bugbear, UP = pyupgrade.
+select = ["E", "W", "F", "I", "B", "UP"]
+# E501 (line too long): line-length is informational; we don't enforce wrap.
+# B008 (function-call-in-default): pydantic Field() is the idiomatic default.
+# UP042 (str+Enum -> StrEnum): migration deferred — touches 7 enum classes
+#   across the public API surface and warrants its own ticket.
+ignore = ["E501", "B008", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "B017", "F841"]  # tests use assert/expr patterns ruff doesn't like
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = false  # noqa rules above ignore inline; mypy noisy here
+warn_redundant_casts = true
+# Pragmatic posture for the introduction — we want the gate green so we
+# can start enforcing forward, then tighten in follow-up tickets. The
+# disabled codes are dominated by the str+Enum classes that haven't been
+# migrated to StrEnum yet (UP042 in ruff is also deferred for the same
+# reason); once that lands, drop arg-type and assignment from this list.
+ignore_missing_imports = true
+follow_imports = "silent"
+disable_error_code = [
+    "misc",
+    "no-redef",
+    "valid-type",
+    "arg-type",     # str passed where StrEnum subclass expected
+    "assignment",   # str literal assigned to StrEnum subclass attribute
+    "operator",     # Field() default lambda flagged as object
+    "import-untyped",  # aiofiles ships no stubs and has no community-maintained types
+]
+exclude = ["build/", "dist/", "tests/"]

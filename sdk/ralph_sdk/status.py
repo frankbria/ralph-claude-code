@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
-    from ralph_sdk.parsing import PermissionDenialEvent
+    pass
 
 
 class RalphLoopStatus(str, Enum):

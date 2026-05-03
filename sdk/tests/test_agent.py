@@ -1,15 +1,14 @@
 """Tests for Ralph SDK Agent (async + Pydantic v2 models)."""
 
-import asyncio
 import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
 
 from ralph_sdk.agent import RalphAgent, TaskInput, TaskResult
 from ralph_sdk.config import RalphConfig
 from ralph_sdk.state import NullStateBackend
-from ralph_sdk.status import RalphStatus, CircuitBreakerState, WorkType, RalphLoopStatus
+from ralph_sdk.status import CircuitBreakerState, RalphLoopStatus, RalphStatus, WorkType
 
 
 @pytest.fixture

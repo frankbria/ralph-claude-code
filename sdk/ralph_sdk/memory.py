@@ -14,14 +14,16 @@ Memory decay: exponential scoring with age-based pruning (Ebbinghaus-inspired).
 
 from __future__ import annotations
 
-import json
+import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ValidationError
+
+logger = logging.getLogger("ralph.sdk.memory")
 
 
 # =============================================================================
@@ -91,7 +93,10 @@ class FileMemoryBackend:
             if line:
                 try:
                     episodes.append(Episode.model_validate_json(line))
-                except Exception:
+                except (ValidationError, ValueError) as e:
+                    # Skip malformed JSONL lines — index file is append-only
+                    # and may contain partial writes from a crashed process.
+                    logger.debug("Skipping malformed episode line: %s", e)
                     continue
         return episodes
 
@@ -108,7 +113,9 @@ class FileMemoryBackend:
             return None
         try:
             return ProjectIndex.model_validate_json(self._index_path.read_text())
-        except Exception:
+        except (ValidationError, ValueError, OSError) as e:
+            # Index regenerates on next write; treat read failure as "not present".
+            logger.debug("ProjectIndex read failed (%s); will regenerate", e)
             return None
 
     async def write_project_index(self, index: ProjectIndex) -> None:
@@ -165,7 +172,7 @@ class MemoryManager:
             loop_count: Current loop iteration number.
         """
         episode = Episode(
-            timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             task=completed_task,
             outcome=outcome,
             work_type=work_type,
@@ -259,7 +266,7 @@ class MemoryManager:
         """
         root = Path(project_root)
         index = ProjectIndex(
-            generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             language=_detect_language(root),
             test_runner=_detect_test_runner(root),
             file_count=_count_files(root),
@@ -280,8 +287,8 @@ class MemoryManager:
     def _episode_age_days(ep: Episode) -> float:
         try:
             ep_time = datetime.strptime(ep.timestamp, "%Y-%m-%dT%H:%M:%SZ")
-            ep_time = ep_time.replace(tzinfo=timezone.utc)
-            return (datetime.now(timezone.utc) - ep_time).total_seconds() / 86400
+            ep_time = ep_time.replace(tzinfo=UTC)
+            return (datetime.now(UTC) - ep_time).total_seconds() / 86400
         except (ValueError, TypeError):
             return 0.0
 
@@ -289,7 +296,7 @@ class MemoryManager:
     def _episode_epoch(ep: Episode) -> float:
         try:
             ep_time = datetime.strptime(ep.timestamp, "%Y-%m-%dT%H:%M:%SZ")
-            ep_time = ep_time.replace(tzinfo=timezone.utc)
+            ep_time = ep_time.replace(tzinfo=UTC)
             return ep_time.timestamp()
         except (ValueError, TypeError):
             return 0.0
@@ -323,15 +330,15 @@ def _detect_test_runner(root: Path) -> str:
             text = pkg.read_text()
             if '"jest"' in text or '"vitest"' in text:
                 return "jest" if '"jest"' in text else "vitest"
-        except Exception:
-            pass
+        except OSError as e:
+            logger.debug("package.json read failed: %s", e)
     pyproj = root / "pyproject.toml"
     if pyproj.exists():
         try:
             if "pytest" in pyproj.read_text():
                 return "pytest"
-        except Exception:
-            pass
+        except OSError as e:
+            logger.debug("pyproject.toml read failed: %s", e)
     if list(root.glob("tests/*.bats"))[:1]:
         return "bats"
     if (root / "go.mod").exists():

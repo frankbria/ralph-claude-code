@@ -1,7 +1,6 @@
 """Tests for Ralph SDK TaskPacket converters."""
 
 import warnings
-import pytest
 
 from ralph_sdk.converters import (
     ComplexityBand,
