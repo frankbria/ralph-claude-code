@@ -25,6 +25,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, field_validator
 
+from ralph_sdk.complexity import classify_complexity
 from ralph_sdk.config import RalphConfig, RalphConfigError
 from ralph_sdk.context import (
     ContextManager,
@@ -32,7 +33,7 @@ from ralph_sdk.context import (
     estimate_tokens,
     split_prompt,
 )
-from ralph_sdk.cost import AlertLevel, CostTracker, TokenRateLimiter
+from ralph_sdk.cost import AlertLevel, CostComplexityBand, CostTracker, TokenRateLimiter, select_model
 from ralph_sdk.import_graph import CachedImportGraph
 from ralph_sdk.metrics import MetricEvent, MetricsCollector, NullMetricsCollector
 from ralph_sdk.parsing import (
@@ -1041,8 +1042,12 @@ class RalphAgent:
             )
             self._pending_decomposition_hint = None  # Consumed
 
-        # Build Claude CLI command
-        cmd = self._build_claude_command(prompt, system_prompt=system_prompt)
+        # Build Claude CLI command (task_text feeds per-task model routing)
+        cmd = self._build_claude_command(
+            prompt,
+            system_prompt=system_prompt,
+            task_text=self._extract_next_task_text(task_input),
+        )
 
         logger.debug("Invoking: %s", " ".join(cmd[:5]) + "...")
 
@@ -1358,6 +1363,7 @@ class RalphAgent:
         self,
         prompt: str,
         system_prompt: str | None = None,
+        task_text: str = "",
     ) -> list[str]:
         """Build Claude CLI command (matching bash build_claude_command())."""
         cmd = [self.config.claude_code_cmd]
@@ -1371,6 +1377,13 @@ class RalphAgent:
         # System prompt (for TheStudio DeveloperRoleConfig injection)
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
+
+        # Model: per-task complexity routing when enabled, else config.model.
+        # Falls back to config.model when task_text is empty so behavior matches
+        # the bash build_claude_command (lib/complexity.sh::ralph_select_model).
+        effective_model = self._select_effective_model(task_text)
+        if effective_model:
+            cmd.extend(["--model", effective_model])
 
         # Prompt
         cmd.extend(["-p", prompt])
@@ -1386,6 +1399,48 @@ class RalphAgent:
         cmd.extend(["--max-turns", str(self.config.max_turns)])
 
         return cmd
+
+    def _extract_next_task_text(self, task_input: TaskInput) -> str:
+        """Pull the first unchecked fix_plan.md task line for model routing.
+
+        Returns empty string when no plan/no unchecked tasks — caller treats
+        empty as "no routing input" and falls back to config.model.
+        """
+        if not task_input.fix_plan:
+            return ""
+        for line in task_input.fix_plan.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("- [ ]"):
+                return stripped[5:].strip()[:300]
+        return ""
+
+    def _select_effective_model(self, task_text: str) -> str:
+        """Route to a model based on task complexity, or fall back to config.model.
+
+        Mirrors bash ralph_select_model: routing must be opted in
+        (model_routing_enabled=true) AND task_text must be non-empty. The
+        config.model_map_* fields determine the per-band targets.
+        """
+        if not self.config.model_routing_enabled or not task_text:
+            return self.config.model
+        try:
+            band = classify_complexity(task_text)
+            model_map = {
+                CostComplexityBand.TRIVIAL: self.config.model_map_trivial,
+                CostComplexityBand.SMALL: self.config.model_map_small,
+                CostComplexityBand.MEDIUM: self.config.model_map_medium,
+                CostComplexityBand.LARGE: self.config.model_map_large,
+                CostComplexityBand.ARCHITECTURAL: self.config.model_map_architectural,
+            }
+            routed = select_model(band, retry_count=0, model_map=model_map)
+        except Exception:
+            return self.config.model
+        if routed and routed != self.config.model:
+            logger.info(
+                "Model routed: %s (complexity=%s, override of %s)",
+                routed, band.value, self.config.model,
+            )
+        return routed or self.config.model
 
     def _parse_response(self, stdout: str, return_code: int) -> RalphStatus:
         """Parse Claude CLI response using 3-strategy chain (JSON block -> JSONL -> text).

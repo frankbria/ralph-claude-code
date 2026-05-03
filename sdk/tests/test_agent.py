@@ -314,3 +314,53 @@ class TestTAP1104AgentMode:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
         await agent._preflight_claude_version()  # no raise — degrades to warn
+
+
+class TestModelRouting:
+    """Per-task complexity model routing wired into _build_claude_command."""
+
+    def _agent(self, project_dir, config):
+        return RalphAgent(config=config, project_dir=project_dir)
+
+    def test_routing_disabled_uses_config_model(self, project_dir, config):
+        config.model_routing_enabled = False
+        config.model = "claude-sonnet-4-6"
+        agent = self._agent(project_dir, config)
+        cmd = agent._build_claude_command(
+            "prompt", task_text="[ARCHITECTURAL] Redesign database schema"
+        )
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
+
+    def test_routing_enabled_trivial_to_haiku(self, project_dir, config):
+        config.model_routing_enabled = True
+        config.model = "claude-sonnet-4-6"
+        agent = self._agent(project_dir, config)
+        cmd = agent._build_claude_command("prompt", task_text="[TRIVIAL] Fix typo")
+        assert cmd[cmd.index("--model") + 1] == config.model_map_trivial
+
+    def test_routing_enabled_architectural_to_opus(self, project_dir, config):
+        config.model_routing_enabled = True
+        config.model = "claude-sonnet-4-6"
+        agent = self._agent(project_dir, config)
+        cmd = agent._build_claude_command(
+            "prompt", task_text="[ARCHITECTURAL] Redesign database schema"
+        )
+        assert cmd[cmd.index("--model") + 1] == config.model_map_architectural
+
+    def test_routing_enabled_empty_task_falls_back(self, project_dir, config):
+        config.model_routing_enabled = True
+        config.model = "claude-sonnet-4-6"
+        agent = self._agent(project_dir, config)
+        cmd = agent._build_claude_command("prompt", task_text="")
+        assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-6"
+
+    def test_extract_next_task_skips_checked(self, project_dir, config):
+        agent = self._agent(project_dir, config)
+        task = TaskInput(fix_plan="- [x] Done one\n- [ ] Real next task\n- [ ] Later")
+        assert agent._extract_next_task_text(task) == "Real next task"
+
+    def test_extract_next_task_empty_when_no_unchecked(self, project_dir, config):
+        agent = self._agent(project_dir, config)
+        task = TaskInput(fix_plan="- [x] Done\n- [x] Also done\n")
+        assert agent._extract_next_task_text(task) == ""

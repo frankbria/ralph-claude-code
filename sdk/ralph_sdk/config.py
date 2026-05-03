@@ -133,6 +133,7 @@ class RalphConfig(BaseModel):
     budget_critical_pct: float = Field(default=80.0, ge=0.0, le=100.0, description="Budget % for CRITICAL alert.")
 
     # SDK-COST-2: Dynamic model routing
+    model_routing_enabled: bool = False
     model_map_trivial: str = "claude-haiku-4-5"
     model_map_small: str = "claude-haiku-4-5"
     model_map_medium: str = "claude-sonnet-4-6"
@@ -226,6 +227,8 @@ class RalphConfig(BaseModel):
             "MAX_BUDGET_USD": ("max_budget_usd", float),
             "BUDGET_WARNING_PCT": ("budget_warning_pct", float),
             "BUDGET_CRITICAL_PCT": ("budget_critical_pct", float),
+            "MODEL_ROUTING_ENABLED": ("model_routing_enabled", lambda v: v.lower() == "true"),
+            "RALPH_MODEL_ROUTING_ENABLED": ("model_routing_enabled", lambda v: v.lower() == "true"),
             "MODEL_MAP_TRIVIAL": ("model_map_trivial", str),
             "MODEL_MAP_SMALL": ("model_map_small", str),
             "MODEL_MAP_MEDIUM": ("model_map_medium", str),
@@ -375,6 +378,8 @@ class RalphConfig(BaseModel):
             "MAX_BUDGET_USD": ("max_budget_usd", float),
             "BUDGET_WARNING_PCT": ("budget_warning_pct", float),
             "BUDGET_CRITICAL_PCT": ("budget_critical_pct", float),
+            "MODEL_ROUTING_ENABLED": ("model_routing_enabled", lambda v: v.lower() == "true"),
+            "RALPH_MODEL_ROUTING_ENABLED": ("model_routing_enabled", lambda v: v.lower() == "true"),
             "MODEL_MAP_TRIVIAL": ("model_map_trivial", str),
             "MODEL_MAP_SMALL": ("model_map_small", str),
             "MODEL_MAP_MEDIUM": ("model_map_medium", str),
