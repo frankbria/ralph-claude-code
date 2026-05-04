@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ralph-sdk"
-version = "2.1.0"
+version = "2.2.0"
 description = "Ralph Agent SDK — autonomous AI development loop for Claude Code"
 readme = "README.md"
 license = {text = "MIT"}

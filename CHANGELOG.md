@@ -10,6 +10,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.12.0] — 2026-05-04
+
+SDK bumped to **2.2.0** alongside this release (TAP-1104 + TAP-542 + per-task model routing all touch the SDK surface).
+
+### Added
+
+- **TAP-542 — SDK quality gate (ruff + mypy + pytest-asyncio + pytest-timeout).** New blocking CI job `sdk-quality` runs alongside the bash test job. `ruff check` (E/W/F/I/B/UP families), `mypy` (pragmatic disable list for the str+Enum classes pending a follow-up StrEnum migration), `pytest-asyncio` mode=auto for the ~50 async tests, and a 30s `pytest-timeout` default. UP042 deferred — see `sdk/pyproject.toml` for the rationale. Documented `TracerProtocol` for the previously `Any | None` tracer parameter.
+- **TAP-1201 — ralph-monitor mid-loop visibility + accurate liveness detection.** New `_classify_liveness` (`HEALTHY` / `STALE` / `DEAD` / `UNKNOWN`) factors in `status.json` mtime, `live.log` mtime within `LIVE_LOG_FRESH_SECS` (default 60s), and `ralph_loop.sh` PID liveness via `pgrep`. `DEAD` now requires BOTH stale `status.json` AND no live process — the conditions that masked the April-2026 NLTlabsPE Loop 1 false alarm. Added always-render "Working on:" / "Model:" rows with `(awaiting first loop)` placeholders. New PreToolUse hook `templates/hooks/on-linear-tool.sh` writes `.ralph/.current_issue` atomically when Claude calls a Linear MCP tool; per-project opt-in via `.claude/settings.json` matcher `mcp__plugin_linear_linear__.*`.
+- **Per-task complexity-based model routing in the SDK.** New `model_routing_enabled` config flag (default off; opt-in). When enabled, `_build_claude_command` routes each Claude CLI invocation to the cheapest model that can credibly do the work (haiku → sonnet floor → opus) based on the next unchecked `fix_plan` task. Mirrors the bash `lib/complexity.sh::ralph_select_model` contract.
+- **TAP-540 — first-time BATS coverage for `lib/github_issues.sh`.** 19 cases covering repo detection (SSH/HTTPS/missing remote), input validation (TAP-651 regression guard), happy-path import, gh failure modes (404/403/429/malformed JSON), label/assignee filters, idempotent re-import, batch processing, and assessment scoring. PATH-shim a fake `gh` binary controlled by env vars; stub `git remote get-url origin` via function shadowing.
+
+### Changed
+
+- **TAP-1104 — SDK only supports agent mode (mirror of bash ADR-0006).** Removed `use_agent` field + every reader (env / JSON / .ralphrc / export round-trip). `_build_claude_command` always emits `--agent <name>` and never emits `--allowedTools`. Bumped `claude_min_version` default `2.0.76 → 2.1.0` and added `_preflight_claude_version` that runs at `RalphAgent.run()` start; raises `RalphConfigError` (new typed exception) when the installed CLI is older. Cannot-detect degrades to a WARN log to mirror bash `check_claude_version`.
+- **`HOOKS-2: hook scripts reference a known hook directory`** rewritten to accept BOTH `.ralph/hooks/` and `.claude/hooks/`. Original test rejected `.claude/hooks/` entries and broke as soon as tapps-mcp registered hooks there.
+- **`all hook commands start with 'bash '`** widened to also accept the bare `.claude/hooks/<name>.sh` form that tapps-mcp / linear-MCP plugins emit. Still catches tool names (Write/Edit) or garbage strings landing in `command` fields.
+- **`PreToolUse has exactly two entries`** rewritten as a positive invariant check: Ralph's Bash hook must wire to `validate-command.sh` AND its Edit|Write hook must wire to `protect-ralph-files.sh`. Plugin-injected entries are allowed; what is protected is removal or rewiring of Ralph's own defenses.
+- **`.gitignore`** adds 7 new runtime-state entries (`.ralph/.model_routing.jsonl`, `.qa_failures.json`, `.current_issue`, `.coordinator_session`, `brief.json`, `forensic-*/`).
+- **`docs/epics/`** committed: docs-mcp-generated epic + 9 story specs that previously lived untracked in working trees.
+
+### Fixed
+
+- **TAP-668 — Dockerfile.sandbox HEALTHCHECK readability + HOME env for ralph user.** Three concrete bugs: `ENV HOME=/home/ralph` was missing (npm/gh/claude config writes silently failed under the dropped user with `$HOME=/`); `HEALTHCHECK` used `test -f` which couldn't distinguish missing-file from permission-denied (now `test -r`); failure now emits a stderr cause line so `docker inspect --format='{{json .State.Health}}'` shows the actual reason. Documented bind-mount UID alignment requirement above `WORKDIR`.
+- **Test count mismatch (`Executed 1455 instead of expected 1456 tests`).** Removed dead `dry_run_simulate logs allowed tools count` test in `tests/unit/test_log_rotation_dryrun.bats`. Asserted on a `CLAUDE_ALLOWED_TOOLS` log line that ADR-0006 deleted; sourcing `ralph_loop.sh` in the bats env triggered the post-ADR-0006 startup `exit`, so bats counted the @test in `1..N` but never produced an `ok N` line. Surfaced once the previously inactive Test Suite workflow was enabled.
+- **Two integration tests asserting `setup.sh` ships `ALLOWED_TOOLS=...` in `.ralphrc`** replaced with a single negative invariant (`! grep -qE '^ALLOWED_TOOLS=' .ralphrc`) so the legacy field stays deleted.
+- **One eval test (`FILE PROTECTION: blocks edit to .ralphrc`)** was asserting the wrong half of the hook contract — it ran with no `.ralphrc` fixture, but the hook's contract (HOOKS-5) is allow-create-when-absent / block-edit-when-present. Split into two tests covering both halves.
+- **`.github/workflows/codeql-analysis.yml`** now pins `defaults.run.shell: bash` per TAP-667. Was the only hand-authored workflow without this; only became visible to CI once the Test Suite workflow was enabled.
+
+### CI / Infrastructure
+
+- **Test Suite workflow enabled.** `gh workflow enable "Test Suite"` registered the previously inactive workflow, giving end-to-end CI signal on every PR for the first time in this version range. The previously-undetected gaps fixed under "Fixed" above were all surfaced by this single change.
+
+---
+
 ## [2.11.5] — 2026-05-02
 
 ### Changed

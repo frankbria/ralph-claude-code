@@ -3,7 +3,7 @@
 Provides dual-mode operation: standalone CLI + TheStudio embedded.
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 from ralph_sdk.agent import (
     CancelResult,
