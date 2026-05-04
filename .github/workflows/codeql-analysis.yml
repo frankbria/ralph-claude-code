@@ -14,6 +14,14 @@ permissions:
   security-events: write
   contents: read
 
+# TAP-667: pin bash as the default run shell. Steps may not use bashisms
+# today, but the policy applies to every hand-authored workflow so a
+# self-hosted runner where dash is the default sh can't introduce a
+# silent regression later.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: codeql-${{ github.head_ref || github.ref }}
   cancel-in-progress: true

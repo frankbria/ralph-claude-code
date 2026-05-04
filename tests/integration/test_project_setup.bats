@@ -508,22 +508,21 @@ teardown() {
     grep -q "Edit" test-project/.ralphrc
 }
 
-@test "setup.sh .ralphrc contains ALLOWED_TOOLS with test execution capabilities" {
+# Removed: two tests that asserted .ralphrc shipped with an `ALLOWED_TOOLS=...`
+# allowlist line. ADR-0006 deleted the legacy `-p` mode and the
+# ALLOWED_TOOLS allowlist along with it; tool surface is now defined by
+# the agent file's `tools:` allowlist + `disallowedTools:` blocklist
+# (.claude/agents/ralph.md). The replacement invariant — "tool surface
+# is defined in the agent file, not .ralphrc" — is already covered by
+# HOOKS-6 in tests/unit/test_hooks.bats.
+
+@test "setup.sh .ralphrc does NOT carry the legacy ALLOWED_TOOLS allowlist (ADR-0006)" {
     bash "$SETUP_SCRIPT" test-project
 
-    # .ralphrc should include Bash(npm *) or Bash(pytest) for test execution
-    grep -qE 'Bash\(npm \*\)|Bash\(pytest\)' test-project/.ralphrc
-}
-
-@test "setup.sh .ralphrc ALLOWED_TOOLS matches ralph-enable defaults" {
-    bash "$SETUP_SCRIPT" test-project
-
-    # The expected ALLOWED_TOOLS value that ralph-enable uses (Issue #149: safe git subcommands)
-    local expected_tools='ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(git -C *),Bash(grep *),Bash(find *),Bash(npm *),Bash(pytest)"'
-
-    # Check that .ralphrc contains the expected ALLOWED_TOOLS line
-    # Use grep -F for literal string matching (avoids regex interpretation of *)
-    grep -qF "$expected_tools" test-project/.ralphrc
+    # Negative assertion: legacy field must stay deleted. If a future
+    # change re-introduces it, this test fires loudly so we don't silently
+    # split the tool-surface contract across two files again.
+    ! grep -qE '^ALLOWED_TOOLS=' test-project/.ralphrc
 }
 
 @test "setup.sh .ralphrc is committed in initial git commit" {

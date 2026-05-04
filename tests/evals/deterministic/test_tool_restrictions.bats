@@ -197,10 +197,22 @@ run_protect_files() {
     [[ "$status" -eq 2 ]]
 }
 
-@test "FILE PROTECTION: blocks edit to .ralphrc" {
+@test "FILE PROTECTION: blocks edit to existing .ralphrc" {
+    # The hook's contract (HOOKS-5 in tests/unit/test_hooks.bats) is:
+    # ALLOW creating a new .ralphrc when absent, BLOCK editing once it
+    # exists. The previous form of this test prepared no fixture, so it
+    # asserted the wrong half of the contract — eval went red the moment
+    # the eval suite started running end-to-end (post bats count fix).
+    touch .ralphrc
     run run_protect_files ".ralphrc"
     assert_failure
     [[ "$status" -eq 2 ]]
+}
+
+@test "FILE PROTECTION: allows creating new .ralphrc when absent (HOOKS-5)" {
+    [[ ! -f .ralphrc ]] || rm -f .ralphrc
+    run run_protect_files ".ralphrc"
+    assert_success
 }
 
 @test "FILE PROTECTION: allows edit to .ralph/fix_plan.md (agent checks off tasks)" {

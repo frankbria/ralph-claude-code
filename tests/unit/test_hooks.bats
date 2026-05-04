@@ -98,11 +98,26 @@ teardown() {
     jq -e '.hooks.StopFailure' "$PROJECT_ROOT/.claude/settings.json" >/dev/null
 }
 
-@test "HOOKS-2: hook scripts reference .ralph/hooks/ directory" {
-    # All bash commands should reference .ralph/hooks/; ignore tool matchers like "Write", "server_error"
-    local non_ralph_hooks
-    non_ralph_hooks=$(jq -r '.. | .command? // empty' "$PROJECT_ROOT/.claude/settings.json" | grep -E '^bash ' | grep -v '.ralph/hooks/' | wc -l | tr -d '[:space:]')
-    [[ "$non_ralph_hooks" -eq 0 ]]
+@test "HOOKS-2: hook scripts reference a known hook directory" {
+    # All bash hook commands must reference a legitimate hook root:
+    #   - .ralph/hooks/   (Ralph's own hooks, protected layer)
+    #   - .claude/hooks/  (tapps-mcp / linear / other Claude-Code plugins
+    #                      that ship hook scripts under .claude/hooks/)
+    # Catches garbage paths or stray script references being injected
+    # into settings.json — not policing which hook directory a plugin
+    # chooses to live in. The original test rejected .claude/hooks/
+    # entries and broke as soon as tapps-mcp registered its hooks there.
+    local stray
+    stray=$(jq -r '.. | .command? // empty' "$PROJECT_ROOT/.claude/settings.json" \
+        | grep -E '^bash ' \
+        | grep -Ev '(\.ralph/hooks/|\.claude/hooks/)' \
+        | wc -l | tr -d '[:space:]')
+    [[ "$stray" -eq 0 ]] || {
+        echo "Stray bash hook commands not under .ralph/hooks/ or .claude/hooks/:" >&2
+        jq -r '.. | .command? // empty' "$PROJECT_ROOT/.claude/settings.json" \
+            | grep -E '^bash ' | grep -Ev '(\.ralph/hooks/|\.claude/hooks/)' >&2
+        return 1
+    }
 }
 
 # =============================================================================
