@@ -754,23 +754,28 @@ upgrade_single_project() {
     log INFO "${BOLD}Upgrading: $project_name${NC}  ($project)"
     echo "   ─────────────────────────────────────────"
 
-    # Tier 1: hooks
+    # Tier 1: hooks (always run — this is the cheapest, most common targeted upgrade)
     upgrade_hooks "$project"
 
-    # Tier 1: agents
-    upgrade_agents "$project"
+    # --hooks-only short-circuits the rest. Without this gate, the flag was a
+    # silent lie: parsed but ignored, so users asking for a hook refresh got
+    # the full agent/skill/config/prompt sweep anyway. (TAP-1418)
+    if [[ "$HOOKS_ONLY" != "true" ]]; then
+        # Tier 1: agents
+        upgrade_agents "$project"
 
-    # Tier 1: Ralph-local skills (.claude/skills/)
-    upgrade_skills_local "$project"
+        # Tier 1: Ralph-local skills (.claude/skills/)
+        upgrade_skills_local "$project"
 
-    # Tier 2: .ralphrc
-    merge_ralphrc "$project"
+        # Tier 2: .ralphrc
+        merge_ralphrc "$project"
 
-    # Tier 2: settings.json
-    merge_settings_json "$project"
+        # Tier 2: settings.json
+        merge_settings_json "$project"
 
-    # Tier 2: .ralph/PROMPT.md (marker-bounded section only)
-    upgrade_prompt_md "$project"
+        # Tier 2: .ralph/PROMPT.md (marker-bounded section only)
+        upgrade_prompt_md "$project"
+    fi
 
     # Prune old backups
     if [[ "$DRY_RUN" != "true" ]]; then

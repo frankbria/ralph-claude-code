@@ -162,6 +162,50 @@ teardown() {
 # Dry-run preview reports the same accurate counters
 # ---------------------------------------------------------------------------
 
+@test "TAP-1418: --hooks-only does not touch agents/skills/.ralphrc/PROMPT.md" {
+    # Pre-condition: empty agent dir and a known PROMPT.md / .ralphrc body.
+    # If the gate is missing the upgrade will populate agents and rewrite
+    # the marker section in PROMPT.md, so we check signal in three places.
+    local sentinel_prompt='# user-authored content — must survive --hooks-only'
+    local sentinel_ralphrc='# user comment — must survive --hooks-only'
+    printf '%s\n' "$sentinel_prompt" > "$PROJECT_DIR/.ralph/PROMPT.md"
+    printf '%s\n' "$sentinel_ralphrc" > "$PROJECT_DIR/.ralphrc"
+
+    [ ! -d "$PROJECT_DIR/.claude/skills" ] \
+        || fail "test setup: .claude/skills should not exist yet"
+    local agents_before=$(find "$PROJECT_DIR/.claude/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d '[:space:]')
+    [ "$agents_before" -eq 0 ] || fail "test setup: .claude/agents should be empty"
+
+    run bash "$UPGRADE_SCRIPT" --yes --hooks-only "$PROJECT_DIR"
+    assert_success
+
+    # Hooks WERE installed — flag still does its primary job.
+    local hooks_n
+    hooks_n=$(find "$PROJECT_DIR/.ralph/hooks" -maxdepth 1 -name '*.sh' -type f | wc -l | tr -d '[:space:]')
+    [ "$hooks_n" -eq "$HOOK_TEMPLATE_COUNT" ] \
+        || fail "expected $HOOK_TEMPLATE_COUNT hooks, found $hooks_n"
+
+    # Non-hook surfaces UNCHANGED (the gate's job).
+    local agents_after
+    agents_after=$(find "$PROJECT_DIR/.claude/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d '[:space:]')
+    [ "$agents_after" -eq 0 ] \
+        || fail "--hooks-only must not install agents (got $agents_after .md files)"
+
+    [ ! -d "$PROJECT_DIR/.claude/skills" ] \
+        || fail "--hooks-only must not create .claude/skills"
+
+    grep -qF "$sentinel_prompt" "$PROJECT_DIR/.ralph/PROMPT.md" \
+        || fail "--hooks-only rewrote PROMPT.md (sentinel gone)"
+    grep -qF "$sentinel_ralphrc" "$PROJECT_DIR/.ralphrc" \
+        || fail "--hooks-only rewrote .ralphrc (sentinel gone)"
+
+    # Per-line log: no agent / skill / merge chatter expected.
+    [[ "$output" != *"Created agent:"* && "$output" != *"Updated agent:"* ]] \
+        || fail "--hooks-only logged agent activity — got: $output"
+    [[ "$output" != *"Updated PROMPT.md"* && "$output" != *"Created PROMPT.md"* ]] \
+        || fail "--hooks-only logged PROMPT.md activity — got: $output"
+}
+
 @test "TAP-1415: --dry-run on empty project predicts 'Would create hook:' lines" {
     run bash "$UPGRADE_SCRIPT" --dry-run "$PROJECT_DIR"
     assert_success
