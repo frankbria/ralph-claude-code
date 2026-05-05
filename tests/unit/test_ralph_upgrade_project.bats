@@ -218,3 +218,97 @@ teardown() {
     [ "$created_n" -ge "$HOOK_TEMPLATE_COUNT" ] \
         || fail "dry-run summary should project Created >= $HOOK_TEMPLATE_COUNT, got: $created_n"
 }
+
+# ---------------------------------------------------------------------------
+# TAP-1419: silent first-sync miss (the AgentForge regression).
+#
+# The original bug: ralph-upgrade-project ran, returned cleanly, and
+# claimed success — but on-linear-tool.sh was not in the project's
+# .claude/hooks/ when the loop next started. There was no log line, no
+# WARN, no error code. The fix has two prongs:
+#   (a) per-project upgrade.log audit trail with one line per hook
+#   (b) manifest-vs-actual diff at end of upgrade_hooks() that WARNs
+#       on any expected hook missing from dest.
+#
+# These tests simulate the underlying race by handing the upgrade tool a
+# partial-template state — what a half-finished install.sh would produce
+# if a concurrent ralph-upgrade-project read the templates dir mid-copy.
+# ---------------------------------------------------------------------------
+
+# Helper: rebuild FAKE_HOME's hooks dir as a real directory (not a symlink
+# into the source checkout) so we can mutate its contents per test.
+_partial_hooks_setup() {
+    rm "$FAKE_HOME/.ralph/templates/hooks"  # was a symlink in setup()
+    mkdir -p "$FAKE_HOME/.ralph/templates/hooks"
+    local f
+    for f in "$PROJECT_ROOT"/templates/hooks/*.sh; do
+        cp "$f" "$FAKE_HOME/.ralph/templates/hooks/$(basename "$f")"
+    done
+}
+
+@test "TAP-1419: upgrade.log is created with per-hook audit entries" {
+    run bash "$UPGRADE_SCRIPT" --yes --hooks-only "$PROJECT_DIR"
+    assert_success
+
+    local audit_log="$PROJECT_DIR/.ralph/upgrade.log"
+    [[ -f "$audit_log" ]] || fail "expected upgrade.log at $audit_log"
+
+    # Source manifest line + at least one per-hook decision line.
+    grep -q "upgrade_hooks: source manifest count=" "$audit_log" \
+        || fail "audit log missing source manifest line: $(cat "$audit_log")"
+    grep -q "action=create" "$audit_log" \
+        || fail "audit log missing per-hook create action: $(cat "$audit_log")"
+    grep -q "manifest-diff: OK" "$audit_log" \
+        || fail "audit log missing successful manifest diff: $(cat "$audit_log")"
+}
+
+@test "TAP-1419: empty source template (partial install.sh write) is logged loudly" {
+    _partial_hooks_setup
+    # Simulate the suspected race: install.sh was mid-copy, so on-linear-tool.sh
+    # exists in templates/hooks/ as a 0-byte file. The pre-fix code skipped it
+    # with a single WARN line and the operator never saw it; the post-fix
+    # path also writes an audit-log entry naming the file and the cause.
+    : > "$FAKE_HOME/.ralph/templates/hooks/on-linear-tool.sh"
+
+    run bash "$UPGRADE_SCRIPT" --yes --hooks-only "$PROJECT_DIR"
+    assert_success
+
+    [[ "$output" == *"Skipping on-linear-tool.sh"*"empty"* ]] \
+        || fail "expected WARN about empty template — got: $output"
+
+    # The hook is missing from dest, so manifest-diff must fire.
+    [[ "$output" == *"on-linear-tool.sh expected but missing"* ]] \
+        || fail "expected manifest-diff WARN naming the missing hook — got: $output"
+
+    local audit_log="$PROJECT_DIR/.ralph/upgrade.log"
+    grep -q "on-linear-tool.sh: action=skip-empty" "$audit_log" \
+        || fail "audit log missing skip-empty entry: $(cat "$audit_log")"
+    grep -q "manifest-diff: MISSING on-linear-tool.sh" "$audit_log" \
+        || fail "audit log missing manifest-diff MISSING entry: $(cat "$audit_log")"
+}
+
+@test "TAP-1419: hook absent from source is reported by manifest diff via stale dest" {
+    # Different shape of the same class: source is fine, but a transient
+    # earlier-state install.sh did not yet copy on-linear-tool.sh into
+    # templates/hooks/. Drop it from the staged source AND from a partially
+    # populated dest, and confirm the diff fires.
+    _partial_hooks_setup
+    rm -f "$FAKE_HOME/.ralph/templates/hooks/on-linear-tool.sh"
+
+    run bash "$UPGRADE_SCRIPT" --yes --hooks-only "$PROJECT_DIR"
+    assert_success
+
+    # Source had no on-linear-tool.sh, so it's not in expected_hooks and
+    # manifest-diff cannot WARN — but the audit log MUST list whatever
+    # source DID see, making the partial state diagnosable after the fact.
+    local audit_log="$PROJECT_DIR/.ralph/upgrade.log"
+    grep -q "upgrade_hooks: source manifest count=" "$audit_log" \
+        || fail "audit log missing source manifest line: $(cat "$audit_log")"
+
+    # The source manifest must NOT include on-linear-tool.sh — the file
+    # was absent at glob time. This is what makes the partial-source race
+    # visible: future log review can spot the discrepancy against a
+    # canonical hook list.
+    grep "source manifest" "$audit_log" | grep -v "on-linear-tool.sh" \
+        || fail "manifest line should NOT contain on-linear-tool.sh in this scenario: $(cat "$audit_log")"
+}

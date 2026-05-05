@@ -205,10 +205,36 @@ create_install_dirs() {
 install_scripts() {
     log "INFO" "Installing Ralph scripts..."
     
-    # Copy templates to Ralph home (dotglob needed for dotfiles like .gitignore)
+    # TAP-1419: stage templates into a parallel directory, then swap each
+    # subdirectory into place via `rm -rf old + mv staged old`. Without the
+    # stage+swap, a `ralph-upgrade-project` running concurrently with
+    # `install.sh` could observe a half-populated `~/.ralph/templates/hooks/`
+    # — exactly the race that produced the on-linear-tool.sh first-sync miss
+    # against AgentForge. `cp -r` walks the tree file-by-file with no
+    # cross-file atomicity, so the source of truth must be a directory the
+    # upgrade tool only sees in its complete form.
+    local stage_dir="$RALPH_HOME/templates.stage.$$.${RANDOM}"
+    mkdir -p "$stage_dir"
     shopt -s dotglob
-    cp -r "$SCRIPT_DIR/templates/"* "$RALPH_HOME/templates/"
+    cp -r "$SCRIPT_DIR/templates/"* "$stage_dir/"
     shopt -u dotglob
+
+    # Per-subdir atomic swap. Top-level files (e.g. AGENTS.md) get mv'd
+    # individually since there is no enclosing dir to swap.
+    shopt -s dotglob nullglob
+    local staged
+    for staged in "$stage_dir"/*; do
+        local name
+        name="$(basename "$staged")"
+        if [[ -d "$staged" ]]; then
+            rm -rf "$RALPH_HOME/templates/$name" 2>/dev/null || true
+            mv "$staged" "$RALPH_HOME/templates/$name"
+        else
+            mv -f "$staged" "$RALPH_HOME/templates/$name"
+        fi
+    done
+    shopt -u dotglob nullglob
+    rmdir "$stage_dir" 2>/dev/null || rm -rf "$stage_dir"
 
     # Copy lib scripts (strip CR for WSL/Windows CRLF source)
     for f in "$SCRIPT_DIR"/lib/*.sh; do

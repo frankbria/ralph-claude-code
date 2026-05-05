@@ -55,6 +55,48 @@ log() {
     esac
 }
 
+# TAP-1419: per-project audit log. Set by init_audit_log(), read by audit().
+# Empty when no project context (e.g. --all summary lines), in which case
+# audit() degrades to stderr-only.
+declare -g AUDIT_LOG_PATH=""
+
+init_audit_log() {
+    local project="$1"
+    AUDIT_LOG_PATH="$project/.ralph/upgrade.log"
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        mkdir -p "$(dirname "$AUDIT_LOG_PATH")" 2>/dev/null || true
+        : > "$AUDIT_LOG_PATH" 2>/dev/null || AUDIT_LOG_PATH=""
+    fi
+}
+
+audit() {
+    local msg="$*"
+    local ts
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    local line="[$ts] $msg"
+    if [[ -n "$AUDIT_LOG_PATH" ]]; then
+        printf '%s\n' "$line" >> "$AUDIT_LOG_PATH" 2>/dev/null || true
+    fi
+    if [[ "${RALPH_UPGRADE_VERBOSE:-false}" == "true" ]]; then
+        echo "$line" >&2
+    fi
+}
+
+# Best-effort `stat`: prints "size=N mtime=ISO" for the given file.
+# Cross-platform: GNU stat (Linux) and BSD stat (macOS) have different flags.
+stat_brief() {
+    local f="$1"
+    local size mtime
+    if size=$(stat -c '%s' "$f" 2>/dev/null); then
+        mtime=$(stat -c '%y' "$f" 2>/dev/null | cut -d. -f1 | tr ' ' 'T')
+    elif size=$(stat -f '%z' "$f" 2>/dev/null); then
+        mtime=$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%S' "$f" 2>/dev/null)
+    else
+        size="?"; mtime="?"
+    fi
+    printf 'size=%s mtime=%s' "$size" "$mtime"
+}
+
 # =============================================================================
 # Global counters for summary
 # =============================================================================
@@ -174,8 +216,11 @@ upgrade_hooks() {
     local hooks_src="$RALPH_TEMPLATES/hooks"
     local hooks_dst="$project/.ralph/hooks"
 
+    audit "upgrade_hooks: start src=$hooks_src dst=$hooks_dst"
+
     if [[ ! -d "$hooks_src" ]]; then
         log WARN "No hook templates found at $hooks_src"
+        audit "upgrade_hooks: ABORT — source dir missing"
         return 0
     fi
 
@@ -189,11 +234,24 @@ upgrade_hooks() {
         PROJ_CREATED=$((PROJ_CREATED + 1))
     fi
 
+    # TAP-1419: snapshot the expected manifest at entry. Anything in this
+    # list that is absent from $hooks_dst at the end of the loop is a silent
+    # miss — exactly the failure mode that prompted this ticket. We log the
+    # snapshot up front so even if the source is racing with install.sh,
+    # the half-populated state is captured rather than silently consumed.
+    local -a expected_hooks=()
+    local h
+    for h in "$hooks_src"/*.sh; do
+        [[ -f "$h" ]] && expected_hooks+=("$(basename "$h")")
+    done
+    audit "upgrade_hooks: source manifest count=${#expected_hooks[@]} files=[$(IFS=,; echo "${expected_hooks[*]}")]"
+
     for src_hook in "$hooks_src"/*.sh; do
         [[ ! -f "$src_hook" ]] && continue
         local name
         name="$(basename "$src_hook")"
         local dst_hook="$hooks_dst/$name"
+        audit "hook $name: src=$src_hook $(stat_brief "$src_hook")"
 
         # TAP-1415: capture create-vs-update once at the top so the log
         # message and the counter both branch on the same fact. Previous
@@ -210,6 +268,7 @@ upgrade_hooks() {
 
             if [[ "$src_hash" == "$dst_hash" ]]; then
                 PROJ_SKIPPED=$((PROJ_SKIPPED + 1))
+                audit "hook $name: action=skip-identical"
                 continue
             fi
         fi
@@ -217,17 +276,21 @@ upgrade_hooks() {
         if [[ "$DRY_RUN" == "true" ]]; then
             if [[ "$is_create" == "true" ]]; then
                 log DRY "Would create hook: $name"
+                audit "hook $name: action=dry-create"
             else
                 log DRY "Would update hook: $name"
+                audit "hook $name: action=dry-update"
             fi
         else
             # TAP-661: validate source before touching the project copy.
             if [[ ! -s "$src_hook" ]]; then
                 log WARN "Skipping $name — template is empty"
+                audit "hook $name: action=skip-empty (template 0 bytes — possible partial install.sh write)"
                 continue
             fi
             if ! bash -n "$src_hook" 2>/dev/null; then
                 log WARN "Skipping $name — template failed syntax check"
+                audit "hook $name: action=skip-syntax-fail"
                 continue
             fi
 
@@ -252,8 +315,10 @@ upgrade_hooks() {
             chmod +x "$dst_hook"
             if [[ "$is_create" == "true" ]]; then
                 log SUCCESS "Created hook: $name"
+                audit "hook $name: action=create dst=$dst_hook $(stat_brief "$dst_hook")"
             else
                 log SUCCESS "Updated hook: $name"
+                audit "hook $name: action=update dst=$dst_hook $(stat_brief "$dst_hook")"
             fi
         fi
         if [[ "$is_create" == "true" ]]; then
@@ -262,6 +327,30 @@ upgrade_hooks() {
             PROJ_UPDATED=$((PROJ_UPDATED + 1))
         fi
     done
+
+    # TAP-1419: manifest-vs-actual diff. The previous failure mode was a
+    # silent first-sync miss (on-linear-tool.sh against AgentForge): the
+    # hook was expected, the loop returned cleanly, but the destination
+    # file was not present. With dry-run we cannot inspect dest, so this
+    # check only runs in real upgrades.
+    if [[ "$DRY_RUN" != "true" ]]; then
+        local missing_count=0
+        local expected
+        for expected in "${expected_hooks[@]}"; do
+            if [[ ! -f "$hooks_dst/$expected" ]]; then
+                log WARN "Hook $expected expected but missing from $hooks_dst — possible partial sync (re-run ralph-upgrade-project)"
+                audit "manifest-diff: MISSING $expected (in source, not in dest)"
+                missing_count=$((missing_count + 1))
+            fi
+        done
+        if [[ "$missing_count" -eq 0 ]]; then
+            audit "manifest-diff: OK — all ${#expected_hooks[@]} expected hooks present in dest"
+        else
+            audit "manifest-diff: FAIL — $missing_count of ${#expected_hooks[@]} hooks missing from dest"
+            PROJ_ERRORS=$((PROJ_ERRORS + missing_count))
+        fi
+    fi
+    audit "upgrade_hooks: end"
 }
 
 # =============================================================================
@@ -753,6 +842,12 @@ upgrade_single_project() {
     echo ""
     log INFO "${BOLD}Upgrading: $project_name${NC}  ($project)"
     echo "   ─────────────────────────────────────────"
+
+    # TAP-1419: per-project audit log. Truncates on each run so the file
+    # always reflects the most recent upgrade. Set RALPH_UPGRADE_VERBOSE=true
+    # to also stream audit lines to stderr.
+    init_audit_log "$project"
+    audit "upgrade_single_project: $project (DRY_RUN=${DRY_RUN:-false} HOOKS_ONLY=${HOOKS_ONLY:-false})"
 
     # Tier 1: hooks (always run — this is the cheapest, most common targeted upgrade)
     upgrade_hooks "$project"
