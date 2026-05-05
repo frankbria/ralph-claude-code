@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.13.1] — 2026-05-05
+
+### Fixed
+
+- **Stop hook transcript fallback for Claude Code 2.1.x.** Claude Code 2.1.x removed the `"type":"result"` line from the stop hook stdin payload and from the transcript, leaving `on-stop.sh` unable to parse the `RALPH_STATUS` block — `status.json` defaulted across the board (`exit_signal=false`, `tasks_completed=0`, `files_modified=0`), the dual-condition exit gate never fired, and question-pattern / permission-denial detection ran against an empty `response_text`. Hook now falls back to reading the last `assistant` message's text content from `transcript_path` when the initial `_status_block` parse comes back empty, then re-runs `sed`. Also restores `response_text` so downstream detectors work. Three new BATS cases in `tests/unit/test_on_stop_hook.bats` cover (1) status parsed from transcript, (2) `LINEAR_ISSUE` extracted from transcript, (3) graceful UNKNOWN status when transcript has no RALPH_STATUS block. Both `templates/hooks/on-stop.sh` and the in-repo `.ralph/hooks/on-stop.sh` are updated; `ralph-upgrade` will sync this fix into existing projects.
+
+---
+
 ## [2.12.0] — 2026-05-04
 
 SDK bumped to **2.2.0** alongside this release (TAP-1104 + TAP-542 + per-task model routing all touch the SDK surface).
