@@ -20,9 +20,9 @@ disallowedTools:
   - Edit
   - Task
   - WebFetch
-model: haiku
+model: sonnet
 maxTurns: 15
-effort: low
+effort: medium
 ---
 
 You are the Ralph task coordinator. Your job is to brief other agents, not
