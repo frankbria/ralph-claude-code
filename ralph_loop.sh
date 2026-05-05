@@ -38,6 +38,48 @@ source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source l
 [[ -f "$SCRIPT_DIR/lib/brief.sh" ]] && source "$SCRIPT_DIR/lib/brief.sh"
 [[ -f "$SCRIPT_DIR/lib/coordinator_session.sh" ]] && source "$SCRIPT_DIR/lib/coordinator_session.sh"
 
+# TAP-924: ralph_clear_all_sessions — single helper for clearing the main
+# Claude session id, the coordinator session id, and the coordinator brief.
+# Used wherever the main session is reset (CB open, is_error, continue-as-new,
+# manual reset, age expiry) so the coordinator session stays in lockstep with
+# the main one. Safe to call when files are missing. Falls back to direct rm
+# if the lib helpers are not yet sourced.
+ralph_clear_all_sessions() {
+    local _ralph_dir="${RALPH_DIR:-.ralph}"
+    rm -f -- "${CLAUDE_SESSION_FILE:-${_ralph_dir}/.claude_session_id}" 2>/dev/null || true
+    if declare -F coordinator_session_clear >/dev/null 2>&1; then
+        coordinator_session_clear || true
+    else
+        rm -f -- "${_ralph_dir}/.coordinator_session" 2>/dev/null || true
+    fi
+    if declare -F brief_clear >/dev/null 2>&1; then
+        brief_clear || true
+    else
+        rm -f -- "${_ralph_dir}/brief.json" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# TAP-924: clear ONLY the coordinator session + brief (leave the main Claude
+# session alone). Used at task boundaries (post-debrief task-complete) and
+# on SIGINT/SIGTERM, where mid-task interrupt should not invalidate the main
+# session if the user resumes. Brief is cleared with the session because they
+# are paired — the brief belongs to the coordinator session that wrote it.
+ralph_clear_coordinator_artifacts() {
+    local _ralph_dir="${RALPH_DIR:-.ralph}"
+    if declare -F coordinator_session_clear >/dev/null 2>&1; then
+        coordinator_session_clear || true
+    else
+        rm -f -- "${_ralph_dir}/.coordinator_session" 2>/dev/null || true
+    fi
+    if declare -F brief_clear >/dev/null 2>&1; then
+        brief_clear || true
+    else
+        rm -f -- "${_ralph_dir}/brief.json" 2>/dev/null || true
+    fi
+    return 0
+}
+
 # TAP-535: Bash 4+ required for `${BASH_VERSINFO[@]}`, mapfile/readarray, named
 # refs, and the rest of the modern bash features used throughout this script.
 if [[ -z "${BASH_VERSION:-}" ]] || (( ${BASH_VERSINFO[0]:-0} < 4 )); then
@@ -2550,7 +2592,7 @@ init_claude_session() {
         # Don't expire sessions when we can't determine age
         if [[ $age_hours -eq -1 ]]; then
             log_status "WARN" "Could not determine session age, starting new session"
-            rm -f "$CLAUDE_SESSION_FILE"
+            ralph_clear_all_sessions
             echo ""
             return 0
         fi
@@ -2558,7 +2600,7 @@ init_claude_session() {
         # Check if session has expired
         if [[ $age_hours -ge $CLAUDE_SESSION_EXPIRY_HOURS ]]; then
             log_status "INFO" "Session expired (${age_hours}h old, max ${CLAUDE_SESSION_EXPIRY_HOURS}h), starting new session"
-            rm -f "$CLAUDE_SESSION_FILE"
+            ralph_clear_all_sessions
             echo ""
             return 0
         fi
@@ -2659,8 +2701,10 @@ reset_session() {
             reset_reason: $reset_reason
         }' > "$RALPH_SESSION_FILE"
 
-    # Also clear the Claude session file for consistency
-    rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+    # TAP-924: Clear main session + coordinator session + brief together so
+    # the coordinator never resumes onto a stale brief written for a different
+    # task / pre-reset state. ralph_clear_all_sessions handles all three.
+    ralph_clear_all_sessions
 
     # Clear exit signals to prevent stale completion indicators from causing premature exit (issue #91)
     # This ensures a fresh start without leftover state from previous sessions
@@ -4327,6 +4371,20 @@ EOF
             ralph_debrief_coordinator "success" ""
         fi
 
+        # TAP-924: Task-boundary cleanup. Runs AFTER ralph_debrief_coordinator
+        # so the debrief reads brief.json + the resumed coordinator session
+        # before either is wiped. Triggers: explicit EXIT_SIGNAL or any
+        # tasks_completed > 0 (per-task grain — next task gets a fresh
+        # coordinator + brief). Touches coordinator artifacts only; main
+        # Claude session lifecycle is unchanged.
+        local _exit_sig_tc _tasks_done_tc
+        _exit_sig_tc=$(jq -r '.exit_signal // "false"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "false")
+        _tasks_done_tc=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+        if [[ "$_exit_sig_tc" == "true" ]] || [[ "${_tasks_done_tc:-0}" -gt 0 ]]; then
+            ralph_clear_coordinator_artifacts
+            log_status "INFO" "coordinator: session+brief cleared (task complete)"
+        fi
+
         # LOGFIX-6: Track consecutive TESTS_STATUS: DEFERRED to detect environment stalls
         local _tests_status
         _tests_status=$(jq -r '.tests_status // "UNKNOWN"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "UNKNOWN")
@@ -4471,6 +4529,16 @@ CBEOF
                     ralph_debrief_coordinator "success" ""
                 fi
 
+                # TAP-924: Task-boundary cleanup on the productive-timeout path.
+                # Same ordering invariant as the success path: clear AFTER debrief.
+                local _exit_sig_tc_t _tasks_done_tc_t
+                _exit_sig_tc_t=$(jq -r '.exit_signal // "false"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "false")
+                _tasks_done_tc_t=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+                if [[ "$_exit_sig_tc_t" == "true" ]] || [[ "${_tasks_done_tc_t:-0}" -gt 0 ]]; then
+                    ralph_clear_coordinator_artifacts
+                    log_status "INFO" "coordinator: session+brief cleared (task complete)"
+                fi
+
                 # Check if on-stop.sh hook transitioned circuit breaker to OPEN
                 if cb_is_open; then
                     log_status "WARN" "Circuit breaker opened - halting execution"
@@ -4579,6 +4647,10 @@ cleanup() {
             # Without the explicit `exit` the trap returns and bash resumes the
             # main loop, so `kill <pid>` silently spawns one more iteration.
             log_status "INFO" "Ralph stopped by signal (exit code: $trap_exit_code)"
+            # TAP-924: Clear coordinator session+brief on SIGINT/SIGTERM so a
+            # restart starts fresh. Main Claude session is preserved — the
+            # operator may want to resume mid-task on the same conversation.
+            ralph_clear_coordinator_artifacts 2>/dev/null || true
             update_status "$loop_count" "$(_read_call_count)" "stopped" "signal" "exit_code_$trap_exit_code"
             exit "$trap_exit_code"
         elif [[ $trap_exit_code -ne 0 ]]; then
