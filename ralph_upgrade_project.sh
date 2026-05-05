@@ -195,8 +195,15 @@ upgrade_hooks() {
         name="$(basename "$src_hook")"
         local dst_hook="$hooks_dst/$name"
 
+        # TAP-1415: capture create-vs-update once at the top so the log
+        # message and the counter both branch on the same fact. Previous
+        # form incremented PROJ_UPDATED in both cases, leaving Created=0
+        # in the summary even after installing many fresh hooks.
+        local is_create=true
+        [[ -f "$dst_hook" ]] && is_create=false
+
         # Compare content (strip CR for cross-platform)
-        if [[ -f "$dst_hook" ]]; then
+        if [[ "$is_create" == "false" ]]; then
             local src_hash dst_hash
             src_hash=$(tr -d $'\r' < "$src_hook" | sha256sum | cut -d' ' -f1)
             dst_hash=$(tr -d $'\r' < "$dst_hook" | sha256sum | cut -d' ' -f1)
@@ -208,10 +215,10 @@ upgrade_hooks() {
         fi
 
         if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ -f "$dst_hook" ]]; then
-                log DRY "Would update hook: $name"
-            else
+            if [[ "$is_create" == "true" ]]; then
                 log DRY "Would create hook: $name"
+            else
+                log DRY "Would update hook: $name"
             fi
         else
             # TAP-661: validate source before touching the project copy.
@@ -225,7 +232,7 @@ upgrade_hooks() {
             fi
 
             create_backup "$project" ".ralph/hooks/$name"
-            [[ -f "$dst_hook" ]] && chmod u+w "$dst_hook" 2>/dev/null || true
+            [[ "$is_create" == "false" ]] && chmod u+w "$dst_hook" 2>/dev/null || true
 
             # Write to a temp file, syntax-check the copy, then atomic rename.
             local tmp_hook="${dst_hook}.tmp.$$.${RANDOM}"
@@ -243,9 +250,17 @@ upgrade_hooks() {
             fi
             mv -f "$tmp_hook" "$dst_hook"
             chmod +x "$dst_hook"
-            log SUCCESS "Updated hook: $name"
+            if [[ "$is_create" == "true" ]]; then
+                log SUCCESS "Created hook: $name"
+            else
+                log SUCCESS "Updated hook: $name"
+            fi
         fi
-        PROJ_UPDATED=$((PROJ_UPDATED + 1))
+        if [[ "$is_create" == "true" ]]; then
+            PROJ_CREATED=$((PROJ_CREATED + 1))
+        else
+            PROJ_UPDATED=$((PROJ_UPDATED + 1))
+        fi
     done
 }
 
@@ -277,7 +292,11 @@ upgrade_agents() {
         name="$(basename "$src_agent")"
         local dst_agent="$agents_dst/$name"
 
-        if [[ -f "$dst_agent" ]]; then
+        # TAP-1415: track create-vs-update once so log + counter agree.
+        local is_create=true
+        [[ -f "$dst_agent" ]] && is_create=false
+
+        if [[ "$is_create" == "false" ]]; then
             local src_hash dst_hash
             src_hash=$(tr -d $'\r' < "$src_agent" | sha256sum | cut -d' ' -f1)
             dst_hash=$(tr -d $'\r' < "$dst_agent" | sha256sum | cut -d' ' -f1)
@@ -289,18 +308,26 @@ upgrade_agents() {
         fi
 
         if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ -f "$dst_agent" ]]; then
-                log DRY "Would update agent: $name"
-            else
+            if [[ "$is_create" == "true" ]]; then
                 log DRY "Would create agent: $name"
+            else
+                log DRY "Would update agent: $name"
             fi
         else
             create_backup "$project" ".claude/agents/$name"
-            [[ -f "$dst_agent" ]] && chmod u+w "$dst_agent" 2>/dev/null || true
+            [[ "$is_create" == "false" ]] && chmod u+w "$dst_agent" 2>/dev/null || true
             tr -d $'\r' < "$src_agent" > "$dst_agent"
-            log SUCCESS "Updated agent: $name"
+            if [[ "$is_create" == "true" ]]; then
+                log SUCCESS "Created agent: $name"
+            else
+                log SUCCESS "Updated agent: $name"
+            fi
         fi
-        PROJ_UPDATED=$((PROJ_UPDATED + 1))
+        if [[ "$is_create" == "true" ]]; then
+            PROJ_CREATED=$((PROJ_CREATED + 1))
+        else
+            PROJ_UPDATED=$((PROJ_UPDATED + 1))
+        fi
     done
 }
 
