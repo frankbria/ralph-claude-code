@@ -46,6 +46,27 @@ fi
 # This block does it in ~3 subprocesses total.
 _status_block=$(echo "$response_text" | sed -n '/---RALPH_STATUS---/,/---END_RALPH_STATUS---/p' || true)
 
+# TRANSCRIPT-FALLBACK (Claude Code 2.1.x): The stop hook stdin no longer carries
+# the response text — 2.1.x removed the "type":"result" line from both the hook
+# payload and the transcript. If _status_block is still empty, read the last
+# assistant message's text from transcript_path and try again. This also fixes
+# response_text so question-pattern and permission-denial detection work correctly.
+if [[ -z "$_status_block" ]]; then
+  _tf_for_status=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+  if [[ -n "$_tf_for_status" && -f "$_tf_for_status" ]]; then
+    _last_assistant_text=$(jq -rs '
+      [.[] | select(.type == "assistant")] | last |
+      .message.content // [] |
+      [.[] | select(.type == "text") | .text] |
+      join("\n")
+    ' "$_tf_for_status" 2>/dev/null || echo "")
+    if [[ -n "$_last_assistant_text" ]]; then
+      response_text="$_last_assistant_text"
+      _status_block=$(echo "$response_text" | sed -n '/---RALPH_STATUS---/,/---END_RALPH_STATUS---/p' || true)
+    fi
+  fi
+fi
+
 # PARSER-HARDENING (2026-04-30): two real bugs caused exit-gate bypass when
 # Claude correctly reported STATUS: BLOCKED + EXIT_SIGNAL: true on a fully-
 # blocked Linear backlog (NLTlabsPE incident, 10 wasted loops + CB trip):

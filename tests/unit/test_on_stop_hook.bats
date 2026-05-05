@@ -763,3 +763,61 @@ RECOMMENDATION: Test payload.
     [[ ! -f "$TEST_TEMP_DIR/.ralph/.qa_failures.json" ]] || \
         fail ".qa_failures.json should not exist for file-mode (no LINEAR_ISSUE)"
 }
+
+# =============================================================================
+# TRANSCRIPT-FALLBACK — Claude Code 2.1.x removed "type":"result" from hook payload
+# =============================================================================
+
+# Build hook INPUT that only has transcript_path (no .result field) — the 2.1.x shape.
+_transcript_only_input() {
+    local transcript="$1"
+    jq -n --arg tp "$transcript" '{transcript_path: $tp}'
+}
+
+@test "TRANSCRIPT-FALLBACK: status parsed from transcript when hook payload has no .result (2.1.x)" {
+    local t="$TEST_TEMP_DIR/.ralph/transcript.jsonl"
+    printf '%s\n' \
+        '{"type":"system","session_id":"test-sess"}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Did work.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nTASKS_COMPLETED_THIS_LOOP: 2\nFILES_MODIFIED: 3\nTESTS_STATUS: DEFERRED\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nRECOMMENDATION: keep going\n---END_RALPH_STATUS---"}],"usage":{"input_tokens":100,"output_tokens":50}}}' \
+        > "$t"
+
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_transcript_only_input "$t")"
+    assert_success
+
+    run jq -r '.status' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "IN_PROGRESS"
+
+    run jq -r '.tasks_completed' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "2"
+
+    run jq -r '.files_modified' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "3"
+}
+
+@test "TRANSCRIPT-FALLBACK: LINEAR_ISSUE extracted from transcript (2.1.x)" {
+    local t="$TEST_TEMP_DIR/.ralph/transcript.jsonl"
+    printf '%s\n' \
+        '{"type":"system","session_id":"test-sess"}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Working on TAP-999.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nTASKS_COMPLETED_THIS_LOOP: 1\nFILES_MODIFIED: 1\nTESTS_STATUS: DEFERRED\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nLINEAR_ISSUE: TAP-999\nRECOMMENDATION: keep going\n---END_RALPH_STATUS---"}],"usage":{"input_tokens":50,"output_tokens":30}}}' \
+        > "$t"
+
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_transcript_only_input "$t")"
+    assert_success
+
+    run jq -r '.linear_issue' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "TAP-999"
+}
+
+@test "TRANSCRIPT-FALLBACK: UNKNOWN status when transcript has no RALPH_STATUS block (2.1.x)" {
+    local t="$TEST_TEMP_DIR/.ralph/transcript.jsonl"
+    printf '%s\n' \
+        '{"type":"system","session_id":"test-sess"}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"I did some research but got no structured output."}],"usage":{"input_tokens":50,"output_tokens":10}}}' \
+        > "$t"
+
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_transcript_only_input "$t")"
+    assert_success
+
+    run jq -r '.status' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "UNKNOWN"
+}
