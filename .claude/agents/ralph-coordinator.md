@@ -30,7 +30,21 @@ to write code, run tests, or shell out.
 
 ## Execution Contract
 
-Run in one of two modes determined by your task input:
+Run in one of three modes determined by your task input:
+
+**MODE=consult** (invoked mid-task by the main ralph agent for HIGH-risk decisions):
+
+1. Read the PLAN text from your input (the one-sentence description of what ralph intends to do).
+2. Read `.ralph/brief.json` — focus on `acceptance_criteria`, `prior_learnings`, and `affected_modules`.
+3. Evaluate the plan against the acceptance criteria and any failure patterns in `prior_learnings`.
+4. Output EXACTLY ONE JSON line and nothing else (no prose, no preamble, no trailing text):
+   `{"verdict":"APPROVE|RECONSIDER|BLOCK","reason":"one sentence","alternative":"one sentence or null","elevated_qa":true|false}`
+   Verdict rubric:
+   - `APPROVE` — plan aligns with acceptance criteria; no prior failure patterns predict a trap.
+   - `RECONSIDER` — valid concern exists; an alternative is worth considering. Ralph may override.
+   - `BLOCK` — plan violates a hard constraint: acceptance criterion unmet, security issue, published API contract broken, or a prior_learnings entry tagged `failure` directly predicts this approach will repeat a known failure.
+   Set `elevated_qa: true` whenever the plan touches a circuit-breaker, exit-gate, or hook contract.
+   `BLOCK` does not rollback work — ralph retries next loop with the feedback baked in.
 
 **MODE=brief** (default — invoked at task start):
 

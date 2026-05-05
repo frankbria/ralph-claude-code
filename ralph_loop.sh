@@ -2300,6 +2300,15 @@ build_loop_context() {
     # ralph_spawn_coordinator — a present file here is a valid brief.
     if [[ -s "$RALPH_DIR/brief.json" ]]; then
         context+=".ralph/brief.json available — read it at task start for prior learnings, risk level, and affected modules. "
+        # TAP-922: when the brief marks this task HIGH-risk, inject the
+        # COORDINATOR_RPC_PATH so ralph can run the consult gate before
+        # starting implementation (see ralph.md "Coordinator Consultation").
+        local _brief_risk
+        _brief_risk=$(jq -r '.risk_level // empty' "$RALPH_DIR/brief.json" 2>/dev/null) || _brief_risk=""
+        if [[ "$_brief_risk" == "HIGH" ]]; then
+            local _rpc_path="${SCRIPT_DIR}/lib/coordinator_rpc.sh"
+            context+="Risk level is HIGH — coordinator consultation required before implementation. COORDINATOR_RPC_PATH=${_rpc_path} "
+        fi
     fi
 
     # Limit total length to ~1500 chars (raised from 800→1200→1500 as MCP

@@ -51,6 +51,22 @@ If `.ralph/brief.json` exists, read it as your FIRST action. It contains:
 
 If the brief is missing, proceed as normal (coordinator may have been disabled or failed).
 
+## Coordinator Consultation (HIGH-risk tasks only)
+
+When `brief.risk_level == HIGH`, before starting implementation run:
+```bash
+bash "$COORDINATOR_RPC_PATH" consult "PLAN: <one sentence describing your approach>"
+```
+The loop injects `COORDINATOR_RPC_PATH` into your context when it is available.
+Parse the returned JSON and act on the verdict:
+- `skipped: true` → proceed normally (coordinator unavailable or risk not HIGH)
+- `verdict: "APPROVE"` → proceed
+- `verdict: "RECONSIDER"` → weigh the `reason` and `alternative`; you may override with justification
+- `verdict: "BLOCK"` → stop implementation this loop; set `STATUS: BLOCKED`, `EXIT_SIGNAL: false`;
+  include the coordinator's `reason` in your RECOMMENDATION
+
+Skip consultation if `.ralph/brief.json` is missing or if the coordinator is disabled.
+
 1. Read .ralph/fix_plan.md — identify unchecked `- [ ]` items.
 2. Assess complexity of upcoming tasks and determine batch size (see Rules).
 3. Search the codebase for existing implementations before writing new code.
