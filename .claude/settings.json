@@ -220,7 +220,11 @@
   "permissions": {
     "allow": [
       "mcp__tapps-mcp",
-      "mcp__tapps-mcp__*"
+      "mcp__tapps-mcp__*",
+      "mcp__docs-mcp",
+      "mcp__docs-mcp__*",
+      "mcp__tapps-platform",
+      "mcp__tapps-platform__*"
     ],
     "deny": [
       "Bash(rm -rf *)",
