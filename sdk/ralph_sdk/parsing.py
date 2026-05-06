@@ -271,102 +271,97 @@ class PermissionDenialEvent(BaseModel):
     raw_message: str = ""
 
 
+_CONTENT_BLOCK_TYPES = frozenset({"assistant", "content_block_delta", "content_block_stop"})
+
+
+def _extract_content_strings(content: Any) -> list[str]:
+    """Pull text strings out of a JSONL content field (str or list of blocks)."""
+    if isinstance(content, str):
+        return [content]
+    if isinstance(content, list):
+        return [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+    return []
+
+
+def _collect_jsonl_text(obj: dict[str, Any]) -> list[str]:
+    """Pull denial-candidate text out of a single JSONL object."""
+    out: list[str] = []
+    obj_type = obj.get("type")
+    if obj_type == "result":
+        result_text = obj.get("result", "")
+        if isinstance(result_text, str):
+            out.append(result_text)
+    elif obj_type in _CONTENT_BLOCK_TYPES:
+        out.extend(_extract_content_strings(obj.get("content", "")))
+    if obj.get("is_error"):
+        error_text = obj.get("error", obj.get("result", ""))
+        if isinstance(error_text, str):
+            out.append(error_text)
+    return out
+
+
+def _gather_denial_candidates(output: str) -> list[str]:
+    """Collect candidate denial lines from both JSONL fields and raw text."""
+    candidates: list[str] = []
+    for line in output.strip().splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            obj = json.loads(stripped)
+        except (json.JSONDecodeError, TypeError):
+            candidates.append(stripped)
+            continue
+        candidates.extend(_collect_jsonl_text(obj))
+    return candidates
+
+
+def _classify_denial(text: str) -> tuple[str, bool] | None:
+    """Return (denied_pattern, is_user_fixable) or None if `text` is not a denial."""
+    is_user_fixable = any(p.search(text) for p in _USER_FIXABLE_PATTERNS)
+    is_scope_locked = any(p.search(text) for p in _SCOPE_LOCKED_PATTERNS)
+    has_indicator = any(p.search(text) for p in _DENIAL_INDICATORS)
+    if not (is_user_fixable or is_scope_locked or has_indicator):
+        return None
+    if is_scope_locked and not is_user_fixable:
+        return "scope_locked", False
+    if is_user_fixable:
+        return "user_fixable", True
+    return "unknown", False
+
+
+def _build_event(text: str, denied_pattern: str, fixable: bool) -> PermissionDenialEvent:
+    tool_match = _TOOL_NAME_PATTERN.search(text)
+    return PermissionDenialEvent(
+        tool_name=tool_match.group(1) if tool_match else "",
+        denied_pattern=denied_pattern,
+        is_user_fixable=fixable,
+        raw_message=text[:500],
+    )
+
+
 def detect_permission_denials(output: str) -> list[PermissionDenialEvent]:
     """Parse Claude's JSONL output for permission denial messages.
 
     Scans both raw text lines and JSONL ``result`` / ``content`` fields for
     denial indicators, then classifies each as user-fixable or scope-locked.
-
-    Args:
-        output: Raw stdout from the Claude CLI (may be JSONL or plain text).
-
-    Returns:
-        A deduplicated list of :class:`PermissionDenialEvent` instances.
     """
-    denial_lines: list[str] = []
-
-    # Collect candidate lines from JSONL content/result fields and raw text.
-    for line in output.strip().splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        # Try JSONL parsing to extract nested text
-        try:
-            obj = json.loads(stripped)
-            # result objects
-            if obj.get("type") == "result":
-                result_text = obj.get("result", "")
-                if isinstance(result_text, str):
-                    denial_lines.append(result_text)
-            # content block text
-            elif obj.get("type") in (
-                "assistant", "content_block_delta", "content_block_stop",
-            ):
-                content = obj.get("content", "")
-                if isinstance(content, str):
-                    denial_lines.append(content)
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            denial_lines.append(item.get("text", ""))
-            # Also check for error messages
-            if obj.get("is_error"):
-                error_text = obj.get("error", obj.get("result", ""))
-                if isinstance(error_text, str):
-                    denial_lines.append(error_text)
-        except (json.JSONDecodeError, TypeError):
-            # Not JSON — treat as raw text
-            denial_lines.append(stripped)
-
     events: list[PermissionDenialEvent] = []
-    seen_messages: set[str] = set()
-
-    for text in denial_lines:
-        # Check if this text contains any denial indicator
-        has_denial = any(p.search(text) for p in _DENIAL_INDICATORS)
-        if not has_denial:
-            # Also check user-fixable and scope-locked patterns directly
-            has_denial = (
-                any(p.search(text) for p in _USER_FIXABLE_PATTERNS)
-                or any(p.search(text) for p in _SCOPE_LOCKED_PATTERNS)
-            )
-        if not has_denial:
+    seen: set[str] = set()
+    for text in _gather_denial_candidates(output):
+        classification = _classify_denial(text)
+        if classification is None:
             continue
-
-        # Deduplicate on the first 200 characters of the raw message
         dedup_key = text[:200]
-        if dedup_key in seen_messages:
+        if dedup_key in seen:
             continue
-        seen_messages.add(dedup_key)
-
-        # Classify: user-fixable vs scope-locked
-        is_user_fixable = any(p.search(text) for p in _USER_FIXABLE_PATTERNS)
-        is_scope_locked = any(p.search(text) for p in _SCOPE_LOCKED_PATTERNS)
-
-        if is_scope_locked and not is_user_fixable:
-            denied_pattern = "scope_locked"
-            fixable = False
-        elif is_user_fixable:
-            denied_pattern = "user_fixable"
-            fixable = True
-        else:
-            denied_pattern = "unknown"
-            fixable = False
-
-        # Extract tool name
-        tool_name = ""
-        tool_match = _TOOL_NAME_PATTERN.search(text)
-        if tool_match:
-            tool_name = tool_match.group(1)
-
-        events.append(PermissionDenialEvent(
-            tool_name=tool_name,
-            denied_pattern=denied_pattern,
-            is_user_fixable=fixable,
-            raw_message=text[:500],  # Truncate to avoid huge messages
-        ))
-
+        seen.add(dedup_key)
+        denied_pattern, fixable = classification
+        events.append(_build_event(text, denied_pattern, fixable))
     return events
 
 
@@ -392,26 +387,57 @@ _DIFF_NAME_ONLY_TRIGGER = re.compile(
 )
 
 
+_GIT_ADD_SKIP_TOKENS = frozenset({".", "-A", "--all", "-u", "--update"})
+_DIFF_PREFIXES = ("diff ", "index ", "---", "+++")
+
+
+def _harvest_diff_paths(content: Any, seen: dict[str, None]) -> None:
+    """Pull plain file paths out of a ``git diff --name-only`` tool_result body."""
+    if not isinstance(content, str):
+        return
+    for diff_line in content.splitlines():
+        path = diff_line.strip()
+        if path and not path.startswith(_DIFF_PREFIXES):
+            seen.setdefault(path, None)
+
+
+def _harvest_git_add_tokens(command: str, seen: dict[str, None]) -> None:
+    match = _GIT_ADD_PATTERN.search(command)
+    if not match:
+        return
+    for token in match.group(1).strip().split():
+        token = token.strip("'\"")
+        if token and token not in _GIT_ADD_SKIP_TOKENS:
+            seen.setdefault(token, None)
+
+
+def _process_tool_use(
+    tool_name: str, tool_input: dict[str, Any], seen: dict[str, None]
+) -> bool:
+    """Update `seen` from a tool_use record. Returns True iff this is git diff --name-only."""
+    if tool_name in _FILE_CHANGE_TOOLS:
+        file_path = tool_input.get("file_path")
+        if isinstance(file_path, str) and file_path:
+            seen.setdefault(file_path, None)
+        return False
+    if tool_name == "Bash":
+        command = tool_input.get("command", "")
+        if isinstance(command, str):
+            _harvest_git_add_tokens(command, seen)
+            if _DIFF_NAME_ONLY_TRIGGER.search(command):
+                return True
+    return False
+
+
 def extract_files_changed(text: str) -> list[str]:
     """Extract unique file paths from Claude JSONL output.
 
-    Uses three complementary strategies:
-
-    1. **Write/Edit/MultiEdit tool_use** — extracts ``file_path`` from the
-       ``input`` dict of structured tool_use JSONL records.
-    2. **Bash(git add) tool_use** — parses the ``command`` input of Bash
-       tool_use records for ``git add <path>`` invocations.
-    3. **git diff --name-only output** — when a Bash tool_use command
-       contains ``git diff --name-only``, parses the corresponding
-       ``tool_result`` content for file paths (one per line).
-
-    Returns a deduplicated ``list[str]`` of file paths in first-seen order.
+    Three strategies: Write/Edit/MultiEdit `file_path`, Bash `git add <path>`,
+    and the body of a `git diff --name-only` tool_result that follows a
+    matching Bash tool_use. Returns paths in first-seen order, deduplicated.
     """
-    seen: dict[str, None] = {}  # ordered dict for dedup + order preservation
-
-    # Track whether the last Bash tool_use was a ``git diff --name-only``
-    # command, so we can harvest paths from the subsequent tool_result.
-    _awaiting_diff_result = False
+    seen: dict[str, None] = {}
+    awaiting_diff = False
 
     for line in text.splitlines():
         line = line.strip()
@@ -424,50 +450,21 @@ def extract_files_changed(text: str) -> list[str]:
 
         obj_type = obj.get("type", "")
 
-        # ----- Strategy 3 (cont.): Harvest git diff --name-only results -----
-        if _awaiting_diff_result and obj_type == "tool_result":
-            _awaiting_diff_result = False
-            result_content = obj.get("content", "")
-            if isinstance(result_content, str):
-                for diff_line in result_content.splitlines():
-                    path = diff_line.strip()
-                    if path and not path.startswith(("diff ", "index ", "---", "+++")):
-                        seen.setdefault(path, None)
+        if awaiting_diff and obj_type == "tool_result":
+            awaiting_diff = False
+            _harvest_diff_paths(obj.get("content", ""), seen)
             continue
 
         if obj_type != "tool_use":
-            # Reset diff-result tracking if we see a non-tool_use, non-tool_result
             if obj_type != "tool_result":
-                _awaiting_diff_result = False
+                awaiting_diff = False
             continue
 
-        tool_name = obj.get("name", "")
         tool_input = obj.get("input")
         if not isinstance(tool_input, dict):
             continue
 
-        # ----- Strategy 1: Write / Edit / MultiEdit -----
-        if tool_name in _FILE_CHANGE_TOOLS:
-            file_path = tool_input.get("file_path")
-            if isinstance(file_path, str) and file_path:
-                seen.setdefault(file_path, None)
-            continue
-
-        # ----- Strategy 2: Bash(git add ...) -----
-        if tool_name == "Bash":
-            command = tool_input.get("command", "")
-            if isinstance(command, str):
-                git_add_match = _GIT_ADD_PATTERN.search(command)
-                if git_add_match:
-                    raw_paths = git_add_match.group(1).strip()
-                    # Split on whitespace, but skip glob-only args like "."
-                    for token in raw_paths.split():
-                        token = token.strip("'\"")
-                        if token and token not in (".", "-A", "--all", "-u", "--update"):
-                            seen.setdefault(token, None)
-
-                # ----- Strategy 3: Bash(git diff --name-only) -----
-                if _DIFF_NAME_ONLY_TRIGGER.search(command):
-                    _awaiting_diff_result = True
+        if _process_tool_use(obj.get("name", ""), tool_input, seen):
+            awaiting_diff = True
 
     return list(seen)

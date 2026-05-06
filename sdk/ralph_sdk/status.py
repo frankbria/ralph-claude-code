@@ -57,6 +57,52 @@ class ErrorCategory(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+_EXCEPTION_CATEGORIES: tuple[tuple[type[BaseException], ErrorCategory], ...] = (
+    (TimeoutError, ErrorCategory.TIMEOUT),
+    (asyncio.TimeoutError, ErrorCategory.TIMEOUT),
+    (PermissionError, ErrorCategory.PERMISSION_DENIED),
+    (FileNotFoundError, ErrorCategory.TOOL_UNAVAILABLE),
+    (json.JSONDecodeError, ErrorCategory.PARSE_FAILURE),
+    (ValueError, ErrorCategory.PARSE_FAILURE),
+)
+
+_EXIT_CODE_CATEGORIES: dict[int, ErrorCategory] = {
+    124: ErrorCategory.TIMEOUT,            # Standard Unix timeout
+    126: ErrorCategory.PERMISSION_DENIED,  # Cannot execute
+    127: ErrorCategory.TOOL_UNAVAILABLE,   # Command not found
+    137: ErrorCategory.SYSTEM_CRASH,       # SIGKILL
+    139: ErrorCategory.SYSTEM_CRASH,       # SIGSEGV
+}
+
+_OUTPUT_SENTINELS: tuple[tuple[ErrorCategory, tuple[str, ...]], ...] = (
+    (ErrorCategory.RATE_LIMITED, ("rate limit", "rate_limit", "429", "too many requests")),
+    (ErrorCategory.PERMISSION_DENIED, ("permission denied", "access denied", "eacces")),
+    (ErrorCategory.TIMEOUT, ("timeout", "timed out", "deadline exceeded")),
+    (ErrorCategory.TOOL_UNAVAILABLE, ("tool not available", "tool_unavailable", "unknown tool")),
+    (ErrorCategory.SYSTEM_CRASH, ("segfault", "core dumped", "fatal error", "panic")),
+    (ErrorCategory.PARSE_FAILURE, ("json", "parse error", "unexpected token", "decode")),
+)
+
+
+def _classify_exception(exception: BaseException) -> ErrorCategory | None:
+    for exc_type, category in _EXCEPTION_CATEGORIES:
+        if isinstance(exception, exc_type):
+            return category
+    return None
+
+
+def _classify_exit_code(exit_code: int) -> ErrorCategory | None:
+    return _EXIT_CODE_CATEGORIES.get(exit_code)
+
+
+def _classify_output(output: str) -> ErrorCategory | None:
+    output_lower = output.lower()
+    for category, sentinels in _OUTPUT_SENTINELS:
+        if any(s in output_lower for s in sentinels):
+            return category
+    return None
+
+
 def classify_error(
     exit_code: int | None = None,
     output: str = "",
@@ -66,66 +112,15 @@ def classify_error(
 
     SDK-OUTPUT-2: Deterministic classification helper — no ML, no heuristics on
     freeform text beyond known sentinel strings from the CLI.
-
-    Args:
-        exit_code: Process exit code (None if not available).
-        output: Combined stdout/stderr from the CLI process.
-        exception: The exception that was raised, if any.
-
-    Returns:
-        The most specific ErrorCategory that matches.
     """
-    # Exception-based classification takes priority
-    if exception is not None:
-        if isinstance(exception, TimeoutError):
-            return ErrorCategory.TIMEOUT
-        if isinstance(exception, asyncio.TimeoutError):
-            return ErrorCategory.TIMEOUT
-        if isinstance(exception, PermissionError):
-            return ErrorCategory.PERMISSION_DENIED
-        if isinstance(exception, FileNotFoundError):
-            return ErrorCategory.TOOL_UNAVAILABLE
-        if isinstance(exception, (json.JSONDecodeError, ValueError)):
-            return ErrorCategory.PARSE_FAILURE
-
-    # Exit-code-based classification
-    if exit_code is not None:
-        if exit_code == 124:
-            # Standard Unix timeout exit code
-            return ErrorCategory.TIMEOUT
-        if exit_code == 126:
-            # Permission denied (cannot execute)
-            return ErrorCategory.PERMISSION_DENIED
-        if exit_code == 127:
-            # Command not found
-            return ErrorCategory.TOOL_UNAVAILABLE
-        if exit_code in (137, 139):
-            # SIGKILL (137) or SIGSEGV (139)
-            return ErrorCategory.SYSTEM_CRASH
-
-    # Output-based classification (known CLI sentinel strings only)
-    output_lower = output.lower()
-    if any(s in output_lower for s in ("rate limit", "rate_limit", "429", "too many requests")):
-        return ErrorCategory.RATE_LIMITED
-    if any(s in output_lower for s in ("permission denied", "access denied", "eacces")):
-        return ErrorCategory.PERMISSION_DENIED
-    if any(s in output_lower for s in ("timeout", "timed out", "deadline exceeded")):
-        return ErrorCategory.TIMEOUT
-    if any(s in output_lower for s in ("tool not available", "tool_unavailable", "unknown tool")):
-        return ErrorCategory.TOOL_UNAVAILABLE
-    if any(s in output_lower for s in ("segfault", "core dumped", "fatal error", "panic")):
-        return ErrorCategory.SYSTEM_CRASH
-    if any(s in output_lower for s in ("json", "parse error", "unexpected token", "decode")):
-        return ErrorCategory.PARSE_FAILURE
-
-    # If we have a non-zero exit code but nothing matched above
-    if exit_code is not None and exit_code != 0:
+    if exception is not None and (cat := _classify_exception(exception)) is not None:
+        return cat
+    if exit_code is not None and (cat := _classify_exit_code(exit_code)) is not None:
+        return cat
+    if (cat := _classify_output(output)) is not None:
+        return cat
+    if (exit_code is not None and exit_code != 0) or exception is not None:
         return ErrorCategory.UNKNOWN
-
-    # If we have an exception but nothing matched above
-    if exception is not None:
-        return ErrorCategory.UNKNOWN
-
     return ErrorCategory.UNKNOWN
 
 

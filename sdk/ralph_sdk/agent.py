@@ -13,18 +13,30 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import re
 import signal
 import sys
 import time
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
-
+from ralph_sdk.agent_models import (
+    _ADAPTIVE_TIMEOUT_HISTORY_SIZE,
+    CancelResult,
+    ContinueAsNewState,
+    DecompositionHint,
+    IterationRecord,
+    ProgressSnapshot,
+    RalphAgentInterface,
+    TaskInput,
+    TaskResult,
+    TracerProtocol,
+    _estimate_complexity,
+    _estimate_file_count,
+    compute_adaptive_timeout,
+    detect_decomposition_needed,
+)
 from ralph_sdk.complexity import classify_complexity
 from ralph_sdk.config import RalphConfig, RalphConfigError
 from ralph_sdk.context import (
@@ -59,441 +71,26 @@ from ralph_sdk.tools import (
 
 logger = logging.getLogger("ralph.sdk")
 
+__all__ = [
+    "CancelResult",
+    "ContinueAsNewState",
+    "DecompositionHint",
+    "IterationRecord",
+    "ProgressSnapshot",
+    "RalphAgent",
+    "RalphAgentInterface",
+    "TaskInput",
+    "TaskResult",
+    "TracerProtocol",
+    "compute_adaptive_timeout",
+    "detect_decomposition_needed",
+]
+
+
+
+# Standalone models / helpers live in agent_models.py and are re-exported above.
+# RalphAgent class follows.
 
-
-# =============================================================================
-# SDK-SAFETY-2: Task Decomposition Detection
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class DecompositionHint:
-    """Hint that a task should be decomposed into smaller sub-tasks.
-
-    Produced by detect_decomposition_needed() when the 4-factor heuristic
-    determines the current task is too large for a single iteration.
-    """
-
-    should_decompose: bool = False
-    reason: str = ""
-    suggested_split: int = 1
-    factors: dict[str, bool] = field(default_factory=dict)
-
-
-@dataclass
-class IterationRecord:
-    """Record of a single iteration's key metrics for history tracking."""
-
-    loop_count: int = 0
-    files_modified: int = 0
-    tasks_completed: int = 0
-    timed_out: bool = False
-    complexity: int = 0
-    file_count: int = 0
-    had_progress: bool = False
-
-
-def detect_decomposition_needed(
-    status: RalphStatus,
-    iteration_history: list[IterationRecord],
-    config: RalphConfig | None = None,
-) -> DecompositionHint:
-    """Detect whether the current task should be decomposed (SDK-SAFETY-2).
-
-    Uses a 4-factor heuristic:
-    1. file_count >= threshold (default 5) -- task touches many files
-    2. previous timeout -- last iteration timed out
-    3. complexity >= threshold (default 4) -- high inferred complexity
-    4. consecutive_no_progress >= threshold (default 3) -- stuck in a rut
-
-    Returns a DecompositionHint when 2+ factors are true.
-
-    Args:
-        status: Current iteration's parsed RalphStatus.
-        iteration_history: List of past IterationRecords (most recent last).
-        config: Optional RalphConfig for threshold overrides.
-
-    Returns:
-        DecompositionHint with should_decompose, reason, and suggested_split.
-    """
-    cfg = config or RalphConfig()
-
-    # Factor 1: File count (estimate from status next_task or progress_summary)
-    file_count = _estimate_file_count(status)
-    factor_file_count = file_count >= cfg.decomposition_file_count_threshold
-
-    # Factor 2: Previous timeout
-    factor_previous_timeout = False
-    if iteration_history:
-        factor_previous_timeout = iteration_history[-1].timed_out
-
-    # Factor 3: Complexity (estimate from status)
-    complexity = _estimate_complexity(status)
-    factor_complexity = complexity >= cfg.decomposition_complexity_threshold
-
-    # Factor 4: Consecutive no-progress
-    consecutive_no_progress = 0
-    for record in reversed(iteration_history):
-        if not record.had_progress:
-            consecutive_no_progress += 1
-        else:
-            break
-    factor_no_progress = consecutive_no_progress >= cfg.decomposition_no_progress_threshold
-
-    factors = {
-        "file_count": factor_file_count,
-        "previous_timeout": factor_previous_timeout,
-        "complexity": factor_complexity,
-        "consecutive_no_progress": factor_no_progress,
-    }
-    active_count = sum(1 for v in factors.values() if v)
-
-    if active_count >= 2:
-        reasons: list[str] = []
-        if factor_file_count:
-            reasons.append(f"file_count={file_count}>={cfg.decomposition_file_count_threshold}")
-        if factor_previous_timeout:
-            reasons.append("previous iteration timed out")
-        if factor_complexity:
-            reasons.append(f"complexity={complexity}>={cfg.decomposition_complexity_threshold}")
-        if factor_no_progress:
-            reasons.append(
-                f"consecutive_no_progress={consecutive_no_progress}"
-                f">={cfg.decomposition_no_progress_threshold}"
-            )
-
-        # Suggest splitting based on file count or a reasonable default
-        suggested_split = max(2, file_count // cfg.decomposition_file_count_threshold + 1)
-        suggested_split = min(suggested_split, 5)  # Cap at 5 sub-tasks
-
-        return DecompositionHint(
-            should_decompose=True,
-            reason=f"Decomposition recommended ({active_count}/4 factors): {'; '.join(reasons)}",
-            suggested_split=suggested_split,
-            factors=factors,
-        )
-
-    return DecompositionHint(factors=factors)
-
-
-def _estimate_file_count(status: RalphStatus) -> int:
-    """Estimate the number of files involved from status text.
-
-    Looks for file path patterns in next_task and progress_summary.
-    """
-    text = f"{status.next_task} {status.progress_summary}"
-    # Match common file path patterns (e.g., src/foo.py, lib/bar.sh)
-    file_patterns = re.findall(
-        r'(?:^|[\s,])([a-zA-Z0-9_./-]+\.[a-zA-Z]{1,10})(?:[\s,]|$)',
-        text,
-    )
-    # Deduplicate
-    return len(set(file_patterns))
-
-
-def _estimate_complexity(status: RalphStatus) -> int:
-    """Estimate task complexity from status text on a 1-5 scale.
-
-    Uses keyword heuristics from the progress summary and next task.
-    """
-    text = f"{status.next_task} {status.progress_summary}".lower()
-
-    complexity = 1  # Baseline
-
-    # High-complexity indicators
-    high_keywords = [
-        "refactor", "architect", "redesign", "migration", "overhaul",
-        "rewrite", "breaking change", "cross-cutting",
-    ]
-    medium_keywords = [
-        "implement", "integrate", "complex", "multiple", "several",
-        "significant", "extensive", "large",
-    ]
-
-    for keyword in high_keywords:
-        if keyword in text:
-            complexity += 2
-            break
-
-    for keyword in medium_keywords:
-        if keyword in text:
-            complexity += 1
-            break
-
-    # Multi-file references boost complexity
-    file_count = _estimate_file_count(status)
-    if file_count >= 8:
-        complexity += 2
-    elif file_count >= 4:
-        complexity += 1
-
-    return min(complexity, 5)
-
-
-# =============================================================================
-# Abstract Interface (SDK-3: Hybrid Architecture)
-# =============================================================================
-
-class TracerProtocol(Protocol):
-    """Minimal OpenTelemetry-style tracer surface used by the agent.
-
-    Defined as a Protocol so callers can inject any tracer (real OTel,
-    a no-op stub, a test double) without importing OTel here. Only the
-    `start_as_current_span` context-manager surface is touched today.
-    """
-
-    def start_as_current_span(self, name: str) -> Any: ...
-
-
-class RalphAgentInterface(Protocol):
-    """Abstract interface for Ralph agent implementations (CLI and SDK)."""
-
-    async def run_iteration(self, prompt: str, context: dict[str, Any]) -> RalphStatus:
-        """Execute a single loop iteration."""
-        ...
-
-    async def should_exit(self, status: RalphStatus, loop_count: int) -> bool:
-        """Evaluate exit conditions (dual-condition gate)."""
-        ...
-
-    async def check_rate_limit(self) -> bool:
-        """Check if within rate limits. Returns True if OK to proceed."""
-        ...
-
-    async def check_circuit_breaker(self) -> bool:
-        """Check circuit breaker state. Returns True if OK to proceed."""
-        ...
-
-
-# =============================================================================
-# Task Input/Output (SDK-3: TheStudio compatibility)
-# =============================================================================
-
-class TaskInput(BaseModel, frozen=True):
-    """Union type for task input — handles fix_plan.md and TheStudio TaskPackets.
-
-    In standalone mode: reads from fix_plan.md + PROMPT.md
-    In TheStudio mode: receives TaskPacket with structured fields
-    """
-    prompt: str = ""
-    fix_plan: str = ""
-    agent_instructions: str = ""
-    # TheStudio fields (populated when embedded)
-    task_packet_id: str = ""
-    task_packet_type: str = ""
-    task_packet_payload: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("prompt")
-    @classmethod
-    def validate_prompt(cls, v: str) -> str:
-        """Prompt must be non-empty when provided for execution (validated at use site)."""
-        return v
-
-    @field_validator("task_packet_payload")
-    @classmethod
-    def validate_payload(cls, v: dict[str, Any]) -> dict[str, Any]:
-        """Payload must be a dict."""
-        return v
-
-    @classmethod
-    def from_ralph_dir(cls, ralph_dir: str | Path = ".ralph") -> TaskInput:
-        """Load task input from .ralph/ directory (standalone mode)."""
-        ralph_path = Path(ralph_dir)
-        prompt = ""
-        fix_plan = ""
-        agent_instructions = ""
-
-        prompt_file = ralph_path / "PROMPT.md"
-        if prompt_file.exists():
-            prompt = prompt_file.read_text(encoding="utf-8")
-
-        fix_plan_file = ralph_path / "fix_plan.md"
-        if fix_plan_file.exists():
-            fix_plan = fix_plan_file.read_text(encoding="utf-8")
-
-        agent_file = ralph_path / "AGENT.md"
-        if agent_file.exists():
-            agent_instructions = agent_file.read_text(encoding="utf-8")
-
-        return cls(
-            prompt=prompt,
-            fix_plan=fix_plan,
-            agent_instructions=agent_instructions,
-        )
-
-    @classmethod
-    def from_task_packet(cls, packet: dict[str, Any]) -> TaskInput:
-        """Load task input from TheStudio TaskPacket."""
-        return cls(
-            prompt=packet.get("prompt", ""),
-            fix_plan=packet.get("fix_plan", ""),
-            agent_instructions=packet.get("agent_instructions", ""),
-            task_packet_id=packet.get("id", ""),
-            task_packet_type=packet.get("type", ""),
-            task_packet_payload=packet,
-        )
-
-
-class TaskResult(BaseModel):
-    """Output compatible with status.json and TheStudio signals."""
-    status: RalphStatus = Field(default_factory=RalphStatus)
-    exit_code: int = 0
-    output: str = ""
-    error: str = ""
-    loop_count: int = 0
-    duration_seconds: float = 0.0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    files_changed: list[str] = Field(default_factory=list)
-    total_cost_usd: float = 0.0
-
-    def to_signal(self) -> dict[str, Any]:
-        """Convert to TheStudio-compatible signal format."""
-        return {
-            "type": "ralph_result",
-            "task_result": self.status.to_dict(),
-            "exit_code": self.exit_code,
-            "output": self.output,
-            "error": self.error,
-            "loop_count": self.loop_count,
-            "duration_seconds": self.duration_seconds,
-            "tokens_in": self.tokens_in,
-            "tokens_out": self.tokens_out,
-            "files_changed": self.files_changed,
-            "total_cost_usd": self.total_cost_usd,
-        }
-
-
-# =============================================================================
-# SDK-OUTPUT-3: Structured Progress Snapshot
-# =============================================================================
-
-class ProgressSnapshot(BaseModel):
-    """Point-in-time snapshot of agent progress.
-
-    SDK-OUTPUT-3: Updated after each iteration; queryable via
-    ``RalphAgent.get_progress()``.
-    """
-    loop_count: int = 0
-    work_type: str = "UNKNOWN"
-    current_task: str = ""
-    elapsed_seconds: float = 0.0
-    circuit_breaker_state: str = "CLOSED"
-    session_id: str = ""
-    files_modified_this_loop: list[str] = Field(default_factory=list)
-
-
-# =============================================================================
-# SDK-CONTEXT-3: Continue-As-New State
-# =============================================================================
-
-class ContinueAsNewState(BaseModel):
-    """Essential state preserved across session rotations.
-
-    SDK-CONTEXT-3: When a session exceeds max_session_iterations or
-    max_session_age_minutes, the agent saves this state and starts a fresh
-    session. This prevents context window bloat while preserving progress.
-    """
-    current_task: str = ""
-    progress: str = ""
-    key_findings: list[str] = Field(default_factory=list)
-    continued_from_loop: int = 0
-    previous_session_id: str = ""
-    timestamp: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        """Export as dictionary for state backend."""
-        return {
-            "current_task": self.current_task,
-            "progress": self.progress,
-            "key_findings": self.key_findings,
-            "continued_from_loop": self.continued_from_loop,
-            "previous_session_id": self.previous_session_id,
-            "timestamp": self.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ContinueAsNewState:
-        """Create from state dict."""
-        return cls(
-            current_task=data.get("current_task", ""),
-            progress=data.get("progress", ""),
-            key_findings=data.get("key_findings", []),
-            continued_from_loop=data.get("continued_from_loop", 0),
-            previous_session_id=data.get("previous_session_id", ""),
-            timestamp=data.get("timestamp", ""),
-        )
-
-
-# =============================================================================
-# SDK-LIFECYCLE-1: Cancel Result Model
-# =============================================================================
-
-class CancelResult(BaseModel):
-    """Result returned by ``RalphAgent.cancel()`` after hardened cancellation.
-
-    SDK-LIFECYCLE-1: Captures any partial output from the Claude subprocess
-    that was interrupted, the number of completed iterations at the time of
-    cancellation, and whether a forced kill (SIGKILL) was required.
-
-    Attributes:
-        partial_output: Any stdout captured from the interrupted subprocess,
-            or None if no output was available.
-        iterations_completed: Number of full loop iterations completed before
-            the cancel was requested.
-        was_forced: True if the subprocess did not terminate within the grace
-            period and a SIGKILL was required.
-    """
-    partial_output: str | None = None
-    iterations_completed: int = 0
-    was_forced: bool = False
-
-
-# =============================================================================
-# SDK-LIFECYCLE-2: Adaptive Timeout Computation
-# =============================================================================
-
-# Maximum number of recent iteration durations to keep for P95 estimation.
-_ADAPTIVE_TIMEOUT_HISTORY_SIZE = 50
-
-
-def compute_adaptive_timeout(
-    history: list[float],
-    multiplier: float = 2.0,
-    min_minutes: int = 5,
-    max_minutes: int = 60,
-) -> int:
-    """Compute an adaptive timeout from recent iteration durations.
-
-    Uses the P95 latency of *history* (in seconds) multiplied by *multiplier*,
-    then clamps the result to [*min_minutes*, *max_minutes*].
-
-    Args:
-        history: List of recent iteration durations in seconds.
-        multiplier: Safety multiplier applied to the P95 latency.
-        min_minutes: Floor for the returned timeout.
-        max_minutes: Ceiling for the returned timeout.
-
-    Returns:
-        Timeout value in **minutes**, clamped to the specified range.
-    """
-    if not history:
-        return min_minutes
-
-    sorted_durations = sorted(history)
-    n = len(sorted_durations)
-
-    # P95 index -- use linear interpolation for fractional index
-    p95_idx = 0.95 * (n - 1)
-    lower = int(math.floor(p95_idx))
-    upper = min(lower + 1, n - 1)
-    fraction = p95_idx - lower
-    p95_seconds = sorted_durations[lower] + fraction * (
-        sorted_durations[upper] - sorted_durations[lower]
-    )
-
-    timeout_minutes = int(math.ceil((p95_seconds * multiplier) / 60.0))
-    return max(min_minutes, min(timeout_minutes, max_minutes))
 
 
 # =============================================================================
@@ -810,6 +407,196 @@ class RalphAgent:
     # Core Loop (async, replicates ralph_loop.sh main())
     # -------------------------------------------------------------------------
 
+    async def _check_invocation_rate_limit(self, result: TaskResult) -> bool:
+        """Return False (caller breaks) if the hourly invocation cap is hit."""
+        if not await self.check_rate_limit():
+            logger.warning("Rate limit reached, waiting for reset")
+            result.error = "Rate limit reached"
+            result.status.error_category = ErrorCategory.RATE_LIMITED
+            return False
+        return True
+
+    def _check_token_rate_limit(self, result: TaskResult) -> bool:
+        if self._token_rate_limiter.can_proceed():
+            return True
+        usage = self._token_rate_limiter.get_usage()
+        logger.warning(
+            "Token rate limit reached: %d/%d tokens this hour",
+            usage.tokens_used_this_hour,
+            usage.limit,
+        )
+        result.error = "Token rate limit reached"
+        return False
+
+    def _check_budget(self, result: TaskResult) -> bool:
+        """Return False on EXHAUSTED budget. Logs CRITICAL/WARNING but does not stop."""
+        if self.config.max_budget_usd <= 0:
+            return True
+        budget = self._cost_tracker.check_budget(self.config.max_budget_usd)
+        msg = "Budget %s: $%.4f / $%.2f (%.1f%%)"
+        args = (
+            budget.total_spent_usd,
+            budget.max_budget_usd,
+            budget.percentage_used,
+        )
+        if budget.alert_level == AlertLevel.EXHAUSTED:
+            logger.warning(msg, "exhausted", *args)
+            result.error = "Budget exhausted"
+            return False
+        if budget.alert_level == AlertLevel.CRITICAL:
+            logger.warning(msg, "CRITICAL", *args)
+        elif budget.alert_level == AlertLevel.WARNING:
+            logger.info(msg, "WARNING", *args)
+        return True
+
+    async def _run_dry_iteration(self, result: TaskResult) -> None:
+        logger.info("Dry run mode — skipping API call")
+        status = RalphStatus(
+            status="DRY_RUN",
+            work_type="DRY_RUN",
+            loop_count=self.loop_count,
+            correlation_id=self.correlation_id,
+        )
+        await self.state_backend.write_status(status.to_dict())
+        result.status = status
+
+    async def _maybe_optimize_plan(self) -> None:
+        """Run plan optimizer before the first iteration if enabled."""
+        if not self.config.optimize_plan:
+            return
+        try:
+            fix_plan_path = self.ralph_dir / "fix_plan.md"
+            if not fix_plan_path.exists():
+                return
+            graph = CachedImportGraph(
+                self.project_dir,
+                max_age_seconds=self.config.optimize_plan_cache_seconds,
+                project_type=self.config.project_type or None,
+            )
+            opt_result = optimize_plan(
+                fix_plan_path,
+                project_root=self.project_dir,
+                import_graph=graph,
+            )
+            if opt_result.changed:
+                logger.info(
+                    "Plan optimized: %s",
+                    opt_result.reason,
+                    extra={"correlation_id": self.correlation_id},
+                )
+        except Exception as exc:
+            logger.debug("Plan optimization skipped: %s", exc)
+
+    async def _initialize_run(self) -> None:
+        """Pre-loop bookkeeping: preflight, session, CB reset, plan optimize."""
+        await self._preflight_claude_version()
+        logger.info(
+            "Ralph SDK starting (v%s) [%s]",
+            self.config.model,
+            self.correlation_id,
+            extra={"correlation_id": self.correlation_id},
+        )
+        logger.info(
+            "Project: %s (%s)",
+            self.config.project_name,
+            self.config.project_type,
+            extra={"correlation_id": self.correlation_id},
+        )
+        await self._load_session()
+        self._session_iteration_count = 0
+        self._session_start_time = time.time()
+        await self._initialize_session_metadata()
+
+        cb_data = await self.state_backend.read_circuit_breaker()
+        cb = (
+            CircuitBreakerState._from_state_dict(cb_data)
+            if cb_data
+            else CircuitBreakerState()
+        )
+        cb.no_progress_count = 0
+        cb.same_error_count = 0
+        await self.state_backend.write_circuit_breaker(cb._to_state_dict())
+
+        await self._maybe_optimize_plan()
+
+    def _post_iteration_decomposition_check(
+        self, iteration_status: RalphStatus
+    ) -> None:
+        hint = detect_decomposition_needed(
+            iteration_status, self._iteration_history, self.config
+        )
+        if hint.should_decompose:
+            logger.warning(
+                "SDK-SAFETY-2: %s (suggested_split=%d)",
+                hint.reason,
+                hint.suggested_split,
+            )
+            self._pending_decomposition_hint = hint
+
+    async def _execute_iteration(
+        self,
+        result: TaskResult,
+        all_files_changed: dict[str, None],
+    ) -> bool:
+        """Run one loop iteration. Returns True to continue, False to break."""
+        if not await self._check_invocation_rate_limit(result):
+            return False
+        if not self._check_token_rate_limit(result):
+            return False
+        if not self._check_budget(result):
+            return False
+        if not await self.check_circuit_breaker():
+            logger.warning("Circuit breaker OPEN, stopping")
+            result.error = "Circuit breaker open"
+            return False
+
+        if self.config.dry_run:
+            await self._run_dry_iteration(result)
+            return False
+
+        task_input = TaskInput.from_ralph_dir(str(self.ralph_dir))
+        if not task_input.prompt and not task_input.fix_plan:
+            logger.error("No PROMPT.md or fix_plan.md found")
+            result.error = "No task input found"
+            return False
+
+        iteration_status = await self.run_iteration(task_input)
+
+        self._session_iteration_count += 1
+        if await self._should_rotate_session():
+            logger.info(
+                "Session rotation triggered at iteration %d (session iterations=%d)",
+                self.loop_count,
+                self._session_iteration_count,
+            )
+            await self._rotate_session(iteration_status)
+
+        for fp in self._last_iteration_files:
+            all_files_changed.setdefault(fp, None)
+
+        self._record_iteration_history(iteration_status)
+        self._post_iteration_decomposition_check(iteration_status)
+
+        if await self.should_exit(iteration_status, self.loop_count):
+            logger.info("Exit conditions met after %d loops", self.loop_count)
+            result.status = iteration_status
+            return False
+
+        await asyncio.sleep(2)
+        return True
+
+    def _finalize_result(
+        self, result: TaskResult, all_files_changed: dict[str, None]
+    ) -> None:
+        self._running = False
+        result.loop_count = self.loop_count
+        result.duration_seconds = time.time() - self.start_time
+        result.tokens_in = self._last_tokens_in
+        result.tokens_out = self._last_tokens_out
+        result.files_changed = list(all_files_changed)
+        session_cost = self._cost_tracker.get_session_cost()
+        result.total_cost_usd = session_cost.total_usd
+
     async def run(self) -> TaskResult:
         """Execute the autonomous loop until exit conditions are met."""
         self.start_time = time.time()
@@ -819,195 +606,26 @@ class RalphAgent:
         # thread can schedule work safely via call_soon_threadsafe.
         self._loop = asyncio.get_running_loop()
 
-        # TAP-1104: hard-fail if Claude CLI is older than the agent contract
-        # requires. Mirror of bash check_claude_version (ralph_loop.sh:1645);
-        # SDK refuses to start rather than silently producing wrong commands.
-        await self._preflight_claude_version()
-
-        logger.info("Ralph SDK starting (v%s) [%s]", self.config.model, self.correlation_id,
-                     extra={"correlation_id": self.correlation_id})
-        logger.info("Project: %s (%s)", self.config.project_name, self.config.project_type,
-                     extra={"correlation_id": self.correlation_id})
-
-        # Load session
-        await self._load_session()
-
-        # SDK-CONTEXT-3: Initialize session lifecycle tracking
-        self._session_iteration_count = 0
-        self._session_start_time = time.time()
-        await self._initialize_session_metadata()
-
-        # Reset circuit breaker counters (matching bash behavior)
-        cb_data = await self.state_backend.read_circuit_breaker()
-        cb = CircuitBreakerState._from_state_dict(cb_data) if cb_data else CircuitBreakerState()
-        cb.no_progress_count = 0
-        cb.same_error_count = 0
-        await self.state_backend.write_circuit_breaker(cb._to_state_dict())
-
-        # PLANOPT: Optimize fix_plan.md before first iteration
-        if self.config.optimize_plan:
-            try:
-                fix_plan_path = self.ralph_dir / "fix_plan.md"
-                if fix_plan_path.exists():
-                    graph = CachedImportGraph(
-                        self.project_dir,
-                        max_age_seconds=self.config.optimize_plan_cache_seconds,
-                        project_type=self.config.project_type or None,
-                    )
-                    opt_result = optimize_plan(
-                        fix_plan_path,
-                        project_root=self.project_dir,
-                        import_graph=graph,
-                    )
-                    if opt_result.changed:
-                        logger.info(
-                            "Plan optimized: %s",
-                            opt_result.reason,
-                            extra={"correlation_id": self.correlation_id},
-                        )
-            except Exception as exc:
-                logger.debug("Plan optimization skipped: %s", exc)
+        await self._initialize_run()
 
         result = TaskResult()
-        all_files_changed: dict[str, None] = {}  # ordered dedup across iterations
+        all_files_changed: dict[str, None] = {}
 
         try:
             while self._running:
                 self.loop_count += 1
                 logger.info("Loop iteration %d", self.loop_count)
-
-                # Rate limit check (invocation-based)
-                if not await self.check_rate_limit():
-                    logger.warning("Rate limit reached, waiting for reset")
-                    result.error = "Rate limit reached"
-                    result.status.error_category = ErrorCategory.RATE_LIMITED
+                if not await self._execute_iteration(result, all_files_changed):
                     break
-
-                # SDK-COST-3: Token-based rate limit check
-                if not self._token_rate_limiter.can_proceed():
-                    usage = self._token_rate_limiter.get_usage()
-                    logger.warning(
-                        "Token rate limit reached: %d/%d tokens this hour",
-                        usage.tokens_used_this_hour,
-                        usage.limit,
-                    )
-                    result.error = "Token rate limit reached"
-                    break
-
-                # SDK-COST-1: Budget check before iteration
-                if self.config.max_budget_usd > 0:
-                    budget = self._cost_tracker.check_budget(self.config.max_budget_usd)
-                    if budget.alert_level == AlertLevel.EXHAUSTED:
-                        logger.warning(
-                            "Budget exhausted: $%.4f / $%.2f (%.1f%%)",
-                            budget.total_spent_usd,
-                            budget.max_budget_usd,
-                            budget.percentage_used,
-                        )
-                        result.error = "Budget exhausted"
-                        break
-                    elif budget.alert_level == AlertLevel.CRITICAL:
-                        logger.warning(
-                            "Budget CRITICAL: $%.4f / $%.2f (%.1f%%)",
-                            budget.total_spent_usd,
-                            budget.max_budget_usd,
-                            budget.percentage_used,
-                        )
-                    elif budget.alert_level == AlertLevel.WARNING:
-                        logger.info(
-                            "Budget WARNING: $%.4f / $%.2f (%.1f%%)",
-                            budget.total_spent_usd,
-                            budget.max_budget_usd,
-                            budget.percentage_used,
-                        )
-
-                # Circuit breaker check
-                if not await self.check_circuit_breaker():
-                    logger.warning("Circuit breaker OPEN, stopping")
-                    result.error = "Circuit breaker open"
-                    break
-
-                # Dry run check
-                if self.config.dry_run:
-                    logger.info("Dry run mode — skipping API call")
-                    status = RalphStatus(
-                        status="DRY_RUN",
-                        work_type="DRY_RUN",
-                        loop_count=self.loop_count,
-                        correlation_id=self.correlation_id,
-                    )
-                    await self.state_backend.write_status(status.to_dict())
-                    result.status = status
-                    break
-
-                # Load task input
-                task_input = TaskInput.from_ralph_dir(str(self.ralph_dir))
-                if not task_input.prompt and not task_input.fix_plan:
-                    logger.error("No PROMPT.md or fix_plan.md found")
-                    result.error = "No task input found"
-                    break
-
-                # Execute one iteration
-                iteration_status = await self.run_iteration(task_input)
-
-                # SDK-CONTEXT-3: Session lifecycle — track and check for rotation
-                self._session_iteration_count += 1
-                if await self._should_rotate_session():
-                    logger.info(
-                        "Session rotation triggered at iteration %d (session iterations=%d)",
-                        self.loop_count,
-                        self._session_iteration_count,
-                    )
-                    await self._rotate_session(iteration_status)
-
-                # SDK-OUTPUT-1: Accumulate files_changed across iterations
-                for fp in self._last_iteration_files:
-                    all_files_changed.setdefault(fp, None)
-
-                # SDK-SAFETY-2: Record iteration history and check decomposition
-                self._record_iteration_history(iteration_status)
-
-                hint = detect_decomposition_needed(
-                    iteration_status,
-                    self._iteration_history,
-                    self.config,
-                )
-                if hint.should_decompose:
-                    logger.warning(
-                        "SDK-SAFETY-2: %s (suggested_split=%d)",
-                        hint.reason,
-                        hint.suggested_split,
-                    )
-                    self._pending_decomposition_hint = hint
-
-                # Check exit conditions (dual-condition gate)
-                if await self.should_exit(iteration_status, self.loop_count):
-                    logger.info("Exit conditions met after %d loops", self.loop_count)
-                    result.status = iteration_status
-                    break
-
-                # Brief pause between iterations
-                await asyncio.sleep(2)
-
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
             result.error = "User interrupt"
         except Exception as e:
             logger.exception("Unexpected error in loop")
             result.error = str(e)
-            # SDK-OUTPUT-2: Classify the exception
             result.status.error_category = classify_error(exception=e)
         finally:
-            self._running = False
-            result.loop_count = self.loop_count
-            result.duration_seconds = time.time() - self.start_time
-            result.tokens_in = self._last_tokens_in
-            result.tokens_out = self._last_tokens_out
-            result.files_changed = list(all_files_changed)
-
-            # SDK-COST-1: Attach session cost summary
-            session_cost = self._cost_tracker.get_session_cost()
-            result.total_cost_usd = session_cost.total_usd
+            self._finalize_result(result, all_files_changed)
 
         return result
 

@@ -135,165 +135,173 @@ class ContextManager:
     ) -> str:
         """Core trimming logic shared by all calling paths."""
         preamble_lines, sections = self._parse_sections(content)
-
-        # No sections found — return as-is
         if not sections:
             return content
 
-        # ----------------------------------------------------------
-        # Locate the active section
-        # ----------------------------------------------------------
-        active_idx = -1
+        active_idx = _locate_active_section(sections, current_section)
 
-        if current_section is not None:
-            # User-specified section — match by heading text (case-insensitive,
-            # ignoring leading ``## `` markers).
-            needle = current_section.strip().lstrip("#").strip().lower()
-            for i, (heading, _body) in enumerate(sections):
-                heading_text = heading.strip().lstrip("#").strip().lower()
-                if heading_text == needle:
-                    active_idx = i
-                    break
-
-        # Fallback / default: first section with unchecked items
         if active_idx == -1:
-            for i, (_heading, body) in enumerate(sections):
-                if any(re.match(r"\s*- \[ \]", line) for line in body):
-                    active_idx = i
-                    break
+            return _format_all_complete_summary(preamble_lines, sections)
+        return _format_active_section(preamble_lines, sections, active_idx, max_items)
 
-        # ----------------------------------------------------------
-        # All items complete — summary + section shape (TAP-674).
-        # The old behaviour collapsed to a single summary line, which
-        # dropped section names and made end-of-campaign reasoning hard
-        # for the dual-condition exit gate. Preserve the preamble and
-        # emit one line per section so the agent can see what ran.
-        # ----------------------------------------------------------
-        if active_idx == -1:
-            total_items = 0
-            total_checked = 0
-            section_summaries: list[str] = []
-            for heading, body in sections:
-                section_total = 0
-                section_checked = 0
-                for line in body:
-                    if re.match(r"\s*- \[x\]", line, re.IGNORECASE):
-                        section_total += 1
-                        section_checked += 1
-                    elif re.match(r"\s*- \[ \]", line):
-                        section_total += 1
-                total_items += section_total
-                total_checked += section_checked
-                if section_total > 0:
-                    section_summaries.append(
-                        f"{heading.rstrip()}  "
-                        f"({section_checked}/{section_total} done)"
+
+# ---- Module-level helpers extracted from _trim_sections ----------------------
+
+_UNCHECKED = re.compile(r"\s*- \[ \]")
+_CHECKED = re.compile(r"\s*- \[x\]", re.IGNORECASE)
+_CHECKBOX = re.compile(r"\s*- \[[xX ]\]")
+
+
+def _normalize_heading(text: str) -> str:
+    return text.strip().lstrip("#").strip().lower()
+
+
+def _section_has_unchecked(body: list[str]) -> bool:
+    return any(_UNCHECKED.match(line) for line in body)
+
+
+def _count_section(body: list[str]) -> tuple[int, int]:
+    """Return (total_items, checked_items) for a section body."""
+    total = checked = 0
+    for line in body:
+        if _CHECKED.match(line):
+            total += 1
+            checked += 1
+        elif _UNCHECKED.match(line):
+            total += 1
+    return total, checked
+
+
+def _locate_active_section(
+    sections: list[tuple[str, list[str]]],
+    current_section: str | None,
+) -> int:
+    """Return the index of the active section, or -1 if all are complete."""
+    if current_section is not None:
+        needle = _normalize_heading(current_section)
+        for i, (heading, _body) in enumerate(sections):
+            if _normalize_heading(heading) == needle:
+                return i
+    for i, (_heading, body) in enumerate(sections):
+        if _section_has_unchecked(body):
+            return i
+    return -1
+
+
+def _format_all_complete_summary(
+    preamble_lines: list[str],
+    sections: list[tuple[str, list[str]]],
+) -> str:
+    """Render the section shape when every task is complete (TAP-674)."""
+    total_items = total_checked = 0
+    section_summaries: list[str] = []
+    for heading, body in sections:
+        section_total, section_checked = _count_section(body)
+        total_items += section_total
+        total_checked += section_checked
+        if section_total > 0:
+            section_summaries.append(
+                f"{heading.rstrip()}  ({section_checked}/{section_total} done)"
+            )
+        elif heading.strip():
+            section_summaries.append(heading.rstrip())
+
+    parts: list[str] = []
+    if preamble_lines:
+        parts.extend(preamble_lines)
+        parts.append("")
+    if section_summaries:
+        parts.extend(section_summaries)
+        parts.append("")
+    if total_items > 0:
+        parts.append(
+            f"({total_checked}/{total_items} tasks complete — all tasks done)"
+        )
+    return "\n".join(parts).rstrip()
+
+
+def _summarize_completed_section(heading: str, body: list[str]) -> str | None:
+    """Render a one-line summary for a section above the active one."""
+    total = sum(1 for line in body if _CHECKBOX.match(line))
+    checked = sum(1 for line in body if _CHECKED.match(line))
+    if total == 0:
+        return None
+    return f"{heading.rstrip()}  ({checked}/{total} tasks complete)"
+
+
+def _emit_active_body(
+    body: list[str], max_items: int, parts: list[str]
+) -> int:
+    """Emit lines from the active section body. Returns remaining_unchecked count."""
+    checked = total = unchecked_count = remaining = 0
+    for line in body:
+        if _CHECKED.match(line):
+            checked += 1
+            total += 1
+            continue
+        if _UNCHECKED.match(line):
+            total += 1
+            if unchecked_count < max_items:
+                if checked > 0 and unchecked_count == 0:
+                    parts.append(
+                        f"  ({checked}/{total} tasks complete in this section)"
                     )
-                elif heading.strip():
-                    # Header with no items — still useful context
-                    section_summaries.append(heading.rstrip())
-
-            result_parts: list[str] = []
-            if preamble_lines:
-                result_parts.extend(preamble_lines)
-                result_parts.append("")
-            if section_summaries:
-                result_parts.extend(section_summaries)
-                result_parts.append("")
-            if total_items > 0:
-                result_parts.append(
-                    f"({total_checked}/{total_items} tasks complete — all tasks done)"
-                )
-            return "\n".join(result_parts).rstrip()
-
-        # ----------------------------------------------------------
-        # Build output
-        # ----------------------------------------------------------
-        result_parts: list[str] = []
-
-        # Preamble
-        if preamble_lines:
-            result_parts.extend(preamble_lines)
-            result_parts.append("")
-
-        # Summarize completed sections above the active one
-        for i in range(active_idx):
-            heading, body = sections[i]
-            total_in_section = sum(
-                1 for line in body
-                if re.match(r"\s*- \[[xX ]\]", line)
-            )
-            checked_in_section = sum(
-                1 for line in body
-                if re.match(r"\s*- \[x\]", line, re.IGNORECASE)
-            )
-            if total_in_section > 0:
-                section_title = heading.strip().lstrip("#").strip()  # noqa: F841 — preserved for future heading rewrite (TAP-542 follow-up)
-                result_parts.append(
-                    f"{heading.rstrip()}  ({checked_in_section}/{total_in_section} tasks complete)"
-                )
-
-        if active_idx > 0:
-            result_parts.append("")
-
-        # Active section heading
-        active_heading, active_body = sections[active_idx]
-        result_parts.append(active_heading)
-
-        # Emit checked items as a summary, then unchecked items up to limit
-        checked_in_section = 0
-        total_in_section = 0
-        unchecked_count = 0
-        remaining_unchecked = 0
-
-        for line in active_body:
-            if re.match(r"\s*- \[x\]", line, re.IGNORECASE):
-                checked_in_section += 1
-                total_in_section += 1
-            elif re.match(r"\s*- \[ \]", line):
-                total_in_section += 1
-                if unchecked_count < max_items:
-                    if checked_in_section > 0 and unchecked_count == 0:
-                        result_parts.append(
-                            f"  ({checked_in_section}/{total_in_section} tasks complete in this section)"
-                        )
-                    result_parts.append(line)
-                    unchecked_count += 1
-                else:
-                    remaining_unchecked += 1
+                parts.append(line)
+                unchecked_count += 1
             else:
-                # Non-checkbox lines — include while within the unchecked window
-                if unchecked_count > 0 and unchecked_count <= max_items:
-                    result_parts.append(line)
-                elif unchecked_count == 0:
-                    if not re.match(r"\s*- \[x\]", line, re.IGNORECASE):
-                        result_parts.append(line)
+                remaining += 1
+            continue
+        # Non-checkbox lines: include while inside the unchecked window
+        if 0 < unchecked_count <= max_items:
+            parts.append(line)
+        elif unchecked_count == 0 and not _CHECKED.match(line):
+            parts.append(line)
 
-        # If only checked items existed (no unchecked emitted yet), still summarize
-        if checked_in_section > 0 and unchecked_count == 0:
-            result_parts.append(
-                f"  ({checked_in_section}/{total_in_section} tasks complete in this section)"
+    if checked > 0 and unchecked_count == 0:
+        parts.append(f"  ({checked}/{total} tasks complete in this section)")
+    return remaining
+
+
+def _format_active_section(
+    preamble_lines: list[str],
+    sections: list[tuple[str, list[str]]],
+    active_idx: int,
+    max_items: int,
+) -> str:
+    parts: list[str] = []
+    if preamble_lines:
+        parts.extend(preamble_lines)
+        parts.append("")
+
+    for heading, body in sections[:active_idx]:
+        summary = _summarize_completed_section(heading, body)
+        if summary:
+            parts.append(summary)
+    if active_idx > 0:
+        parts.append("")
+
+    active_heading, active_body = sections[active_idx]
+    parts.append(active_heading)
+
+    remaining = _emit_active_body(active_body, max_items, parts)
+    if remaining > 0:
+        parts.append(f"  ... and {remaining} more unchecked items")
+
+    sections_below = len(sections) - active_idx - 1
+    if sections_below > 0:
+        total_below = sum(
+            1
+            for _heading, body in sections[active_idx + 1:]
+            for line in body
+            if _UNCHECKED.match(line)
+        )
+        if total_below > 0:
+            parts.append("")
+            parts.append(
+                f"({sections_below} more sections below with {total_below} unchecked items)"
             )
 
-        if remaining_unchecked > 0:
-            result_parts.append(f"  ... and {remaining_unchecked} more unchecked items")
-
-        # Summarize sections below the active one
-        sections_below = len(sections) - active_idx - 1
-        if sections_below > 0:
-            total_below = 0
-            for i in range(active_idx + 1, len(sections)):
-                _, body = sections[i]
-                total_below += sum(
-                    1 for line in body if re.match(r"\s*- \[ \]", line)
-                )
-            if total_below > 0:
-                result_parts.append("")
-                result_parts.append(
-                    f"({sections_below} more sections below with {total_below} unchecked items)"
-                )
-
-        return "\n".join(result_parts)
+    return "\n".join(parts)
 
 
 def estimate_tokens(text: str) -> int:

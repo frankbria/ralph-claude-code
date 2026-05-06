@@ -20,42 +20,55 @@ from pathlib import Path
 _SKIP_DIRS = {"node_modules", ".venv", "__pycache__", ".git", ".ralph", ".cache"}
 
 
+_PY_MODULE_EXTS = (".py", "/__init__.py")
+
+
+def _resolve_python_module(module: str, root: Path) -> str | None:
+    """Map a dotted module path to its on-disk source relative to `root`."""
+    mod_path = module.replace(".", "/")
+    for ext in _PY_MODULE_EXTS:
+        candidate = root / (mod_path + ext)
+        if candidate.exists():
+            return str(candidate.relative_to(root))
+    return None
+
+
+def _python_imports_for_node(node: ast.AST, root: Path) -> list[str]:
+    if isinstance(node, ast.ImportFrom) and node.module:
+        rel = _resolve_python_module(node.module, root)
+        return [rel] if rel else []
+    if isinstance(node, ast.Import):
+        return [
+            rel for alias in node.names
+            if (rel := _resolve_python_module(alias.name, root)) is not None
+        ]
+    return []
+
+
+def _python_file_deps(file_path: Path, root: Path) -> list[str]:
+    tree = ast.parse(file_path.read_text(encoding="utf-8", errors="ignore"))
+    deps: list[str] = []
+    for node in ast.walk(tree):
+        deps.extend(_python_imports_for_node(node, root))
+    return sorted({d.replace("\\", "/") for d in deps})
+
+
 def build_python_graph(project_root: Path) -> dict[str, list[str]]:
     """Build import graph for Python project via ast.parse().
 
-    Returns:
-        Dict mapping relative file path to list of relative dependency paths.
+    Returns a dict mapping relative file path to its sorted dependency paths.
     """
     root = project_root.resolve()
     graph: dict[str, list[str]] = {}
-
     for f in root.rglob("*.py"):
         if any(part in _SKIP_DIRS for part in f.parts):
             continue
         try:
-            tree = ast.parse(f.read_text(encoding="utf-8", errors="ignore"))
-            deps: list[str] = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    mod_path = node.module.replace(".", "/")
-                    for ext in [".py", "/__init__.py"]:
-                        candidate = root / (mod_path + ext)
-                        if candidate.exists():
-                            deps.append(str(candidate.relative_to(root)))
-                            break
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        mod_path = alias.name.replace(".", "/")
-                        for ext in [".py", "/__init__.py"]:
-                            candidate = root / (mod_path + ext)
-                            if candidate.exists():
-                                deps.append(str(candidate.relative_to(root)))
-                                break
-            rel = str(f.relative_to(root)).replace("\\", "/")
-            graph[rel] = sorted(set(d.replace("\\", "/") for d in deps))
+            deps = _python_file_deps(f, root)
         except (SyntaxError, UnicodeDecodeError, OSError):
-            pass
-
+            continue
+        rel = str(f.relative_to(root)).replace("\\", "/")
+        graph[rel] = deps
     return graph
 
 
