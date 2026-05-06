@@ -685,11 +685,12 @@ EOF
 # =============================================================================
 
 @test "modern CLI background execution redirects stdin from /dev/null" {
-    # Verify the implementation in ralph_loop.sh redirects stdin from /dev/null
-    # to prevent SIGTTIN suspension when claude is backgrounded.
-    # Without this, newer Claude CLI versions hang indefinitely.
+    # Verify the implementation redirects stdin from /dev/null to prevent SIGTTIN
+    # suspension when claude is backgrounded. Without this, newer Claude CLI
+    # versions hang indefinitely. Code lives in lib/exec_helpers.sh::exec_run_background
+    # after the TAP-1473 extraction.
 
-    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     assert_success
     [[ "$output" == *'< /dev/null'* ]]
@@ -697,13 +698,12 @@ EOF
 
 @test "live mode execution redirects stdin from /dev/null" {
     # Verify the live (streaming) mode also redirects stdin from /dev/null.
-    # This path is used by ralph --monitor (which adds --live).
-    # The live mode splits across two lines (line continuation with \),
-    # so we check the continuation line that has < /dev/null.
+    # This path is used by ralph --monitor (which adds --live). Code lives in
+    # lib/exec_helpers.sh::exec_run_live after the TAP-1473 extraction.
 
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    # The live mode has LIVE_CMD_ARGS on one line and < /dev/null on the next
+    # The live mode pipeline has LIVE_CMD_ARGS on one line and < /dev/null on the next
     # stderr is redirected to a separate file (Issue #190)
     run grep '< /dev/null 2>"$stderr_file" |' "$script"
 
@@ -713,35 +713,39 @@ EOF
 
 @test "all claude execution paths redirect stdin" {
     # Verify that ALL portable_timeout invocations of claude redirect stdin,
-    # to prevent regressions. There are 3 paths: modern background, live, legacy.
-    # Legacy uses < "$PROMPT_FILE", the other two must use < /dev/null.
-    # We check that no portable_timeout line invoking claude lacks a stdin redirect
-    # (either on the same line or a continuation line).
+    # to prevent regressions. There are 3 paths: modern background + live (in
+    # lib/exec_helpers.sh) and legacy (in lib/exec_helpers.sh::exec_run_background
+    # fallback path). Legacy uses < "$PROMPT_FILE", the other two use < /dev/null.
 
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local helpers="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    # All 3 portable_timeout lines that invoke claude should have < somewhere nearby
     # Modern background: has < /dev/null on same line
-    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null' "$script"
+    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null' "$helpers"
     assert_success
 
     # Live mode: has < /dev/null with stderr redirect on continuation line
-    run grep '< /dev/null 2>"$stderr_file" |' "$script"
+    run grep '< /dev/null 2>"$stderr_file" |' "$helpers"
     assert_success
 
-    # Legacy mode: has < "$PROMPT_FILE" on same line
-    run grep 'portable_timeout.*CLAUDE_CODE_CMD.*< ' "$script"
+    # Legacy mode: has < "$PROMPT_FILE" on same line (fallback inside exec_run_background)
+    run grep 'portable_timeout.*CLAUDE_CODE_CMD.*< ' "$helpers"
     assert_success
 }
 
 @test "modern CLI background execution has comment explaining stdin redirect" {
-    # Verify the fix is documented with context about why /dev/null is needed
+    # Verify each runner documents the stdin redirect rationale. Comments are
+    # multi-line and have slightly different phrasing per block, so we check
+    # each runner function for an "is redirected from" / "/dev/null" pair
+    # nearby (within 4 lines).
+    local helpers="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    run grep -c 'stdin must be redirected' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
-    assert_success
-    # Should appear in both background and live mode sections
-    [[ "$output" == "2" ]]
+    # Each runner's body should contain "is redirected from" near "/dev/null"
+    # within a 4-line context window — verifies docs exist in both runners.
+    local hits
+    hits=$(grep -A4 'is redirected from' "$helpers" | grep -c '/dev/null' || true)
+    hits=${hits:-0}
+    [[ "$hits" -ge 2 ]] \
+        || fail "expected >=2 stdin-redirect documentation blocks in lib/exec_helpers.sh, got '$hits'"
 }
 
 # =============================================================================
@@ -902,8 +906,9 @@ EOF
 @test "background mode does not need errexit guard" {
     # Verify background mode uses backgrounding (&) which naturally avoids
     # the set -e issue. The timeout runs in a subprocess, so its exit code
-    # doesn't trigger errexit on the parent script.
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # doesn't trigger errexit on the parent script. Code lives in
+    # lib/exec_helpers.sh::exec_run_background after TAP-1473 extraction.
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # Background mode lines should have & at end (backgrounding)
     run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*&' "$script"
@@ -913,29 +918,26 @@ EOF
 # --- API Limit False Positive Detection Tests (Issue #183) ---
 
 @test "API limit detection has timeout guard before rate limit grep" {
-    # Exit code 124 (timeout) must be checked BEFORE the API limit grep
-    # to prevent false positives when output file contains echoed "5-hour limit" text
+    # The dispatcher in execute_claude_code (ralph_loop.sh) must call
+    # exec_handle_timeout BEFORE exec_detect_rate_limit so that exit-code-124
+    # timeouts don't false-positive on "5-hour limit" text echoed in tool
+    # results. (Both helpers live in lib/exec_helpers.sh; the test verifies
+    # the dispatch ORDER in the orchestrator.)
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # Find the Layer 1 guard specifically (in the failure path, marked by comment)
-    local layer1_line=$(grep -n 'Layer 1.*Timeout guard' "$script" | head -1 | cut -d: -f1)
-    local timeout_line=$(awk -F: -v s="$layer1_line" 'NR >= s && /exit_code -eq 124/ { print NR; exit }' "$script")
-    local rate_limit_grep_line=$(grep -n 'rate_limit_event' "$script" | head -1 | cut -d: -f1)
-    local text_fallback_line=$(grep -n '5.*hour.*limit' "$script" | head -1 | cut -d: -f1)
+    local timeout_line rate_limit_line
+    timeout_line=$(grep -n 'exec_handle_timeout[[:space:]]\+"\$output_file"' "$script" | head -1 | cut -d: -f1)
+    rate_limit_line=$(grep -n 'exec_detect_rate_limit[[:space:]]\+"\$output_file"' "$script" | head -1 | cut -d: -f1)
 
-    # Layer 1 guard must exist in the failure path
-    [[ -n "$layer1_line" ]]
-    [[ -n "$timeout_line" ]]
-    [[ -n "$rate_limit_grep_line" ]]
-    [[ -n "$text_fallback_line" ]]
-    # Timeout guard must appear before both rate limit checks
-    [[ "$timeout_line" -lt "$rate_limit_grep_line" ]]
-    [[ "$timeout_line" -lt "$text_fallback_line" ]]
+    [[ -n "$timeout_line" ]] || fail "exec_handle_timeout dispatch not found in execute_claude_code"
+    [[ -n "$rate_limit_line" ]] || fail "exec_detect_rate_limit dispatch not found in execute_claude_code"
+    [[ "$timeout_line" -lt "$rate_limit_line" ]] \
+        || fail "timeout dispatch (line $timeout_line) must come before rate-limit dispatch (line $rate_limit_line)"
 }
 
 @test "API limit detection checks rate_limit_event JSON as primary signal" {
     # The primary detection method should parse rate_limit_event for status:"rejected"
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # Verify rate_limit_event grep exists
     run grep 'rate_limit_event' "$script"
@@ -949,7 +951,7 @@ EOF
 @test "API limit detection filters tool result content in fallback" {
     # The text fallback must filter out type:user and tool_result lines
     # to avoid matching "5-hour limit" text echoed from project files
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # Verify filtering of tool result content (whitespace-tolerant pattern)
     run grep 'grep -vE.*"type".*"user"' "$script"
@@ -965,7 +967,7 @@ EOF
 @test "API limit detection uses tail not full file in fallback" {
     # The text fallback should use tail (not grep the whole file)
     # to limit the search scope and reduce false positives
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # The fallback line should use tail before grep
     run grep 'tail -30.*output_file.*grep -v.*grep -qi.*5.*hour.*limit' "$script"
@@ -1087,7 +1089,7 @@ EOF
 
 @test "Layer 4 Extra Usage detection exists in ralph_loop.sh" {
     # Verify that the Layer 4 block exists with the correct pattern
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     run grep -i 'extra.usage' "$script"
     assert_success
@@ -1244,19 +1246,24 @@ EOF
 }
 
 @test "is_error check occurs before save_claude_session in success path" {
+    # The is_error classifier dispatch (exec_classify_api_error) must occur
+    # BEFORE save_claude_session in execute_claude_code so a poisoned response
+    # does not get persisted as the next session. Both calls live in
+    # ralph_loop.sh; the actual classifier body is in lib/exec_helpers.sh.
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    # Within execute_claude_code's exit_code==0 branch, the is_error guard must
-    # appear BEFORE the save_claude_session call
-    local is_error_line=$(grep -n 'json_is_error.*jq.*is_error' "$script" | head -1 | cut -d: -f1)
-    local save_session_line=$(grep -n 'save_claude_session.*output_file' "$script" | head -1 | cut -d: -f1)
 
-    [[ -n "$is_error_line" ]]
-    [[ -n "$save_session_line" ]]
-    [[ "$is_error_line" -lt "$save_session_line" ]]
+    local classifier_line save_session_line
+    classifier_line=$(grep -n 'exec_classify_api_error[[:space:]]\+"\$output_file"' "$script" | head -1 | cut -d: -f1)
+    save_session_line=$(grep -n 'save_claude_session[[:space:]]\+"\$output_file"' "$script" | head -1 | cut -d: -f1)
+
+    [[ -n "$classifier_line" ]] || fail "exec_classify_api_error dispatch not found"
+    [[ -n "$save_session_line" ]] || fail "save_claude_session call not found"
+    [[ "$classifier_line" -lt "$save_session_line" ]] \
+        || fail "is_error classifier (line $classifier_line) must come before save_claude_session (line $save_session_line)"
 }
 
 @test "is_error detection resets session on tool_use_concurrency error" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
     # Verify that tool use concurrency triggers session reset
     run grep -A 5 'tool.use.concurrency\|tool_use_concurrency' "$script"
     assert_success
@@ -1271,33 +1278,42 @@ EOF
     [[ "$func_body" == *"is_error"* ]]
 }
 
-@test "is_error:true returns non-zero from execute_claude_code (any exit code)" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    # Verify the is_error block returns non-zero (1 for generic API err, 4 for monthly cap).
-    # Widened from -A 20 to -A 40 because the monthly-cap branch now sits between the
-    # "is_error == true" guard and the generic "return 1" path.
-    run grep -A 40 'json_is_error.*==.*true' "$script"
-    assert_success
-    [[ "$output" == *"return 1"* ]]
-    [[ "$output" == *"return 4"* ]]
+@test "is_error:true returns non-zero from exec_classify_api_error (any exit code)" {
+    # Verify the classifier returns non-zero on detected errors:
+    #   - return 1 for generic API errors (caller retries with fresh session)
+    #   - return 4 for monthly spend-cap (terminal until reset date)
+    # The is_error variable was renamed from _ralph_json_is_error to _is_error
+    # during the TAP-1474 extraction.
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
+
+    # Extract the exec_classify_api_error function body and verify both return paths.
+    local body
+    body=$(sed -n '/^exec_classify_api_error()/,/^}/p' "$script")
+    [[ -n "$body" ]] || fail "exec_classify_api_error function not found"
+    [[ "$body" == *"return 1"* ]] || fail "missing return 1 (generic API error path)"
+    [[ "$body" == *"return 4"* ]] || fail "missing return 4 (monthly spend cap path)"
 }
 
 @test "is_error:true classifier runs before exit_code branching (monthly-cap fix)" {
+    # Regression guard (Issue #134 / #199): the is_error:true check must NOT
+    # be nested inside `if [ $exit_code -eq 0 ]`, otherwise non-zero exits
+    # with is_error:true (e.g. monthly spend-cap 400s) fall through to the
+    # generic retry path and burn calls against an immovable wall.
+    # Verify the classifier dispatch in execute_claude_code (ralph_loop.sh)
+    # appears BEFORE the exit_code==0 branch.
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    # Regression guard: the is_error:true check must NOT be nested inside
-    # `if [ $exit_code -eq 0 ]`, otherwise non-zero exits with is_error:true
-    # (e.g. monthly spend-cap 400s) fall through to the generic retry path.
-    # Verify the is_error guard appears BEFORE the exit_code==0 branch.
-    local is_error_line exit_code_line
-    is_error_line=$(grep -n '_ralph_json_is_error.*==.*true' "$script" | head -1 | cut -d: -f1)
+
+    local classifier_line exit_code_line
+    classifier_line=$(grep -n 'exec_classify_api_error[[:space:]]\+"\$output_file"' "$script" | head -1 | cut -d: -f1)
     exit_code_line=$(grep -n 'if \[ \$exit_code -eq 0 \]' "$script" | head -1 | cut -d: -f1)
-    [[ -n "$is_error_line" ]]
-    [[ -n "$exit_code_line" ]]
-    [[ "$is_error_line" -lt "$exit_code_line" ]]
+    [[ -n "$classifier_line" ]] || fail "exec_classify_api_error dispatch not found"
+    [[ -n "$exit_code_line" ]] || fail "if [ \$exit_code -eq 0 ] branch not found"
+    [[ "$classifier_line" -lt "$exit_code_line" ]] \
+        || fail "classifier (line $classifier_line) must come before exit_code branch (line $exit_code_line)"
 }
 
 @test "monthly Anthropic spend-cap error is detected and returns code 4" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
     # Verify the cap-detection grep + return-4 path are wired up
     run grep -A 10 'specified API usage limit' "$script"
     assert_success
@@ -1401,7 +1417,7 @@ EOF
 }
 
 @test "live mode pipeline redirects stderr to separate file" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # stderr must be redirected to a separate file (continuation line)
     run grep '2>"$stderr_file"' "$script"
@@ -1409,7 +1425,7 @@ EOF
 }
 
 @test "live mode logs stderr output when non-empty" {
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # When stderr file has content, a WARN should be logged
     run grep 'Claude CLI wrote to stderr' "$script"
@@ -1547,11 +1563,12 @@ EOF
 
 @test "timeout handler checks git for productive work before returning" {
     # The timeout handler (exit_code 124) must check for real changes
-    # GUARD-1: Uses ralph_has_real_changes (baseline comparison) instead of raw loop_start_sha
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # GUARD-1: Uses ralph_has_real_changes (baseline comparison) instead of raw loop_start_sha.
+    # Code lives in lib/exec_helpers.sh::exec_handle_timeout after TAP-1476 extraction.
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    # Verify the timeout guard block uses ralph_has_real_changes for baseline comparison
-    run bash -c "sed -n '/Layer 1.*Timeout guard/,/end timeout/p' '$script' | grep -q 'ralph_has_real_changes'"
+    # Extract the exec_handle_timeout function body and verify it calls ralph_has_real_changes.
+    run bash -c "sed -n '/^exec_handle_timeout()/,/^}/p' '$script' | grep -q 'ralph_has_real_changes'"
     assert_success
 }
 
@@ -1572,34 +1589,47 @@ EOF
 }
 
 @test "timeout handler returns 0 for productive timeout, 1 for idle timeout" {
-    # The timeout block must have two return paths:
+    # The exec_handle_timeout helper must have two return paths:
     # - return 0 when files changed (productive)
     # - return 1 when no files changed (idle)
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Plus return 3 on CB trip (covered separately in test_exec_handle_timeout.bats).
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    # Extract the timeout handler block
+    # awk-based brace-depth extractor — sed range stops at the heredoc's JSON
+    # closing `}` (column 0 inside CBEOF), so we track real function boundary.
     local timeout_block
-    timeout_block=$(sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' "$script")
+    timeout_block=$(awk '
+        /^exec_handle_timeout\(\) \{/ { in_fn=1; depth=1; print; next }
+        in_fn {
+            print
+            for (i=1; i<=length($0); i++) {
+                c = substr($0, i, 1)
+                if (c == "{") depth++
+                else if (c == "}") { depth--; if (depth == 0) { exit } }
+            }
+        }
+    ' "$script")
 
     # Must contain return 0 (productive path)
-    echo "$timeout_block" | grep -q 'return 0'
+    echo "$timeout_block" | grep -q 'return 0' || fail "missing return 0 (productive timeout path)"
     # Must contain return 1 (idle path)
-    echo "$timeout_block" | grep -q 'return 1'
+    echo "$timeout_block" | grep -q 'return 1' || fail "missing return 1 (idle timeout path)"
 }
 
 @test "timeout handler writes timed_out_productive to progress file" {
     # Productive timeouts should write a distinct status to PROGRESS_FILE
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'timed_out_productive'"
+    run bash -c "sed -n '/^exec_handle_timeout()/,/^}/p' '$script' | grep -q 'timed_out_productive'"
     assert_success
 }
 
 @test "timeout handler saves session on productive timeout" {
-    # Session ID must be preserved when timeout occurs with productive work
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Session ID must be preserved when timeout occurs with productive work.
+    # Lives in exec_handle_timeout (lib/exec_helpers.sh) after TAP-1476.
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
-    run bash -c "sed -n '/Layer 1.*Timeout guard/,/fi  # end timeout/p' '$script' | grep -q 'save_claude_session'"
+    run bash -c "sed -n '/^exec_handle_timeout()/,/^}/p' '$script' | grep -q 'save_claude_session'"
     assert_success
 }
 
@@ -1608,7 +1638,7 @@ EOF
 @test "stream parsing has session ID fallback from system message" {
     # When result message is missing (truncated stream), extract session_id
     # from the "type":"system" message as fallback
-    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local script="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
 
     # The stream parsing block should grep for type:system as fallback
     run grep -A 15 'Could not find result message' "$script"

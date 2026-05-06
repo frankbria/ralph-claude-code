@@ -107,10 +107,12 @@ run_filter() {
         || fail "expected summary line, got: $out"
 }
 
-@test "TAP-1470: stream_filter.awk is invoked via awk -f from ralph_loop.sh" {
+@test "TAP-1470: stream_filter.awk is invoked via awk -f from exec_run_live" {
+    # The live-pipeline awk -f invocation moved to lib/exec_helpers.sh
+    # (TAP-1473 extraction); ralph_loop.sh now dispatches via exec_run_live.
     grep -qE 'awk[^|]*-f "\$SCRIPT_DIR/lib/stream_filter\.awk"' \
-        "${ROOT}/ralph_loop.sh" \
-        || fail "ralph_loop.sh should invoke awk -f \$SCRIPT_DIR/lib/stream_filter.awk"
+        "${ROOT}/lib/exec_helpers.sh" \
+        || fail "lib/exec_helpers.sh should invoke awk -f \$SCRIPT_DIR/lib/stream_filter.awk"
 }
 
 @test "TAP-1470: ralph_loop.sh no longer contains an embedded stream_filter heredoc" {

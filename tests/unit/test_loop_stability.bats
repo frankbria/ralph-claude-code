@@ -188,17 +188,30 @@ EOF
     assert_success
 }
 
-@test "LOOP-4: ralph_loop.sh guards update_exit_signals calls" {
-    # Check that both call sites have error guards (now update_exit_signals_from_status)
-    local guarded_count
-    guarded_count=$(grep -c 'if ! update_exit_signals_from_status' "$RALPH_LOOP")
-    [ "$guarded_count" -ge 2 ]
+@test "LOOP-4: update_exit_signals calls are guarded across loop modules" {
+    # Both call sites (success path in ralph_loop.sh, productive-timeout path in
+    # lib/exec_helpers.sh::exec_handle_timeout) must have `if ! ...` guards so a
+    # failed signal update does not abort the loop. Count across both files
+    # since TAP-1476 moved the productive-timeout branch into exec_helpers.sh.
+    local helpers="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
+    local main_count helpers_count total
+    main_count=$(grep -c 'if ! update_exit_signals_from_status' "$RALPH_LOOP" 2>/dev/null | tr -cd '0-9')
+    helpers_count=$(grep -c 'if ! update_exit_signals_from_status' "$helpers" 2>/dev/null | tr -cd '0-9')
+    total=$(( ${main_count:-0} + ${helpers_count:-0} ))
+    [ "$total" -ge 2 ] \
+        || fail "expected >=2 guarded update_exit_signals_from_status calls across ralph_loop.sh + lib/exec_helpers.sh, got $total (main=$main_count helpers=$helpers_count)"
 }
 
-@test "LOOP-4: ralph_loop.sh guards log_status_summary calls" {
-    local guarded_count
-    guarded_count=$(grep -c 'if ! log_status_summary' "$RALPH_LOOP")
-    [ "$guarded_count" -ge 2 ]
+@test "LOOP-4: log_status_summary calls are guarded across loop modules" {
+    # Same shape as above: success-path call lives in ralph_loop.sh,
+    # productive-timeout call lives in lib/exec_helpers.sh::exec_handle_timeout.
+    local helpers="${BATS_TEST_DIRNAME}/../../lib/exec_helpers.sh"
+    local main_count helpers_count total
+    main_count=$(grep -c 'if ! log_status_summary' "$RALPH_LOOP" 2>/dev/null | tr -cd '0-9')
+    helpers_count=$(grep -c 'if ! log_status_summary' "$helpers" 2>/dev/null | tr -cd '0-9')
+    total=$(( ${main_count:-0} + ${helpers_count:-0} ))
+    [ "$total" -ge 2 ] \
+        || fail "expected >=2 guarded log_status_summary calls across ralph_loop.sh + lib/exec_helpers.sh, got $total (main=$main_count helpers=$helpers_count)"
 }
 
 # =============================================================================
