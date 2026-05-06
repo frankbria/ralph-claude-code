@@ -94,7 +94,8 @@ Python Agent SDK for dual-mode operation. All models are **Pydantic v2 BaseModel
 
 | Module | Purpose |
 |--------|---------|
-| `ralph_sdk/agent.py` | Async agent class — RalphAgent, TaskInput (frozen), TaskResult, ProgressSnapshot, CancelResult, DecompositionHint, ContinueAsNewState, run_sync() wrapper. Includes adaptive timeout, completion indicator decay, session lifecycle management. |
+| `ralph_sdk/agent.py` | Async agent class — `RalphAgent`, `run_sync()` wrapper, run-loop helpers (`_execute_iteration`, `_check_*`, `_initialize_run`, `_finalize_result`), session lifecycle, Claude CLI orchestration. Standalone models live in `agent_models.py` and are re-exported here for the public import surface. |
+| `ralph_sdk/agent_models.py` | Standalone models + helpers split out of `agent.py` (TAP-1515): `TaskInput` (frozen), `TaskResult`, `ProgressSnapshot`, `CancelResult`, `DecompositionHint`, `IterationRecord`, `ContinueAsNewState`, `TracerProtocol`, `RalphAgentInterface`, `compute_adaptive_timeout`, `detect_decomposition_needed`. |
 | `ralph_sdk/config.py` | Pydantic configuration — validation ranges, .ralphrc/.json/env precedence chain. Includes cost, safety, context, lifecycle, and adaptive timeout settings. |
 | `ralph_sdk/status.py` | Pydantic status models — RalphStatus, CircuitBreakerState, WorkType/RalphLoopStatus/ErrorCategory enums |
 | `ralph_sdk/state.py` | Pluggable state backend — RalphStateBackend Protocol (18 methods), FileStateBackend (async aiofiles), NullStateBackend (in-memory). Includes session metadata, history, and continue-as-new state. |
