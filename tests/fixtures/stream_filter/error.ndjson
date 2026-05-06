@@ -1,0 +1,1 @@
+{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"Permission denied: /etc/passwd"}]}}

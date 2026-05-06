@@ -1,0 +1,3 @@
+{"type":"content_block_start","content_block":{"type":"tool_use","id":"x","name":"Bash"}}
+{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{\"command\":\"this_is_a_pretty_long_command_string_that_should_be_truncated_to_sixty_chars_max_for_display\"}"}}
+{"type":"content_block_stop"}

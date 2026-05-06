@@ -1,0 +1,3 @@
+{"type":"content_block_start","content_block":{"type":"tool_use","id":"x","name":"Grep"}}
+{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{\"pattern\":\"foo.*bar\"}"}}
+{"type":"content_block_stop"}
