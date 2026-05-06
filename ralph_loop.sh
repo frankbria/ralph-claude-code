@@ -3970,139 +3970,22 @@ execute_claude_code() {
         # Clear progress file on failure
         echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
-        # Layer 1: Timeout guard — exit code 124 is a timeout, not an API limit
-        # Issue #198: Check for productive work before treating as failure
+        # Layer 1: timeout guard — exit code 124 is a timeout, not an API limit.
+        # Productive vs unproductive split + consecutive-timeout CB trip live
+        # in lib/exec_helpers.sh::exec_handle_timeout (TAP-1476). Issue #198.
         if [[ $exit_code -eq 124 ]]; then
-            log_status "WARN" "⏱️ Claude Code execution timed out (not an API limit)"
-
-            # GUARD-1: Check baseline to detect only changes made during THIS iteration
-            if ralph_has_real_changes; then
-                # Productive timeout — real work was done during this iteration
-                local timeout_files_changed
-                timeout_files_changed=$(_count_files_changed_since_loop_start)
-                log_status "INFO" "⏱️ Timeout but $timeout_files_changed new file(s) changed during this iteration — treating as productive"
-                echo '{"status": "timed_out_productive", "files_changed": '$timeout_files_changed', "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-                # GUARD-2: Reset consecutive timeout counter on productive timeout
-                CONSECUTIVE_TIMEOUT_COUNT=0
-
-                # ADAPTIVE-1: Record timeout duration as latency sample for productive timeouts
-                # Prevents "coordinated omission" bias where only fast loops are recorded
-                # and slow QA/epic-boundary loops time out without being counted
-                if [[ -n "${invocation_start_epoch:-}" ]]; then
-                    local timeout_end_epoch timeout_duration
-                    timeout_end_epoch=$(date +%s)
-                    timeout_duration=$((timeout_end_epoch - invocation_start_epoch))
-                    ralph_record_latency "$timeout_duration"
-                    log_status "DEBUG" "Recorded productive timeout latency: ${timeout_duration}s (will push adaptive timeout higher)"
-                fi
-
-                ralph_prepare_claude_output_for_analysis "$output_file" "timeout"
-
-                # Save session ID (fallback already populated by Step 1 if stream was truncated)
-                if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-                    save_claude_session "$output_file"
-                fi
-
-                # Update exit signals from status.json (written by on-stop.sh hook)
-                log_status "INFO" "🔍 Reading response analysis from status.json..."
-                if ! update_exit_signals_from_status; then
-                    log_status "WARN" "Exit signal update failed; continuing with stale signals"
-                fi
-                if ! log_status_summary; then
-                    log_status "WARN" "Analysis summary logging failed; non-critical, continuing"
-                fi
-
-                # TAP-917: Debrief coordinator on the productive-timeout path too.
-                local _debrief_tasks_t _debrief_pd_t
-                _debrief_tasks_t=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
-                _debrief_pd_t=$(jq -r '.permission_denial_count // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
-                if cb_is_open || [[ "${_debrief_pd_t:-0}" -gt 0 ]]; then
-                    local _detail_t
-                    _detail_t=$(jq -r '.recommendation // ""' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
-                    ralph_debrief_coordinator "failure" "$_detail_t"
-                elif [[ "${_debrief_tasks_t:-0}" -gt 0 ]]; then
-                    ralph_debrief_coordinator "success" ""
-                fi
-
-                # TAP-924: Task-boundary cleanup on the productive-timeout path.
-                # Same ordering invariant as the success path: clear AFTER debrief.
-                local _exit_sig_tc_t _tasks_done_tc_t
-                _exit_sig_tc_t=$(jq -r '.exit_signal // "false"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "false")
-                _tasks_done_tc_t=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
-                if [[ "$_exit_sig_tc_t" == "true" ]] || [[ "${_tasks_done_tc_t:-0}" -gt 0 ]]; then
-                    ralph_clear_coordinator_artifacts
-                    log_status "INFO" "coordinator: session+brief cleared (task complete)"
-                fi
-
-                # Check if on-stop.sh hook transitioned circuit breaker to OPEN
-                if cb_is_open; then
-                    log_status "WARN" "Circuit breaker opened - halting execution"
-                    return 3
-                fi
-
-                return 0
-            else
-                # GUARD-2: Increment consecutive timeout counter for unproductive timeouts
-                CONSECUTIVE_TIMEOUT_COUNT=$((CONSECUTIVE_TIMEOUT_COUNT + 1))
-                log_status "WARN" "⏱️ Timeout with NO new file changes — iteration was unproductive ($CONSECUTIVE_TIMEOUT_COUNT/$MAX_CONSECUTIVE_TIMEOUTS)"
-
-                if [[ "$CONSECUTIVE_TIMEOUT_COUNT" -ge "$MAX_CONSECUTIVE_TIMEOUTS" ]]; then
-                    log_status "ERROR" "Hit $MAX_CONSECUTIVE_TIMEOUTS consecutive unproductive timeouts — opening circuit breaker"
-                    log_status "ERROR" "Remediation options:"
-                    log_status "ERROR" "  1. Increase timeout: CLAUDE_TIMEOUT_MINUTES=45 in .ralphrc"
-                    log_status "ERROR" "  2. Break down tasks: split large tasks in fix_plan.md"
-                    log_status "ERROR" "  3. Reset and retry: ralph --reset-circuit"
-                    log_status "ERROR" "  4. Check if Claude is stuck: review last claude_output_*.log"
-
-                    # Write halt reason to status.json
-                    echo '{"status": "HALTED", "reason": "consecutive_timeouts", "message": "'"$MAX_CONSECUTIVE_TIMEOUTS"' consecutive unproductive timeouts", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$STATUS_FILE"
-
-                    # Trip the circuit breaker
-                    local total_opens
-                    total_opens=$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
-                    total_opens=$((total_opens + 1))
-                    cat > "$CB_STATE_FILE" << CBEOF
-{
-    "state": "$CB_STATE_OPEN",
-    "last_change": "$(get_iso_timestamp)",
-    "opened_at": "$(get_iso_timestamp)",
-    "consecutive_no_progress": $CONSECUTIVE_TIMEOUT_COUNT,
-    "total_opens": $total_opens,
-    "reason": "consecutive_timeouts: $MAX_CONSECUTIVE_TIMEOUTS unproductive timeouts"
-}
-CBEOF
-                    return 3
-                fi
-
-                return 1
-            fi
-        fi  # end timeout
-
-        # Layer 2: Structural JSON detection — check rate_limit_event for status:"rejected"
-        # This is the definitive signal from the Claude CLI
-        if grep -q '"rate_limit_event"' "$output_file" 2>/dev/null; then
-            local last_rate_event
-            last_rate_event=$(grep '"rate_limit_event"' "$output_file" | tail -1)
-            if echo "$last_rate_event" | grep -qE '"status"\s*:\s*"rejected"'; then
-                log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
-                return 2  # Real API limit
-            fi
+            exec_handle_timeout "$output_file" "${invocation_start_epoch:-}"
+            return $?
         fi
 
-        # Layer 3: Filtered text fallback — only check tail, excluding tool result lines
-        # Filters out type:user, tool_result, and tool_use_id lines which contain echoed file content
-        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
-            log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
-            return 2  # API limit detected via text fallback
-        fi
-
-        # Layer 4: Extra Usage quota detection (Issue #100)
-        # Claude Code "Extra Usage" mode uses a different error message:
-        # "You're out of extra usage · resets 9pm"
-        if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "out of extra usage"; then
-            log_status "ERROR" "🚫 Claude Extra Usage quota exhausted"
-            return 2  # Extra Usage limit detected
-        fi
+        # Layers 2-4: Claude API rate-limit / Extra Usage quota detection.
+        # Extracted to lib/exec_helpers.sh::exec_detect_rate_limit (TAP-1476).
+        # Returns 0 (no limit, fall through) or 2 (limit detected, propagate).
+        exec_detect_rate_limit "$output_file"
+        case $? in
+            0) ;;
+            2) return 2 ;;
+        esac
 
         log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
         return 1

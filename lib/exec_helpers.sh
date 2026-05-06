@@ -468,3 +468,192 @@ CBEOF
 
     return 0
 }
+
+# exec_detect_rate_limit — 4-layer Claude API usage-cap detector (TAP-1476).
+#
+# Reads the CLI output file and returns:
+#   - 0 if no rate-limit signal detected (caller falls through to generic
+#     failure handling)
+#   - 2 if any of the 4 signals fire (caller should `return 2` from
+#     execute_claude_code so the main loop's rate-limit retry logic kicks in)
+#
+# The 4 layers, checked in order:
+#   1. `rate_limit_event` JSON entries with `"status":"rejected"` — the
+#      definitive signal from Claude CLI's structured stream.
+#   2. Filtered text fallback on the last 30 lines of output, excluding
+#      `tool_result` / `tool_use_id` / `type:user` lines (those echo file
+#      content and would false-positive on the limit phrasing).
+#   3. Same filter, looking for "out of extra usage" — Claude Code's
+#      Extra Usage quota exhaustion phrasing (Issue #100).
+#
+# Args:
+#   $1 output_file — path to the Claude CLI result / stream JSON
+#
+# Side effect:
+#   - Logs an ERROR with the matching limit type when detected.
+exec_detect_rate_limit() {
+    local output_file=$1
+
+    # Layer 2: structural JSON detection — check rate_limit_event for status:"rejected".
+    if grep -q '"rate_limit_event"' "$output_file" 2>/dev/null; then
+        local last_rate_event
+        last_rate_event=$(grep '"rate_limit_event"' "$output_file" | tail -1)
+        if echo "$last_rate_event" | grep -qE '"status"\s*:\s*"rejected"'; then
+            log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+            return 2
+        fi
+    fi
+
+    # Layer 3: filtered text fallback — only check tail, excluding tool result lines
+    # which contain echoed file content that may match the limit phrasing.
+    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached"; then
+        log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+        return 2
+    fi
+
+    # Layer 4: Extra Usage quota detection (Issue #100).
+    # Claude Code "Extra Usage" mode uses a different error message:
+    # "You're out of extra usage · resets 9pm"
+    if tail -30 "$output_file" 2>/dev/null | grep -vE '"type"\s*:\s*"user"' | grep -v '"tool_result"' | grep -v '"tool_use_id"' | grep -qi "out of extra usage"; then
+        log_status "ERROR" "🚫 Claude Extra Usage quota exhausted"
+        return 2
+    fi
+
+    return 0
+}
+
+# exec_handle_timeout — Exit-code-124 (timeout) handler (TAP-1476).
+#
+# Distinguishes productive timeouts (real work was done during the iteration)
+# from unproductive timeouts (no file changes). Productive timeouts run the
+# same downstream pipeline as the success path so progress is recorded;
+# unproductive timeouts increment the consecutive-timeout counter and trip
+# the circuit breaker at MAX_CONSECUTIVE_TIMEOUTS.
+#
+# Returns:
+#   - 0 on productive timeout (caller should treat as success and continue)
+#   - 1 on unproductive timeout below threshold (caller propagates)
+#   - 3 on circuit-breaker trip (CB_STATE_FILE written, caller should `return 3`)
+#
+# Args:
+#   $1 output_file              — path to the Claude CLI result / stream JSON
+#   $2 invocation_start_epoch   — epoch seconds the invocation started, or
+#                                 empty to skip latency recording
+#
+# Globals consumed:
+#   CONSECUTIVE_TIMEOUT_COUNT, MAX_CONSECUTIVE_TIMEOUTS, RALPH_DIR,
+#   CLAUDE_USE_CONTINUE, CB_STATE_FILE, CB_STATE_OPEN, STATUS_FILE,
+#   PROGRESS_FILE
+#
+# Globals mutated:
+#   CONSECUTIVE_TIMEOUT_COUNT, CB_STATE_FILE contents, STATUS_FILE contents,
+#   PROGRESS_FILE contents
+exec_handle_timeout() {
+    local output_file=$1
+    local invocation_start_epoch=${2:-}
+
+    log_status "WARN" "⏱️ Claude Code execution timed out (not an API limit)"
+
+    # GUARD-1: Check baseline to detect only changes made during THIS iteration.
+    if ralph_has_real_changes; then
+        # Productive timeout — real work was done during this iteration.
+        local timeout_files_changed
+        timeout_files_changed=$(_count_files_changed_since_loop_start)
+        log_status "INFO" "⏱️ Timeout but $timeout_files_changed new file(s) changed during this iteration — treating as productive"
+        echo '{"status": "timed_out_productive", "files_changed": '$timeout_files_changed', "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+        # GUARD-2: reset the consecutive timeout counter on productive timeout.
+        CONSECUTIVE_TIMEOUT_COUNT=0
+
+        # ADAPTIVE-1: record timeout duration as a latency sample for
+        # productive timeouts. Prevents "coordinated omission" bias where
+        # only fast loops are recorded and slow QA/epic-boundary loops time
+        # out without being counted.
+        if [[ -n "$invocation_start_epoch" ]]; then
+            local timeout_end_epoch timeout_duration
+            timeout_end_epoch=$(date +%s)
+            timeout_duration=$((timeout_end_epoch - invocation_start_epoch))
+            ralph_record_latency "$timeout_duration"
+            log_status "DEBUG" "Recorded productive timeout latency: ${timeout_duration}s (will push adaptive timeout higher)"
+        fi
+
+        ralph_prepare_claude_output_for_analysis "$output_file" "timeout"
+
+        # Save session ID (fallback already populated by Step 1 if stream was truncated).
+        if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+            save_claude_session "$output_file"
+        fi
+
+        # Update exit signals from status.json (written by on-stop.sh hook).
+        log_status "INFO" "🔍 Reading response analysis from status.json..."
+        if ! update_exit_signals_from_status; then
+            log_status "WARN" "Exit signal update failed; continuing with stale signals"
+        fi
+        if ! log_status_summary; then
+            log_status "WARN" "Analysis summary logging failed; non-critical, continuing"
+        fi
+
+        # TAP-917: debrief coordinator on the productive-timeout path too.
+        local _debrief_tasks_t _debrief_pd_t
+        _debrief_tasks_t=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+        _debrief_pd_t=$(jq -r '.permission_denial_count // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+        if cb_is_open || [[ "${_debrief_pd_t:-0}" -gt 0 ]]; then
+            local _detail_t
+            _detail_t=$(jq -r '.recommendation // ""' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
+            ralph_debrief_coordinator "failure" "$_detail_t"
+        elif [[ "${_debrief_tasks_t:-0}" -gt 0 ]]; then
+            ralph_debrief_coordinator "success" ""
+        fi
+
+        # TAP-924: task-boundary cleanup on the productive-timeout path. Same
+        # ordering invariant as the success path: clear AFTER debrief.
+        local _exit_sig_tc_t _tasks_done_tc_t
+        _exit_sig_tc_t=$(jq -r '.exit_signal // "false"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "false")
+        _tasks_done_tc_t=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+        if [[ "$_exit_sig_tc_t" == "true" ]] || [[ "${_tasks_done_tc_t:-0}" -gt 0 ]]; then
+            ralph_clear_coordinator_artifacts
+            log_status "INFO" "coordinator: session+brief cleared (task complete)"
+        fi
+
+        # Check whether on-stop.sh hook transitioned the circuit breaker to OPEN.
+        if cb_is_open; then
+            log_status "WARN" "Circuit breaker opened - halting execution"
+            return 3
+        fi
+
+        return 0
+    fi
+
+    # GUARD-2: increment the consecutive-timeout counter for unproductive timeouts.
+    CONSECUTIVE_TIMEOUT_COUNT=$((CONSECUTIVE_TIMEOUT_COUNT + 1))
+    log_status "WARN" "⏱️ Timeout with NO new file changes — iteration was unproductive ($CONSECUTIVE_TIMEOUT_COUNT/$MAX_CONSECUTIVE_TIMEOUTS)"
+
+    if [[ "$CONSECUTIVE_TIMEOUT_COUNT" -ge "$MAX_CONSECUTIVE_TIMEOUTS" ]]; then
+        log_status "ERROR" "Hit $MAX_CONSECUTIVE_TIMEOUTS consecutive unproductive timeouts — opening circuit breaker"
+        log_status "ERROR" "Remediation options:"
+        log_status "ERROR" "  1. Increase timeout: CLAUDE_TIMEOUT_MINUTES=45 in .ralphrc"
+        log_status "ERROR" "  2. Break down tasks: split large tasks in fix_plan.md"
+        log_status "ERROR" "  3. Reset and retry: ralph --reset-circuit"
+        log_status "ERROR" "  4. Check if Claude is stuck: review last claude_output_*.log"
+
+        # Write halt reason to status.json.
+        echo '{"status": "HALTED", "reason": "consecutive_timeouts", "message": "'"$MAX_CONSECUTIVE_TIMEOUTS"' consecutive unproductive timeouts", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$STATUS_FILE"
+
+        # Trip the circuit breaker.
+        local total_opens
+        total_opens=$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+        total_opens=$((total_opens + 1))
+        cat > "$CB_STATE_FILE" << CBEOF
+{
+    "state": "$CB_STATE_OPEN",
+    "last_change": "$(get_iso_timestamp)",
+    "opened_at": "$(get_iso_timestamp)",
+    "consecutive_no_progress": $CONSECUTIVE_TIMEOUT_COUNT,
+    "total_opens": $total_opens,
+    "reason": "consecutive_timeouts: $MAX_CONSECUTIVE_TIMEOUTS unproductive timeouts"
+}
+CBEOF
+        return 3
+    fi
+
+    return 1
+}
