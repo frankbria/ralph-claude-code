@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # TAP-913: ralph-coordinator agent definition contract.
 # Asserts the frontmatter and body of .claude/agents/ralph-coordinator.md
-# meet the spec — Haiku model, narrow tool surface, no shell/edit/Task,
+# meet the spec — Sonnet model, narrow tool surface, no shell/edit/Task,
 # brain_* tools wired, body references .ralph/brief.json.
 
 bats_require_minimum_version 1.5.0
@@ -56,11 +56,11 @@ setup() {
         || fail "expected 'name: ralph-coordinator' in frontmatter"
 }
 
-@test "TAP-913: model is haiku" {
+@test "TAP-913: model is sonnet" {
     local fm
     fm=$(extract_frontmatter "$AGENT_FILE")
-    echo "$fm" | grep -qE '^model:[[:space:]]+haiku[[:space:]]*$' \
-        || fail "expected 'model: haiku' in frontmatter"
+    echo "$fm" | grep -qE '^model:[[:space:]]+sonnet[[:space:]]*$' \
+        || fail "expected 'model: sonnet' in frontmatter"
 }
 
 @test "TAP-913: tools list contains all 4 brain_* tools" {
