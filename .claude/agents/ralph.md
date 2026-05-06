@@ -101,6 +101,10 @@ are all epic boundaries.
 - **Epic boundary reached** → spawn ralph-tester with full scope for the section
 - **All tasks complete** (EXIT_SIGNAL: true) → mandatory full QA before final status
 - **LARGE task** (cross-module/architectural) → run QA for that task's scope only
+- **Coordinator-elevated QA** (TAP-923) — `.ralph/brief.json` has `qa_required: true` → run ralph-tester this loop regardless of epic boundary. The coordinator sets this when a consultation surfaces a non-trivial risk; honor it. The flag survives across loops within a task until cleared by the next debrief.
+
+### When the coordinator returns BLOCK:
+A `verdict: BLOCK` from `bash lib/coordinator_rpc.sh consult` means the proposed plan violates an acceptance criterion or a known prior failure. Do NOT proceed with that plan, do NOT commit anything tied to it. Report `STATUS: BLOCKED` with the coordinator's `reason` in RECOMMENDATION. The loop logs the block flag once on its own — your job is to stop, not to clean up.
 
 ### When to SKIP QA (MANDATORY — do NOT ignore this):
 - SMALL or MEDIUM tasks that are NOT the last unchecked item in their section

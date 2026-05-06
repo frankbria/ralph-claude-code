@@ -138,6 +138,39 @@ brief_write() {
     atomic_write "$p" "$canon"
 }
 
+# Atomic in-place patch of a single top-level field. Re-validates the
+# resulting JSON before the rename — a malformed patch never overwrites a
+# good brief. Boolean / null / number values are passed through verbatim
+# (e.g. "true", "false", "null", "0.7"); anything else is stored as a string.
+#
+# Usage: brief_patch_field <field> <value>
+brief_patch_field() {
+    local field="${1:-}"
+    local value="${2-}"
+    [[ -n "$field" ]] || { echo "brief_patch_field: field required" >&2; return 2; }
+
+    local p
+    p=$(brief_path)
+    [[ -s "$p" ]] || { echo "brief_patch_field: brief missing: $p" >&2; return 1; }
+
+    local patched
+    case "$value" in
+        true|false|null)
+            patched=$(jq -c --arg f "$field" --argjson v "$value" '.[$f] = $v' "$p" 2>/dev/null) || patched=""
+            ;;
+        *)
+            if [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+                patched=$(jq -c --arg f "$field" --argjson v "$value" '.[$f] = $v' "$p" 2>/dev/null) || patched=""
+            else
+                patched=$(jq -c --arg f "$field" --arg v "$value" '.[$f] = $v' "$p" 2>/dev/null) || patched=""
+            fi
+            ;;
+    esac
+
+    [[ -n "$patched" ]] || { echo "brief_patch_field: jq patch failed" >&2; return 1; }
+    atomic_write "$p" "$patched"
+}
+
 # Remove the brief — used at task close so the next loop starts fresh.
 brief_clear() {
     local p

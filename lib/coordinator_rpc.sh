@@ -180,4 +180,23 @@ if ! echo "$_VERDICT" | jq -e '.verdict' >/dev/null 2>&1; then
     exit 0
 fi
 
+# TAP-923: apply consult-response patches to the brief and side-channel state.
+# elevated_qa=true → patch brief.qa_required=true so the next loop / sub-agent
+#                   reading the brief sees the elevation.
+# verdict=BLOCK    → touch ${RALPH_DIR}/.coordinator_block so the loop can
+#                   surface the block in its post-iteration sweep.
+# Failures here are non-fatal — the verdict still flows to stdout so the
+# caller acts on it.
+_ELEVATED_QA=$(echo "$_VERDICT" | jq -r '.elevated_qa // false' 2>/dev/null)
+_VERDICT_FIELD=$(echo "$_VERDICT" | jq -r '.verdict // empty' 2>/dev/null)
+
+if [[ "$_ELEVATED_QA" == "true" ]] && declare -F brief_patch_field >/dev/null 2>&1; then
+    brief_patch_field qa_required true 2>/dev/null || true
+fi
+
+if [[ "$_VERDICT_FIELD" == "BLOCK" ]]; then
+    _BLOCK_DIR="${RALPH_DIR:-.ralph}"
+    [[ -d "$_BLOCK_DIR" ]] && : > "$_BLOCK_DIR/.coordinator_block" 2>/dev/null || true
+fi
+
 printf '%s\n' "$_VERDICT"

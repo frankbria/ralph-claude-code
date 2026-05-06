@@ -4380,6 +4380,15 @@ EOF
             ralph_debrief_coordinator "success" ""
         fi
 
+        # TAP-923: Surface coordinator BLOCK signal. coordinator_rpc.sh writes
+        # this flag when a HIGH-risk consult returned verdict=BLOCK. The agent
+        # already saw the verdict on stdout and was instructed to stop; the
+        # loop logs it once and removes the flag so it can't carry forward.
+        if [[ -f "${RALPH_DIR}/.coordinator_block" ]]; then
+            log_status "WARN" "coordinator: BLOCK verdict observed this loop — review the agent's last decision before resuming"
+            rm -f "${RALPH_DIR}/.coordinator_block" 2>/dev/null || true
+        fi
+
         # TAP-924: Task-boundary cleanup. Runs AFTER ralph_debrief_coordinator
         # so the debrief reads brief.json + the resumed coordinator session
         # before either is wiped. Triggers: explicit EXIT_SIGNAL or any
