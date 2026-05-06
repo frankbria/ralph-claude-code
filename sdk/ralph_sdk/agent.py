@@ -242,7 +242,7 @@ class TracerProtocol(Protocol):
     `start_as_current_span` context-manager surface is touched today.
     """
 
-    def start_as_current_span(self, name: str, **kwargs: Any) -> Any: ...
+    def start_as_current_span(self, name: str) -> Any: ...
 
 
 class RalphAgentInterface(Protocol):

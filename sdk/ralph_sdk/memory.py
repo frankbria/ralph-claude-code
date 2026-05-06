@@ -346,7 +346,7 @@ def _detect_test_runner(root: Path) -> str:
     return "unknown"
 
 
-def _count_files(root: Path, max_depth: int = 3) -> int:
+def _count_files(root: Path) -> int:
     skip = {".git", "node_modules", ".ralph", "__pycache__", ".cache", ".venv"}
     count = 0
     try:
