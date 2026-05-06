@@ -399,3 +399,72 @@ exec_classify_api_error() {
     fi
     return 1
 }
+
+# exec_track_deferred_tests — TESTS_STATUS:DEFERRED state machine (TAP-1475).
+#
+# Reads `.tests_status` from ${RALPH_DIR}/status.json (as written by the
+# on-stop hook) and updates the CONSECUTIVE_DEFERRED_TEST_COUNT global.
+# Three transitions:
+#
+#   - PASSING / FAIL / UNKNOWN / missing file → counter resets to 0
+#   - DEFERRED, counter < CB_MAX_DEFERRED_TESTS → counter increments silently
+#   - DEFERRED, CB_MAX_DEFERRED_TESTS <= counter < 2× → counter increments + WARN
+#   - DEFERRED, counter >= 2× CB_MAX_DEFERRED_TESTS → counter increments,
+#     ERROR log, write CB_STATE_FILE with persistent_test_deferral reason,
+#     reset session, update status, `break` the caller's main loop
+#
+# The `break` walks up the active loop stack, so it exits the outer
+# `while ...; do execute_claude_code; done` in main even though it is
+# triggered from inside this nested helper.
+#
+# Args:
+#   $1 loop_count — current loop iteration, forwarded to update_status
+#
+# Globals consumed:
+#   CB_MAX_DEFERRED_TESTS, CB_STATE_FILE, CB_STATE_OPEN, RALPH_DIR
+#
+# Globals mutated:
+#   CONSECUTIVE_DEFERRED_TEST_COUNT (incremented or reset)
+#   CB_STATE_FILE contents (on trip)
+#
+# Functions used (defined in ralph_loop.sh):
+#   log_status, get_iso_timestamp, reset_session, update_status, _read_call_count
+exec_track_deferred_tests() {
+    local loop_count=$1
+
+    local _tests_status
+    _tests_status=$(jq -r '.tests_status // "UNKNOWN"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "UNKNOWN")
+
+    if [[ "$_tests_status" != "DEFERRED" ]]; then
+        CONSECUTIVE_DEFERRED_TEST_COUNT=0
+        return 0
+    fi
+
+    CONSECUTIVE_DEFERRED_TEST_COUNT=$((CONSECUTIVE_DEFERRED_TEST_COUNT + 1))
+
+    if [[ "$CONSECUTIVE_DEFERRED_TEST_COUNT" -ge $((CB_MAX_DEFERRED_TESTS * 2)) ]]; then
+        log_status "ERROR" "Tests deferred for $CONSECUTIVE_DEFERRED_TEST_COUNT consecutive loops — possible environment issue. Tripping circuit breaker."
+        local total_opens
+        total_opens=$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+        total_opens=$((total_opens + 1))
+        cat > "$CB_STATE_FILE" << CBEOF
+{
+    "state": "$CB_STATE_OPEN",
+    "last_change": "$(get_iso_timestamp)",
+    "opened_at": "$(get_iso_timestamp)",
+    "consecutive_no_progress": $CONSECUTIVE_DEFERRED_TEST_COUNT,
+    "total_opens": $total_opens,
+    "reason": "persistent_test_deferral: $CONSECUTIVE_DEFERRED_TEST_COUNT consecutive DEFERRED loops"
+}
+CBEOF
+        reset_session "persistent_test_deferral"
+        update_status "$loop_count" "$(_read_call_count)" "circuit_breaker_open" "halted" "persistent_test_deferral"
+        # break propagates up the active loop stack to the main while loop in
+        # ralph_loop.sh, exiting it cleanly. Same behavior as the inline block.
+        break
+    elif [[ "$CONSECUTIVE_DEFERRED_TEST_COUNT" -ge "$CB_MAX_DEFERRED_TESTS" ]]; then
+        log_status "WARN" "Tests deferred for $CONSECUTIVE_DEFERRED_TEST_COUNT consecutive loops — possible environment issue"
+    fi
+
+    return 0
+}

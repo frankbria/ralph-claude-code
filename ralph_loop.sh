@@ -3905,35 +3905,10 @@ execute_claude_code() {
             log_status "INFO" "coordinator: session+brief cleared (task complete)"
         fi
 
-        # LOGFIX-6: Track consecutive TESTS_STATUS: DEFERRED to detect environment stalls
-        local _tests_status
-        _tests_status=$(jq -r '.tests_status // "UNKNOWN"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "UNKNOWN")
-        if [[ "$_tests_status" == "DEFERRED" ]]; then
-            CONSECUTIVE_DEFERRED_TEST_COUNT=$((CONSECUTIVE_DEFERRED_TEST_COUNT + 1))
-            if [[ "$CONSECUTIVE_DEFERRED_TEST_COUNT" -ge $((CB_MAX_DEFERRED_TESTS * 2)) ]]; then
-                log_status "ERROR" "Tests deferred for $CONSECUTIVE_DEFERRED_TEST_COUNT consecutive loops — possible environment issue. Tripping circuit breaker."
-                local total_opens
-                total_opens=$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
-                total_opens=$((total_opens + 1))
-                cat > "$CB_STATE_FILE" << CBEOF
-{
-    "state": "$CB_STATE_OPEN",
-    "last_change": "$(get_iso_timestamp)",
-    "opened_at": "$(get_iso_timestamp)",
-    "consecutive_no_progress": $CONSECUTIVE_DEFERRED_TEST_COUNT,
-    "total_opens": $total_opens,
-    "reason": "persistent_test_deferral: $CONSECUTIVE_DEFERRED_TEST_COUNT consecutive DEFERRED loops"
-}
-CBEOF
-                reset_session "persistent_test_deferral"
-                update_status "$loop_count" "$(_read_call_count)" "circuit_breaker_open" "halted" "persistent_test_deferral"
-                break
-            elif [[ "$CONSECUTIVE_DEFERRED_TEST_COUNT" -ge "$CB_MAX_DEFERRED_TESTS" ]]; then
-                log_status "WARN" "Tests deferred for $CONSECUTIVE_DEFERRED_TEST_COUNT consecutive loops — possible environment issue"
-            fi
-        else
-            CONSECUTIVE_DEFERRED_TEST_COUNT=0
-        fi
+        # LOGFIX-6: track consecutive TESTS_STATUS: DEFERRED to detect environment
+        # stalls. Extracted to lib/exec_helpers.sh (TAP-1475) — trips the circuit
+        # breaker at 2× CB_MAX_DEFERRED_TESTS and `break`s the main loop.
+        exec_track_deferred_tests "$loop_count"
 
         # Log analysis summary (non-critical)
         if ! log_status_summary; then
