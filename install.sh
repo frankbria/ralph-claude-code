@@ -236,8 +236,10 @@ install_scripts() {
     shopt -u dotglob nullglob
     rmdir "$stage_dir" 2>/dev/null || rm -rf "$stage_dir"
 
-    # Copy lib scripts (strip CR for WSL/Windows CRLF source)
-    for f in "$SCRIPT_DIR"/lib/*.sh; do
+    # Copy lib scripts (strip CR for WSL/Windows CRLF source). Includes
+    # *.sh helpers and the *.awk stream filter (TAP-1470) that exec_run_live
+    # invokes via `awk -f "$SCRIPT_DIR/lib/stream_filter.awk"`.
+    for f in "$SCRIPT_DIR"/lib/*.sh "$SCRIPT_DIR"/lib/*.awk; do
         [[ -f "$f" ]] && tr -d $'\r' < "$f" > "$RALPH_HOME/lib/$(basename "$f")"
     done
 
