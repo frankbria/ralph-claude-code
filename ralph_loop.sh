@@ -3837,46 +3837,15 @@ execute_claude_code() {
         LAST_INVOCATION_DURATION=$(( $(date +%s) - invocation_start_epoch ))
     fi
 
-    # Unified is_error:true classifier — runs BEFORE branching on exit_code so that
-    # the same JSON-level error is handled identically whether the CLI exited 0 or
-    # non-zero. Previously this check only ran when exit_code==0 (Issue #134, #199),
-    # which let monthly-spend-cap 400s (which can come back with non-zero exit) fall
-    # through to the generic "execution failed → 30s retry" path and burn calls
-    # against an immovable wall.
-    if [[ -f "$output_file" ]]; then
-        local _ralph_json_is_error
-        _ralph_json_is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null || echo "false")
-        if [[ "$_ralph_json_is_error" == "true" ]]; then
-            local _ralph_error_msg
-            _ralph_error_msg=$(jq -r '.result // "unknown API error"' "$output_file" 2>/dev/null || echo "unknown API error")
-            echo '{"status": "failed", "error": "is_error:true", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
-
-            # Monthly spend cap (console.anthropic.com → Limits) — terminal until the reset date.
-            # Example: "You have reached your specified API usage limits. You will regain access on 2026-05-01 at 00:00 UTC."
-            # Retrying every 30s for days/weeks is pointless and noisy; surface the date and halt.
-            if echo "$_ralph_error_msg" | grep -qiE "specified API usage limit|regain access on"; then
-                MONTHLY_CAP_DATE=$(echo "$_ralph_error_msg" \
-                    | grep -oE "regain access on [0-9]{4}-[0-9]{2}-[0-9]{2}" \
-                    | head -1 \
-                    | grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}")
-                log_status "ERROR" "🛑 Monthly Anthropic API spend cap reached (exit_code=$exit_code). Access returns: ${MONTHLY_CAP_DATE:-unknown}"
-                log_status "ERROR" "    Raise the cap at console.anthropic.com → Limits, or wait until ${MONTHLY_CAP_DATE:-the reset date}."
-                return 4
-            fi
-
-            log_status "ERROR" "❌ Claude CLI returned is_error:true (exit_code=$exit_code): $_ralph_error_msg"
-
-            # Reset session to prevent infinite retry with a poisoned session ID.
-            if echo "$_ralph_error_msg" | grep -qi "tool.use.concurrency\|concurrency"; then
-                reset_session "tool_use_concurrency_error"
-                log_status "WARN" "Session reset due to tool use concurrency error. Retrying with fresh session."
-            else
-                reset_session "api_error_is_error_true"
-                log_status "WARN" "Session reset due to API error (is_error:true). Retrying with fresh session."
-            fi
-            return 1
-        fi
-    fi
+    # Unified is_error:true classifier (extracted to lib/exec_helpers.sh — TAP-1474).
+    # Runs BEFORE branching on exit_code so the same JSON-level error is handled
+    # identically whether the CLI exited 0 or non-zero (Issue #134 / #199).
+    exec_classify_api_error "$output_file" "$exit_code"
+    case $? in
+        0) ;;     # Not an is_error — fall through to exit-code-based handling
+        4) return 4 ;;  # Monthly spend cap reached — terminal until reset date
+        *) return 1 ;;  # Generic is_error — session reset done; retry next loop
+    esac
 
     if [ $exit_code -eq 0 ]; then
         # Clear progress file (is_error:true was already classified above)

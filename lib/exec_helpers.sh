@@ -329,3 +329,73 @@ EOF
     exit_code=$?
     return $exit_code
 }
+
+# exec_classify_api_error — Unified is_error:true classifier (TAP-1474).
+#
+# Reads the output file (stream-json or single-result JSON) and inspects the
+# top-level `.is_error` flag. Three branches:
+#
+#   - Not an is_error (or no output file, or invalid JSON) → return 0;
+#     caller continues with the normal exit-code-based flow.
+#   - Monthly Anthropic spend cap reached (matches "specified API usage
+#     limit" or "regain access on YYYY-MM-DD") → set MONTHLY_CAP_DATE,
+#     log error, return 4 → caller should `return 4` from
+#     execute_claude_code (terminal until reset date).
+#   - Generic is_error (tool-use-concurrency or anything else) → reset the
+#     session with a categorized reason, log error, return 1 → caller
+#     should `return 1` from execute_claude_code (retry with fresh
+#     session).
+#
+# Runs BEFORE branching on exit_code so the same JSON-level error is handled
+# identically whether the CLI exited 0 or non-zero (Issue #134 / #199 — the
+# monthly-cap 400s sometimes come back with non-zero exit and would otherwise
+# fall through to the generic 30s-retry path and burn calls against an
+# immovable wall).
+#
+# Args:
+#   $1 output_file — path to the Claude CLI result JSON
+#   $2 exit_code   — Claude CLI exit code (used only in log messages)
+#
+# Side effects:
+#   - PROGRESS_FILE rewritten with `{"status":"failed","error":"is_error:true",...}`
+#   - MONTHLY_CAP_DATE set on cap detection (caller-visible global)
+#   - reset_session called on the non-cap branch
+exec_classify_api_error() {
+    local output_file=$1
+    local exit_code=$2
+
+    [[ -f "$output_file" ]] || return 0
+
+    local _is_error
+    _is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null || echo "false")
+    [[ "$_is_error" == "true" ]] || return 0
+
+    local _err_msg
+    _err_msg=$(jq -r '.result // "unknown API error"' "$output_file" 2>/dev/null || echo "unknown API error")
+    echo '{"status": "failed", "error": "is_error:true", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
+
+    # Monthly spend cap (console.anthropic.com → Limits) — terminal until the reset date.
+    # Example: "You have reached your specified API usage limits. You will regain access on 2026-05-01 at 00:00 UTC."
+    # Retrying every 30s for days/weeks is pointless and noisy; surface the date and halt.
+    if echo "$_err_msg" | grep -qiE "specified API usage limit|regain access on"; then
+        MONTHLY_CAP_DATE=$(echo "$_err_msg" \
+            | grep -oE "regain access on [0-9]{4}-[0-9]{2}-[0-9]{2}" \
+            | head -1 \
+            | grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+        log_status "ERROR" "🛑 Monthly Anthropic API spend cap reached (exit_code=$exit_code). Access returns: ${MONTHLY_CAP_DATE:-unknown}"
+        log_status "ERROR" "    Raise the cap at console.anthropic.com → Limits, or wait until ${MONTHLY_CAP_DATE:-the reset date}."
+        return 4
+    fi
+
+    log_status "ERROR" "❌ Claude CLI returned is_error:true (exit_code=$exit_code): $_err_msg"
+
+    # Reset session to prevent infinite retry with a poisoned session ID.
+    if echo "$_err_msg" | grep -qi "tool.use.concurrency\|concurrency"; then
+        reset_session "tool_use_concurrency_error"
+        log_status "WARN" "Session reset due to tool use concurrency error. Retrying with fresh session."
+    else
+        reset_session "api_error_is_error_true"
+        log_status "WARN" "Session reset due to API error (is_error:true). Retrying with fresh session."
+    fi
+    return 1
+}
