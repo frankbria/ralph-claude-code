@@ -44,13 +44,13 @@ def test_cancel_without_running_loop_kills_synchronously(project_dir):
     agent._current_proc = fake_proc
 
     # No _loop set (agent never ran)
-    assert agent._loop is None
+    assert agent._loop is None  # nosec B101  # pytest assertion
 
     result = agent.cancel()
 
     # Kill was invoked synchronously
     fake_proc.kill.assert_called_once()
-    assert result.was_forced is True
+    assert result.was_forced is True  # nosec B101  # pytest assertion
 
 
 def test_cancel_from_different_thread_uses_threadsafe_scheduling(project_dir):
@@ -109,7 +109,7 @@ def test_cancel_from_different_thread_uses_threadsafe_scheduling(project_dir):
         # No deprecation warning or exception should have escaped
         # proc.kill() must not have been called synchronously (wait finished
         # cleanly before the grace timeout, so no forced kill)
-        assert result.was_forced is False
+        assert result.was_forced is False  # nosec B101  # pytest assertion
     finally:
         stop_event.set()
         t.join(timeout=2.0)
@@ -144,4 +144,4 @@ def test_cancel_from_same_loop_uses_create_task(project_dir):
 
     # Using asyncio.run avoids touching deprecated loop APIs
     result = asyncio.run(_scenario())
-    assert result.was_forced is False
+    assert result.was_forced is False  # nosec B101  # pytest assertion

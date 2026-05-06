@@ -50,7 +50,7 @@ def test_cb_closed_carries_previous_session_id(project_dir):
         return await _rotate_with_cb_state(agent, "CLOSED")
 
     state = asyncio.run(run())
-    assert state.get("previous_session_id") == "sess_abc123deadbeef"
+    assert state.get("previous_session_id") == "sess_abc123deadbeef"  # nosec B101  # pytest assertion
 
 
 def test_cb_open_blanks_previous_session_id(project_dir):
@@ -61,7 +61,7 @@ def test_cb_open_blanks_previous_session_id(project_dir):
         return await _rotate_with_cb_state(agent, "OPEN")
 
     state = asyncio.run(run())
-    assert state.get("previous_session_id") == ""
+    assert state.get("previous_session_id") == ""  # nosec B101  # pytest assertion
 
 
 def test_cb_half_open_blanks_previous_session_id(project_dir):
@@ -73,7 +73,7 @@ def test_cb_half_open_blanks_previous_session_id(project_dir):
         return await _rotate_with_cb_state(agent, "HALF_OPEN")
 
     state = asyncio.run(run())
-    assert state.get("previous_session_id") == ""
+    assert state.get("previous_session_id") == ""  # nosec B101  # pytest assertion
 
 
 def test_session_history_tags_cb_open_rotation(project_dir):
@@ -90,7 +90,7 @@ def test_session_history_tags_cb_open_rotation(project_dir):
         return history
 
     history = asyncio.run(run())
-    assert any(
+    assert any(  # nosec B101  # pytest assertion
         entry.get("reason") == "continue_as_new_cb_open"
         and entry.get("cb_state_at_rotation") == "OPEN"
         for entry in history

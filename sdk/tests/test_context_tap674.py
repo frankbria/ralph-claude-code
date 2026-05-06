@@ -25,19 +25,19 @@ reference.
     trimmed = cm.trim_fix_plan(plan)
 
     # Preamble must survive
-    assert "This is the preamble" in trimmed
-    assert "end-of-campaign reasoning" in trimmed
+    assert "This is the preamble" in trimmed  # nosec B101  # pytest assertion
+    assert "end-of-campaign reasoning" in trimmed  # nosec B101  # pytest assertion
 
     # Section headings must survive
-    assert "Phase 1 — Foundations" in trimmed
-    assert "Phase 2 — Feature work" in trimmed
+    assert "Phase 1 — Foundations" in trimmed  # nosec B101  # pytest assertion
+    assert "Phase 2 — Feature work" in trimmed  # nosec B101  # pytest assertion
 
     # Per-section completion counts must be present
-    assert "(2/2 done)" in trimmed
-    assert "(3/3 done)" in trimmed
+    assert "(2/2 done)" in trimmed  # nosec B101  # pytest assertion
+    assert "(3/3 done)" in trimmed  # nosec B101  # pytest assertion
 
     # Overall summary line still present
-    assert "5/5 tasks complete" in trimmed
+    assert "5/5 tasks complete" in trimmed  # nosec B101  # pytest assertion
 
 
 def test_all_checked_empty_sections_header_only():
@@ -49,10 +49,10 @@ def test_all_checked_empty_sections_header_only():
     trimmed = cm.trim_fix_plan(plan)
 
     # Preamble
-    assert "Campaign done" in trimmed
+    assert "Campaign done" in trimmed  # nosec B101  # pytest assertion
     # Headers with no items still appear
-    assert "Final phase" in trimmed
-    assert "Wrap-up" in trimmed
+    assert "Final phase" in trimmed  # nosec B101  # pytest assertion
+    assert "Wrap-up" in trimmed  # nosec B101  # pytest assertion
 
 
 def test_mixed_checked_unchecked_still_uses_normal_path():
@@ -71,7 +71,7 @@ def test_mixed_checked_unchecked_still_uses_normal_path():
     trimmed = cm.trim_fix_plan(plan)
 
     # Should not contain the "all tasks done" marker
-    assert "all tasks done" not in trimmed
+    assert "all tasks done" not in trimmed  # nosec B101  # pytest assertion
 
 
 def test_all_checked_without_preamble():
@@ -83,6 +83,6 @@ def test_all_checked_without_preamble():
     cm = ContextManager()
     trimmed = cm.trim_fix_plan(plan)
 
-    assert "Phase A" in trimmed
-    assert "(2/2 done)" in trimmed
-    assert "2/2 tasks complete" in trimmed
+    assert "Phase A" in trimmed  # nosec B101  # pytest assertion
+    assert "(2/2 done)" in trimmed  # nosec B101  # pytest assertion
+    assert "2/2 tasks complete" in trimmed  # nosec B101  # pytest assertion

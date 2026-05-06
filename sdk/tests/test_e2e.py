@@ -39,11 +39,11 @@ class TestE2ETaskPacketToEvidenceBundle:
 
         # 2. Convert to TaskInput
         task_input = from_task_packet(packet)
-        assert "login form" in task_input.prompt
-        assert task_input.task_packet_id == "tp-e2e-001"
-        assert "DO NOT: Backend auth" in task_input.agent_instructions
-        assert "Acceptance Criteria" in task_input.prompt
-        assert get_max_turns(packet.intent.complexity) == 30
+        assert "login form" in task_input.prompt  # nosec B101  # pytest assertion
+        assert task_input.task_packet_id == "tp-e2e-001"  # nosec B101  # pytest assertion
+        assert "DO NOT: Backend auth" in task_input.agent_instructions  # nosec B101  # pytest assertion
+        assert "Acceptance Criteria" in task_input.prompt  # nosec B101  # pytest assertion
+        assert get_max_turns(packet.intent.complexity) == 30  # nosec B101  # pytest assertion
 
         # 3. Create agent with NullStateBackend and dry_run
         ralph_dir = tmp_path / ".ralph"
@@ -62,9 +62,9 @@ class TestE2ETaskPacketToEvidenceBundle:
 
         # 4. Run agent (dry run)
         result = agent.run_sync()
-        assert result.status.status == RalphLoopStatus.DRY_RUN
-        assert result.loop_count == 1
-        assert agent.correlation_id  # Auto-generated UUID
+        assert result.status.status == RalphLoopStatus.DRY_RUN  # nosec B101  # pytest assertion
+        assert result.loop_count == 1  # nosec B101  # pytest assertion
+        assert agent.correlation_id  # Auto-generated UUID  # nosec B101  # pytest assertion
 
         # 5. Convert to EvidenceBundle
         bundle = to_evidence_bundle(
@@ -73,16 +73,16 @@ class TestE2ETaskPacketToEvidenceBundle:
             intent_version="v1",
             loopback_attempt=0,
         )
-        assert bundle.taskpacket_id == "tp-e2e-001"
-        assert bundle.intent_version == "v1"
-        assert bundle.loop_count == 1
-        assert bundle.correlation_id == agent.correlation_id
+        assert bundle.taskpacket_id == "tp-e2e-001"  # nosec B101  # pytest assertion
+        assert bundle.intent_version == "v1"  # nosec B101  # pytest assertion
+        assert bundle.loop_count == 1  # nosec B101  # pytest assertion
+        assert bundle.correlation_id == agent.correlation_id  # nosec B101  # pytest assertion
 
         # 6. Verify JSON round-trip
         json_str = bundle.model_dump_json()
         loaded = bundle.model_validate_json(json_str)
-        assert loaded.taskpacket_id == bundle.taskpacket_id
-        assert loaded.status == bundle.status
+        assert loaded.taskpacket_id == bundle.taskpacket_id  # nosec B101  # pytest assertion
+        assert loaded.status == bundle.status  # nosec B101  # pytest assertion
 
     def test_pipeline_with_loopback(self, tmp_path):
         """Retry pipeline with loopback context."""
@@ -95,8 +95,8 @@ class TestE2ETaskPacketToEvidenceBundle:
         )
 
         task_input = from_task_packet(packet)
-        assert "Retry Context" in task_input.prompt
-        assert "TypeError at line 42" in task_input.prompt
+        assert "Retry Context" in task_input.prompt  # nosec B101  # pytest assertion
+        assert "TypeError at line 42" in task_input.prompt  # nosec B101  # pytest assertion
 
         bundle = to_evidence_bundle(
             TaskResult(
@@ -106,8 +106,8 @@ class TestE2ETaskPacketToEvidenceBundle:
             taskpacket_id=packet.id,
             loopback_attempt=packet.loopback_attempt,
         )
-        assert bundle.loopback_attempt == 2
-        assert bundle.work_type == "DEBUGGING"
+        assert bundle.loopback_attempt == 2  # nosec B101  # pytest assertion
+        assert bundle.work_type == "DEBUGGING"  # nosec B101  # pytest assertion
 
     def test_null_backend_creates_no_files(self, tmp_path):
         """NullStateBackend doesn't write state files during E2E run."""
@@ -125,7 +125,7 @@ class TestE2ETaskPacketToEvidenceBundle:
         # Only the files we created should exist — no status.json, no .circuit_breaker_state
         state_files = {"status.json", ".circuit_breaker_state", ".call_count", ".last_reset", ".claude_session_id"}
         existing = {f.name for f in ralph_dir.iterdir() if f.is_file()}
-        assert existing & state_files == set()
+        assert existing & state_files == set()  # nosec B101  # pytest assertion
 
 
 class TestImports:
@@ -137,5 +137,5 @@ class TestImports:
             TaskInput,
         )
         # All importable
-        assert TaskInput is not None
-        assert RalphAgent is not None
+        assert TaskInput is not None  # nosec B101  # pytest assertion
+        assert RalphAgent is not None  # nosec B101  # pytest assertion

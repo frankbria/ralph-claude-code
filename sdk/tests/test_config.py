@@ -19,13 +19,13 @@ def tmp_project(tmp_path):
 def test_default_config():
     """Default config has sane values."""
     config = RalphConfig()
-    assert config.max_calls_per_hour == 200
-    assert config.timeout_minutes == 15
-    assert config.output_format == "json"
-    assert config.session_continuity is True
-    assert config.cb_cooldown_minutes == 30
-    assert config.dry_run is False
-    assert config.agent_name == "ralph"
+    assert config.max_calls_per_hour == 200  # nosec B101  # pytest assertion
+    assert config.timeout_minutes == 15  # nosec B101  # pytest assertion
+    assert config.output_format == "json"  # nosec B101  # pytest assertion
+    assert config.session_continuity is True  # nosec B101  # pytest assertion
+    assert config.cb_cooldown_minutes == 30  # nosec B101  # pytest assertion
+    assert config.dry_run is False  # nosec B101  # pytest assertion
+    assert config.agent_name == "ralph"  # nosec B101  # pytest assertion
 
 
 def test_load_ralphrc(tmp_project):
@@ -39,11 +39,11 @@ def test_load_ralphrc(tmp_project):
         'DRY_RUN=true\n'
     )
     config = RalphConfig.load(tmp_project)
-    assert config.project_name == "test-project"
-    assert config.project_type == "typescript"
-    assert config.max_calls_per_hour == 50
-    assert config.cb_cooldown_minutes == 15
-    assert config.dry_run is True
+    assert config.project_name == "test-project"  # nosec B101  # pytest assertion
+    assert config.project_type == "typescript"  # nosec B101  # pytest assertion
+    assert config.max_calls_per_hour == 50  # nosec B101  # pytest assertion
+    assert config.cb_cooldown_minutes == 15  # nosec B101  # pytest assertion
+    assert config.dry_run is True  # nosec B101  # pytest assertion
 
 
 def test_load_json_config(tmp_project):
@@ -56,10 +56,10 @@ def test_load_json_config(tmp_project):
         "model": "claude-opus-4-20250514",
     }))
     config = RalphConfig.load(tmp_project)
-    assert config.project_name == "json-project"
-    assert config.max_calls_per_hour == 75
-    assert config.dry_run is True
-    assert config.model == "claude-opus-4-20250514"
+    assert config.project_name == "json-project"  # nosec B101  # pytest assertion
+    assert config.max_calls_per_hour == 75  # nosec B101  # pytest assertion
+    assert config.dry_run is True  # nosec B101  # pytest assertion
+    assert config.model == "claude-opus-4-20250514"  # nosec B101  # pytest assertion
 
 
 def test_json_overrides_ralphrc(tmp_project):
@@ -71,7 +71,7 @@ def test_json_overrides_ralphrc(tmp_project):
     json_config.write_text(json.dumps({"maxCallsPerHour": 75}))
 
     config = RalphConfig.load(tmp_project)
-    assert config.max_calls_per_hour == 75
+    assert config.max_calls_per_hour == 75  # nosec B101  # pytest assertion
 
 
 def test_env_overrides_all(tmp_project, monkeypatch):
@@ -84,15 +84,15 @@ def test_env_overrides_all(tmp_project, monkeypatch):
 
     monkeypatch.setenv("MAX_CALLS_PER_HOUR", "200")
     config = RalphConfig.load(tmp_project)
-    assert config.max_calls_per_hour == 200
+    assert config.max_calls_per_hour == 200  # nosec B101  # pytest assertion
 
 
 def test_to_dict():
     """Config exports as dictionary."""
     config = RalphConfig(project_name="test", max_calls_per_hour=42)
     d = config.to_dict()
-    assert d["projectName"] == "test"
-    assert d["maxCallsPerHour"] == 42
+    assert d["projectName"] == "test"  # nosec B101  # pytest assertion
+    assert d["maxCallsPerHour"] == 42  # nosec B101  # pytest assertion
 
 
 def test_to_json():
@@ -100,7 +100,7 @@ def test_to_json():
     config = RalphConfig(project_name="test")
     j = config.to_json()
     data = json.loads(j)
-    assert data["projectName"] == "test"
+    assert data["projectName"] == "test"  # nosec B101  # pytest assertion
 
 
 def test_allowed_tools_from_ralphrc(tmp_project):
@@ -108,14 +108,14 @@ def test_allowed_tools_from_ralphrc(tmp_project):
     ralphrc = tmp_project / ".ralphrc"
     ralphrc.write_text('ALLOWED_TOOLS="Write,Read,Edit"\n')
     config = RalphConfig.load(tmp_project)
-    assert config.allowed_tools == ["Write", "Read", "Edit"]
+    assert config.allowed_tools == ["Write", "Read", "Edit"]  # nosec B101  # pytest assertion
 
 
 def test_missing_config_files(tmp_project):
     """Config loads with defaults when no config files exist."""
     config = RalphConfig.load(tmp_project)
-    assert config.project_name == "my-project"
-    assert config.max_calls_per_hour == 200
+    assert config.project_name == "my-project"  # nosec B101  # pytest assertion
+    assert config.max_calls_per_hour == 200  # nosec B101  # pytest assertion
 
 
 def test_validation_ranges():
@@ -133,5 +133,5 @@ def test_validation_ranges():
 def test_model_json_schema():
     """Pydantic model_json_schema() works."""
     schema = RalphConfig.model_json_schema()
-    assert "properties" in schema
-    assert "max_calls_per_hour" in schema["properties"]
+    assert "properties" in schema  # nosec B101  # pytest assertion
+    assert "max_calls_per_hour" in schema["properties"]  # nosec B101  # pytest assertion

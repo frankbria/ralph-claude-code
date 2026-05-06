@@ -24,9 +24,9 @@ class TestFromTaskPacket:
             intent=IntentSpecInput(goal="Build a login form"),
         )
         task = from_task_packet(packet)
-        assert "Build a login form" in task.prompt
-        assert task.task_packet_id == "tp-001"
-        assert task.task_packet_type == "implementation"
+        assert "Build a login form" in task.prompt  # nosec B101  # pytest assertion
+        assert task.task_packet_id == "tp-001"  # nosec B101  # pytest assertion
+        assert task.task_packet_type == "implementation"  # nosec B101  # pytest assertion
 
     def test_acceptance_criteria_appended(self):
         packet = TaskPacketInput(
@@ -37,9 +37,9 @@ class TestFromTaskPacket:
             ),
         )
         task = from_task_packet(packet)
-        assert "Acceptance Criteria" in task.prompt
-        assert "JWT tokens used" in task.prompt
-        assert "Session timeout 24h" in task.prompt
+        assert "Acceptance Criteria" in task.prompt  # nosec B101  # pytest assertion
+        assert "JWT tokens used" in task.prompt  # nosec B101  # pytest assertion
+        assert "Session timeout 24h" in task.prompt  # nosec B101  # pytest assertion
 
     def test_constraints_become_instructions(self):
         packet = TaskPacketInput(
@@ -50,8 +50,8 @@ class TestFromTaskPacket:
             ),
         )
         task = from_task_packet(packet)
-        assert "Must maintain backward compat" in task.agent_instructions
-        assert "No new dependencies" in task.agent_instructions
+        assert "Must maintain backward compat" in task.agent_instructions  # nosec B101  # pytest assertion
+        assert "No new dependencies" in task.agent_instructions  # nosec B101  # pytest assertion
 
     def test_non_goals_become_exclusions(self):
         packet = TaskPacketInput(
@@ -62,8 +62,8 @@ class TestFromTaskPacket:
             ),
         )
         task = from_task_packet(packet)
-        assert "DO NOT: Add new features" in task.agent_instructions
-        assert "DO NOT: Refactor unrelated code" in task.agent_instructions
+        assert "DO NOT: Add new features" in task.agent_instructions  # nosec B101  # pytest assertion
+        assert "DO NOT: Refactor unrelated code" in task.agent_instructions  # nosec B101  # pytest assertion
 
     def test_risk_flags_become_safety_constraints(self):
         packet = TaskPacketInput(
@@ -77,9 +77,9 @@ class TestFromTaskPacket:
             ),
         )
         task = from_task_packet(packet)
-        assert "SAFETY: Handles PII" in task.agent_instructions
+        assert "SAFETY: Handles PII" in task.agent_instructions  # nosec B101  # pytest assertion
         # Low severity not included
-        assert "Minor perf hit" not in task.agent_instructions
+        assert "Minor perf hit" not in task.agent_instructions  # nosec B101  # pytest assertion
 
     def test_context_packs_included(self):
         packet = TaskPacketInput(
@@ -92,8 +92,8 @@ class TestFromTaskPacket:
             ),
         )
         task = from_task_packet(packet)
-        assert "src/module.py" in task.agent_instructions
-        assert "def foo(): pass" in task.agent_instructions
+        assert "src/module.py" in task.agent_instructions  # nosec B101  # pytest assertion
+        assert "def foo(): pass" in task.agent_instructions  # nosec B101  # pytest assertion
 
     def test_loopback_context_prepended(self):
         packet = TaskPacketInput(
@@ -102,10 +102,10 @@ class TestFromTaskPacket:
             loopback_context="Previous attempt failed: TypeError on line 42",
         )
         task = from_task_packet(packet)
-        assert "Retry Context" in task.prompt
-        assert "TypeError on line 42" in task.prompt
+        assert "Retry Context" in task.prompt  # nosec B101  # pytest assertion
+        assert "TypeError on line 42" in task.prompt  # nosec B101  # pytest assertion
         # Loopback comes before the goal
-        assert task.prompt.index("Retry Context") < task.prompt.index("Fix the failing test")
+        assert task.prompt.index("Retry Context") < task.prompt.index("Fix the failing test")  # nosec B101  # pytest assertion
 
     def test_loopback_override(self):
         packet = TaskPacketInput(
@@ -114,8 +114,8 @@ class TestFromTaskPacket:
             loopback_context="original context",
         )
         task = from_task_packet(packet, loopback_context="override context")
-        assert "override context" in task.prompt
-        assert "original context" not in task.prompt
+        assert "override context" in task.prompt  # nosec B101  # pytest assertion
+        assert "original context" not in task.prompt  # nosec B101  # pytest assertion
 
     def test_expert_outputs_included(self):
         packet = TaskPacketInput(
@@ -126,20 +126,20 @@ class TestFromTaskPacket:
             ],
         )
         task = from_task_packet(packet)
-        assert "Expert Analysis" in task.prompt
-        assert "reviewer" in task.prompt
-        assert "needs tests" in task.prompt
+        assert "Expert Analysis" in task.prompt  # nosec B101  # pytest assertion
+        assert "reviewer" in task.prompt  # nosec B101  # pytest assertion
+        assert "needs tests" in task.prompt  # nosec B101  # pytest assertion
 
     def test_complexity_max_turns(self):
-        assert get_max_turns(ComplexityBand.LOW) == 20
-        assert get_max_turns(ComplexityBand.MEDIUM) == 30
-        assert get_max_turns(ComplexityBand.HIGH) == 50
-        assert get_max_turns(ComplexityBand.UNKNOWN) == 30
+        assert get_max_turns(ComplexityBand.LOW) == 20  # nosec B101  # pytest assertion
+        assert get_max_turns(ComplexityBand.MEDIUM) == 30  # nosec B101  # pytest assertion
+        assert get_max_turns(ComplexityBand.HIGH) == 50  # nosec B101  # pytest assertion
+        assert get_max_turns(ComplexityBand.UNKNOWN) == 30  # nosec B101  # pytest assertion
 
     def test_trust_permission_mode(self):
-        assert get_permission_mode(TrustTier.FULL) == "bypassPermissions"
-        assert get_permission_mode(TrustTier.STANDARD) == "default"
-        assert get_permission_mode(TrustTier.RESTRICTED) == "plan"
+        assert get_permission_mode(TrustTier.FULL) == "bypassPermissions"  # nosec B101  # pytest assertion
+        assert get_permission_mode(TrustTier.STANDARD) == "default"  # nosec B101  # pytest assertion
+        assert get_permission_mode(TrustTier.RESTRICTED) == "plan"  # nosec B101  # pytest assertion
 
 
 class TestDeprecatedFromTaskPacketDict:
@@ -150,18 +150,18 @@ class TestDeprecatedFromTaskPacketDict:
                 "id": "tp-legacy",
                 "type": "fix",
             })
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert task.task_packet_id == "tp-legacy"
+            assert len(w) == 1  # nosec B101  # pytest assertion
+            assert issubclass(w[0].category, DeprecationWarning)  # nosec B101  # pytest assertion
+            assert task.task_packet_id == "tp-legacy"  # nosec B101  # pytest assertion
 
 
 class TestModels:
     def test_task_packet_input_schema(self):
         schema = TaskPacketInput.model_json_schema()
-        assert "properties" in schema
-        assert "id" in schema["properties"]
+        assert "properties" in schema  # nosec B101  # pytest assertion
+        assert "id" in schema["properties"]  # nosec B101  # pytest assertion
 
     def test_intent_spec_schema(self):
         schema = IntentSpecInput.model_json_schema()
-        assert "properties" in schema
-        assert "goal" in schema["properties"]
+        assert "properties" in schema  # nosec B101  # pytest assertion
+        assert "goal" in schema["properties"]  # nosec B101  # pytest assertion

@@ -24,25 +24,25 @@ def cb(backend):
 class TestCircuitBreakerCanProceed:
     @pytest.mark.asyncio
     async def test_closed_allows(self, cb):
-        assert await cb.can_proceed() is True
+        assert await cb.can_proceed() is True  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_open_blocks(self, cb, backend):
         await backend.write_circuit_breaker({"state": "OPEN", "opened_at": "2099-01-01T00:00:00+0000"})
-        assert await cb.can_proceed() is False
+        assert await cb.can_proceed() is False  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_half_open_allows(self, cb, backend):
         await backend.write_circuit_breaker({"state": "HALF_OPEN"})
-        assert await cb.can_proceed() is True
+        assert await cb.can_proceed() is True  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_auto_reset_bypasses_cooldown(self, backend):
         cb = CircuitBreaker(state_backend=backend, auto_reset=True)
         await backend.write_circuit_breaker({"state": "OPEN", "opened_at": "2099-01-01T00:00:00+0000"})
-        assert await cb.can_proceed() is True
+        assert await cb.can_proceed() is True  # nosec B101  # pytest assertion
         state = await cb.get_state()
-        assert state["state"] == "HALF_OPEN"
+        assert state["state"] == "HALF_OPEN"  # nosec B101  # pytest assertion
 
 
 class TestRecordSuccess:
@@ -51,17 +51,17 @@ class TestRecordSuccess:
         await backend.write_circuit_breaker({"state": "HALF_OPEN", "no_progress_count": 2})
         await cb.record_success()
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
-        assert state["no_progress_count"] == 0
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
+        assert state["no_progress_count"] == 0  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_closed_resets_counters(self, cb, backend):
         await backend.write_circuit_breaker({"state": "CLOSED", "no_progress_count": 2, "same_error_count": 1})
         await cb.record_success()
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
-        assert state["no_progress_count"] == 0
-        assert state["same_error_count"] == 0
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
+        assert state["no_progress_count"] == 0  # nosec B101  # pytest assertion
+        assert state["same_error_count"] == 0  # nosec B101  # pytest assertion
 
 
 class TestRecordFailure:
@@ -70,22 +70,22 @@ class TestRecordFailure:
         await backend.write_circuit_breaker({"state": "HALF_OPEN"})
         await cb.record_failure("test error")
         state = await cb.get_state()
-        assert state["state"] == "OPEN"
+        assert state["state"] == "OPEN"  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_same_error_threshold_trips(self, cb):
         """3 same errors within window trips to OPEN."""
         await cb.record_failure("repeated error")
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
 
         await cb.record_failure("repeated error")
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
 
         await cb.record_failure("repeated error")
         state = await cb.get_state()
-        assert state["state"] == "OPEN"
+        assert state["state"] == "OPEN"  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_different_errors_dont_trip(self, cb):
@@ -94,7 +94,7 @@ class TestRecordFailure:
         await cb.record_failure("error B")
         await cb.record_failure("error C")
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
 
 
 class TestRecordNoProgress:
@@ -103,17 +103,17 @@ class TestRecordNoProgress:
         """3 consecutive no-progress trips to OPEN."""
         await cb.record_no_progress()
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
-        assert state["no_progress_count"] == 1
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
+        assert state["no_progress_count"] == 1  # nosec B101  # pytest assertion
 
         await cb.record_no_progress()
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
-        assert state["no_progress_count"] == 2
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
+        assert state["no_progress_count"] == 2  # nosec B101  # pytest assertion
 
         await cb.record_no_progress()
         state = await cb.get_state()
-        assert state["state"] == "OPEN"
+        assert state["state"] == "OPEN"  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_success_resets_no_progress(self, cb):
@@ -122,7 +122,7 @@ class TestRecordNoProgress:
         await cb.record_no_progress()
         await cb.record_success()
         state = await cb.get_state()
-        assert state["no_progress_count"] == 0
+        assert state["no_progress_count"] == 0  # nosec B101  # pytest assertion
 
 
 class TestReset:
@@ -131,9 +131,9 @@ class TestReset:
         await backend.write_circuit_breaker({"state": "OPEN", "no_progress_count": 5})
         await cb.reset("test reset")
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
-        assert state["no_progress_count"] == 0
-        assert "RESET" in state["last_transition"]
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
+        assert state["no_progress_count"] == 0  # nosec B101  # pytest assertion
+        assert "RESET" in state["last_transition"]  # nosec B101  # pytest assertion
 
 
 class TestBehaviorMatchesBash:
@@ -142,23 +142,23 @@ class TestBehaviorMatchesBash:
         """CLOSED -> record failures -> OPEN -> can_proceed (with auto_reset) -> HALF_OPEN -> success -> CLOSED."""
         # Start CLOSED
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
 
         # Record no progress until OPEN
         await cb.record_no_progress()
         await cb.record_no_progress()
         await cb.record_no_progress()
         state = await cb.get_state()
-        assert state["state"] == "OPEN"
+        assert state["state"] == "OPEN"  # nosec B101  # pytest assertion
 
         # Can't proceed when OPEN
-        assert await cb.can_proceed() is False
+        assert await cb.can_proceed() is False  # nosec B101  # pytest assertion
 
         # Reset and verify recovery
         await cb.reset("manual recovery")
         state = await cb.get_state()
-        assert state["state"] == "CLOSED"
-        assert await cb.can_proceed() is True
+        assert state["state"] == "CLOSED"  # nosec B101  # pytest assertion
+        assert await cb.can_proceed() is True  # nosec B101  # pytest assertion
 
 
 class TestTap630CooldownTimezone:
@@ -184,9 +184,9 @@ class TestTap630CooldownTimezone:
             "opened_at": opened.strftime("%Y-%m-%dT%H:%M:%S%z"),
         })
         # 45 min > 30 min cooldown → must transition to HALF_OPEN + allow
-        assert await cb.can_proceed() is True
+        assert await cb.can_proceed() is True  # nosec B101  # pytest assertion
         state = await cb.get_state()
-        assert state["state"] == "HALF_OPEN"
+        assert state["state"] == "HALF_OPEN"  # nosec B101  # pytest assertion
 
     @pytest.mark.asyncio
     async def test_cooldown_not_expired_in_utc_plus_offset(self, backend):
@@ -202,4 +202,4 @@ class TestTap630CooldownTimezone:
             "state": "OPEN",
             "opened_at": opened.strftime("%Y-%m-%dT%H:%M:%S%z"),
         })
-        assert await cb.can_proceed() is False
+        assert await cb.can_proceed() is False  # nosec B101  # pytest assertion
