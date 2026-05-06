@@ -3894,29 +3894,10 @@ execute_claude_code() {
         local files_changed
         files_changed=$(_count_files_changed_since_loop_start)
 
-        local has_errors="false"
-
-        # Two-stage error detection to avoid JSON field false positives
-        # Stage 1: Filter out JSON field patterns like "is_error": false
-        # Stage 2: Look for actual error messages in specific contexts
-        # Avoid type annotations like "error: Error" by requiring lowercase after ": error"
-        if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
-           grep -qE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
-            has_errors="true"
-
-            # Debug logging: show what triggered error detection
-            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-                log_status "DEBUG" "Error patterns found:"
-                grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
-                    grep -nE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' | \
-                    head -3 | while IFS= read -r line; do
-                    log_status "DEBUG" "  $line"
-                done
-            fi
-
-            log_status "WARN" "Errors detected in output, check: $output_file"
-        fi
-        local output_length=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+        # Two-stage error pattern detection (TAP-1484, lib/exec_helpers.sh).
+        # Filters JSON field names then greps for documented error markers.
+        # No downstream consumer of the result — helper logs WARN/DEBUG only.
+        exec_detect_output_errors "$output_file" || true
 
         # Check if on-stop.sh hook transitioned circuit breaker to OPEN
         if cb_is_open; then

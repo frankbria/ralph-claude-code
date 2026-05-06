@@ -712,3 +712,52 @@ exec_post_run_coordinator() {
         log_status "INFO" "coordinator: session+brief cleared (task complete)"
     fi
 }
+
+# exec_detect_output_errors — 2-stage error pattern detection (TAP-1484).
+#
+# Reads the Claude CLI output file and logs a WARN if specific error patterns
+# are present. The 2-stage filter prevents JSON field names ("is_error":
+# false) from false-positiving as actual errors:
+#
+#   Stage 1: filter out lines containing JSON field patterns matching the
+#            "...error...": <value> shape
+#   Stage 2: grep the filtered remainder for documented error markers:
+#            ^Error: / ^ERROR: / ^error: / ]: error / Link: error /
+#            Error occurred / failed with error / [Ee]xception / Fatal / FATAL
+#
+# When VERBOSE_PROGRESS=true, the first 3 matching lines are echoed at DEBUG
+# level for diagnostics. Otherwise only the WARN log fires.
+#
+# The previous inline version stored the result in a `has_errors` local that
+# was never read. This helper just logs the side-effect — no return value
+# carries downstream.
+#
+# Args:
+#   $1 output_file — path to the Claude CLI output JSON / log
+#
+# Returns:
+#   0 if errors detected (and WARN logged)
+#   1 if no errors / missing file (defensive)
+exec_detect_output_errors() {
+    local output_file=$1
+
+    [[ -f "$output_file" ]] || return 1
+
+    if grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+       grep -qE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)'; then
+
+        if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            log_status "DEBUG" "Error patterns found:"
+            grep -v '"[^"]*error[^"]*":' "$output_file" 2>/dev/null | \
+                grep -nE '(^Error:|^ERROR:|^error:|\]: error|Link: error|Error occurred|failed with error|[Ee]xception|Fatal|FATAL)' | \
+                head -3 | while IFS= read -r line; do
+                log_status "DEBUG" "  $line"
+            done
+        fi
+
+        log_status "WARN" "Errors detected in output, check: $output_file"
+        return 0
+    fi
+
+    return 1
+}
