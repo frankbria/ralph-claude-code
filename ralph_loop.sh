@@ -3869,41 +3869,11 @@ execute_claude_code() {
             log_status "WARN" "Exit signal update failed; continuing with stale signals"
         fi
 
-        # TAP-917: Debrief coordinator on real outcomes so brain_learn_*
-        # captures success/failure for next loop's brain_recall.
-        local _debrief_tasks _debrief_pd
-        _debrief_tasks=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
-        _debrief_pd=$(jq -r '.permission_denial_count // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
-        if cb_is_open || [[ "${_debrief_pd:-0}" -gt 0 ]]; then
-            local _detail
-            _detail=$(jq -r '.recommendation // ""' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
-            ralph_debrief_coordinator "failure" "$_detail"
-        elif [[ "${_debrief_tasks:-0}" -gt 0 ]]; then
-            ralph_debrief_coordinator "success" ""
-        fi
-
-        # TAP-923: Surface coordinator BLOCK signal. coordinator_rpc.sh writes
-        # this flag when a HIGH-risk consult returned verdict=BLOCK. The agent
-        # already saw the verdict on stdout and was instructed to stop; the
-        # loop logs it once and removes the flag so it can't carry forward.
-        if [[ -f "${RALPH_DIR}/.coordinator_block" ]]; then
-            log_status "WARN" "coordinator: BLOCK verdict observed this loop — review the agent's last decision before resuming"
-            rm -f "${RALPH_DIR}/.coordinator_block" 2>/dev/null || true
-        fi
-
-        # TAP-924: Task-boundary cleanup. Runs AFTER ralph_debrief_coordinator
-        # so the debrief reads brief.json + the resumed coordinator session
-        # before either is wiped. Triggers: explicit EXIT_SIGNAL or any
-        # tasks_completed > 0 (per-task grain — next task gets a fresh
-        # coordinator + brief). Touches coordinator artifacts only; main
-        # Claude session lifecycle is unchanged.
-        local _exit_sig_tc _tasks_done_tc
-        _exit_sig_tc=$(jq -r '.exit_signal // "false"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "false")
-        _tasks_done_tc=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
-        if [[ "$_exit_sig_tc" == "true" ]] || [[ "${_tasks_done_tc:-0}" -gt 0 ]]; then
-            ralph_clear_coordinator_artifacts
-            log_status "INFO" "coordinator: session+brief cleared (task complete)"
-        fi
+        # Coordinator post-run state machine (TAP-1477) — debrief decision
+        # (TAP-917), BLOCK signal surfacing (TAP-923), and task-boundary
+        # cleanup (TAP-924). Order is enforced inside the helper: debrief
+        # reads brief.json before cleanup wipes it.
+        exec_post_run_coordinator
 
         # LOGFIX-6: track consecutive TESTS_STATUS: DEFERRED to detect environment
         # stalls. Extracted to lib/exec_helpers.sh (TAP-1475) — trips the circuit

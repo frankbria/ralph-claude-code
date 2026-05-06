@@ -657,3 +657,58 @@ CBEOF
 
     return 1
 }
+
+# exec_post_run_coordinator — coordinator post-run state machine (TAP-1477).
+#
+# Combines three coordinator-related blocks that must run in this order:
+#
+#   1. Debrief decision (TAP-917) — read tasks_completed and
+#      permission_denial_count from status.json. If circuit breaker is OPEN
+#      OR permission_denial_count > 0, debrief the coordinator as "failure"
+#      with the recommendation. Else if tasks_completed > 0, debrief as
+#      "success". Otherwise no debrief.
+#   2. BLOCK signal surfacing (TAP-923) — if the .coordinator_block flag
+#      file exists (set by coordinator_rpc.sh consult on verdict=BLOCK),
+#      log a WARN and remove the flag so it does not carry forward.
+#   3. Task-boundary cleanup (TAP-924) — clear brief.json + the resumed
+#      coordinator session AFTER the debrief reads them. Triggers: explicit
+#      EXIT_SIGNAL or any tasks_completed > 0.
+#
+# Order matters: debrief reads brief.json, cleanup wipes it. The single
+# helper makes that ordering invariant a property of the function rather
+# than a comment a future contributor must notice.
+#
+# Globals consumed: RALPH_DIR
+# Functions used:   log_status, cb_is_open, ralph_debrief_coordinator,
+#                   ralph_clear_coordinator_artifacts
+exec_post_run_coordinator() {
+    # 1. Debrief decision
+    local _debrief_tasks _debrief_pd
+    _debrief_tasks=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+    _debrief_pd=$(jq -r '.permission_denial_count // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+    if cb_is_open || [[ "${_debrief_pd:-0}" -gt 0 ]]; then
+        local _detail
+        _detail=$(jq -r '.recommendation // ""' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
+        ralph_debrief_coordinator "failure" "$_detail"
+    elif [[ "${_debrief_tasks:-0}" -gt 0 ]]; then
+        ralph_debrief_coordinator "success" ""
+    fi
+
+    # 2. BLOCK signal surfacing — log once, then remove the flag.
+    if [[ -f "${RALPH_DIR}/.coordinator_block" ]]; then
+        log_status "WARN" "coordinator: BLOCK verdict observed this loop — review the agent's last decision before resuming"
+        rm -f "${RALPH_DIR}/.coordinator_block" 2>/dev/null || true
+    fi
+
+    # 3. Task-boundary cleanup — runs AFTER debrief so brief.json is still
+    # readable when the debrief fires. Per-task grain: next task gets a
+    # fresh coordinator + brief. Touches coordinator artifacts only; the
+    # main Claude session lifecycle is unchanged.
+    local _exit_sig_tc _tasks_done_tc
+    _exit_sig_tc=$(jq -r '.exit_signal // "false"' "${RALPH_DIR}/status.json" 2>/dev/null || echo "false")
+    _tasks_done_tc=$(jq -r '.tasks_completed // 0' "${RALPH_DIR}/status.json" 2>/dev/null || echo "0")
+    if [[ "$_exit_sig_tc" == "true" ]] || [[ "${_tasks_done_tc:-0}" -gt 0 ]]; then
+        ralph_clear_coordinator_artifacts
+        log_status "INFO" "coordinator: session+brief cleared (task complete)"
+    fi
+}
