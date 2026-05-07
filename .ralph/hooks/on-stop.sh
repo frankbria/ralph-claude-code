@@ -731,6 +731,84 @@ if [[ -f "$_ralph_log" ]]; then
 fi
 
 # =============================================================================
+# TAP-1528: Halt detector — consecutive responses with no RALPH_STATUS block.
+#
+# When Claude returns N consecutive responses lacking a parseable RALPH_STATUS
+# block, the harness has no way to advance state. The previous behavior was to
+# log a WARN and keep looping forever (tapps-brain May 2026 ran 222+ loops in
+# this state, burning ~$1.83 with zero work output). This detector tracks the
+# count in .ralph/.no_status_block_count, resets on any successful parse, and
+# writes .ralph/.harness_halt_reason when the threshold is reached. The main
+# loop reads the sentinel at the top of each iteration and breaks cleanly.
+#
+# The sentinel resists CB_AUTO_RESET (which clears CB OPEN at startup) — this
+# is a separate code-path the user must clear manually after fixing the cause.
+# =============================================================================
+_nsb_threshold="${RALPH_HALT_NO_STATUS_BLOCK_THRESHOLD:-3}"
+_nsb_count_file="$RALPH_DIR/.no_status_block_count"
+if [[ -z "$_status_block" ]]; then
+  _nsb_prev=0
+  if [[ -f "$_nsb_count_file" ]]; then
+    read -r _nsb_prev < "$_nsb_count_file" 2>/dev/null || _nsb_prev=0
+    [[ "$_nsb_prev" =~ ^[0-9]+$ ]] || _nsb_prev=0
+  fi
+  _nsb_new=$((_nsb_prev + 1))
+  printf '%s\n' "$_nsb_new" > "$_nsb_count_file" 2>/dev/null || true
+  if [[ "$_nsb_new" -ge "$_nsb_threshold" && ! -f "$RALPH_DIR/.harness_halt_reason" ]]; then
+    _resp_len=${#response_text}
+    printf 'no_status_block_%sx loop=%s response_bytes=%s\n' \
+      "$_nsb_new" "$loop_count" "$_resp_len" > "$RALPH_DIR/.harness_halt_reason" 2>/dev/null || true
+    if [[ -f "$_ralph_log" ]]; then
+      echo "[$_ts] [FATAL] on-stop: $_nsb_new consecutive responses with no RALPH_STATUS block — halting (loop=$loop_count, response_bytes=$_resp_len)" >> "$_ralph_log"
+    fi
+    echo "FATAL: $_nsb_new consecutive responses with no RALPH_STATUS block — halting" >&2
+  fi
+else
+  # Successful parse — reset counter
+  rm -f "$_nsb_count_file" 2>/dev/null || true
+fi
+
+# =============================================================================
+# TAP-1529: Halt detector — CB OPEN state thrashing (consecutive opens).
+#
+# When the CB enters OPEN state for N+ consecutive iterations without an
+# intervening progress event, the harness is in a loop-forever pattern: the
+# CB opens, an external watchdog (or CB_AUTO_RESET on next session) clears it,
+# the loop runs, no progress, CB opens again. This counter increments on each
+# OPEN-with-no-progress in this loop and resets on any progress. When >= the
+# threshold, write the halt sentinel.
+#
+# Distinguished from the no-status-block path: a CB OPEN can fire from
+# permission denials, no-progress threshold, or fresh-start thrashing — all
+# share the same "loop is stuck" signature once consecutive.
+# =============================================================================
+_cbt_threshold="${RALPH_HALT_CB_OPEN_THRESHOLD:-3}"
+_cbt_count_file="$RALPH_DIR/.cb_open_thrash_count"
+if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
+  _cbt_state=$(jq -r '.state // "CLOSED"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null || echo "CLOSED")
+  if [[ "$files_modified" -gt 0 || "$tasks_done" -gt 0 ]]; then
+    rm -f "$_cbt_count_file" 2>/dev/null || true
+  elif [[ "$_cbt_state" == "OPEN" ]]; then
+    _cbt_prev=0
+    if [[ -f "$_cbt_count_file" ]]; then
+      read -r _cbt_prev < "$_cbt_count_file" 2>/dev/null || _cbt_prev=0
+      [[ "$_cbt_prev" =~ ^[0-9]+$ ]] || _cbt_prev=0
+    fi
+    _cbt_new=$((_cbt_prev + 1))
+    printf '%s\n' "$_cbt_new" > "$_cbt_count_file" 2>/dev/null || true
+    if [[ "$_cbt_new" -ge "$_cbt_threshold" && ! -f "$RALPH_DIR/.harness_halt_reason" ]]; then
+      _cbt_reason=$(jq -r '.reason // "unknown"' "$RALPH_DIR/.circuit_breaker_state" 2>/dev/null || echo "unknown")
+      printf 'cb_open_thrash_%sx loop=%s reason=%s\n' \
+        "$_cbt_new" "$loop_count" "$_cbt_reason" > "$RALPH_DIR/.harness_halt_reason" 2>/dev/null || true
+      if [[ -f "$_ralph_log" ]]; then
+        echo "[$_ts] [FATAL] on-stop: CB OPEN $_cbt_new consecutive iterations (reason: $_cbt_reason) — halting (loop=$loop_count)" >> "$_ralph_log"
+      fi
+      echo "FATAL: CB OPEN $_cbt_new consecutive iterations — halting" >&2
+    fi
+  fi
+fi
+
+# =============================================================================
 # QA failure tracking — feeds the type-aware router's Opus escalation path.
 #
 # When TESTS_STATUS is FAILING for a Linear issue, increment the per-issue
