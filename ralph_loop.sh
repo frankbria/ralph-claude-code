@@ -208,6 +208,7 @@ _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
 _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
 _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
 _env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
+_env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 _env_DRY_RUN="${DRY_RUN:-}"
 _env_LOG_MAX_SIZE_MB="${LOG_MAX_SIZE_MB:-}"
 _env_LOG_MAX_FILES="${LOG_MAX_FILES:-}"
@@ -223,6 +224,7 @@ fi
 
 CLAUDE_MODEL="${CLAUDE_MODEL:-}"
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
+RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"  # Shell init file (e.g. ~/.zshrc) sourced before launching claude; Issue #211
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-200}"
 MAX_TOKENS_PER_HOUR="${MAX_TOKENS_PER_HOUR:-0}"  # 0 = disabled; Issue #223
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
@@ -316,6 +318,7 @@ JSON_CONFIG_LOADED=false
 #   - CLAUDE_MODEL (model override for Claude CLI)
 #   - CLAUDE_EFFORT (effort level: low, medium, high)
 #   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
+#   - RALPH_SHELL_INIT_FILE (shell init file to source before launching claude)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -352,6 +355,7 @@ load_ralphrc() {
     [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
     [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
     [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
+    [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
     [[ -n "$_env_DRY_RUN" ]] && DRY_RUN="$_env_DRY_RUN"
     [[ -n "$_env_LOG_MAX_SIZE_MB" ]] && LOG_MAX_SIZE_MB="$_env_LOG_MAX_SIZE_MB"
     [[ -n "$_env_LOG_MAX_FILES" ]] && LOG_MAX_FILES="$_env_LOG_MAX_FILES"
@@ -478,6 +482,7 @@ load_json_config() {
     [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
     [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
     [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
+    [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
     [[ -n "$_env_DRY_RUN" ]] && DRY_RUN="$_env_DRY_RUN"
     [[ -n "$_env_LOG_MAX_SIZE_MB" ]] && LOG_MAX_SIZE_MB="$_env_LOG_MAX_SIZE_MB"
     [[ -n "$_env_LOG_MAX_FILES" ]] && LOG_MAX_FILES="$_env_LOG_MAX_FILES"
@@ -4160,6 +4165,19 @@ main() {
 
     # LOCK-1: Acquire instance lock (prevents concurrent Ralph instances on same project)
     acquire_instance_lock
+
+    # Issue #211: source the user's shell init file before validating the CLI.
+    # Use case: zsh/Nix/asdf users whose `claude` lives on a PATH that is only
+    # set in ~/.zshrc — bash startup wouldn't pick it up otherwise.
+    if [[ -n "${RALPH_SHELL_INIT_FILE:-}" ]]; then
+        if [[ -f "$RALPH_SHELL_INIT_FILE" ]]; then
+            # shellcheck source=/dev/null
+            source "$RALPH_SHELL_INIT_FILE"
+            log_status "INFO" "Sourced shell init file: $RALPH_SHELL_INIT_FILE"
+        else
+            log_status "WARN" "RALPH_SHELL_INIT_FILE not found: $RALPH_SHELL_INIT_FILE"
+        fi
+    fi
 
     # Validate Claude Code CLI is available before starting
     if ! validate_claude_command; then

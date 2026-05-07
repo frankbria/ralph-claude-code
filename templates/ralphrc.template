@@ -187,6 +187,12 @@ CLAUDE_EFFORT="low"
 # Also set false for air-gapped environments without npm registry access
 CLAUDE_AUTO_UPDATE=true
 
+# Shell init file to source before launching the Claude CLI (Issue #211).
+# Use case: zsh / Nix / asdf users whose `claude` is only on the PATH set by
+# ~/.zshrc; Ralph runs under bash and won't see that PATH otherwise. Missing
+# file warns rather than aborts the loop.
+# RALPH_SHELL_INIT_FILE="$HOME/.zshrc"
+
 # Minimum Claude CLI version required
 # Ralph always invokes `claude --agent <name>`, which requires CLI v2.1+.
 CLAUDE_MIN_VERSION="2.1.0"

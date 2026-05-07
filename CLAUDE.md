@@ -212,6 +212,7 @@ Project-level config lives in `.ralphrc` (sourced as bash). Key variables:
 - `RALPH_AGENT_NAME` — Agent file basename (default: `"ralph"`, resolves to `.claude/agents/ralph.md`)
 - `CLAUDE_USE_CONTINUE` — Session continuity toggle
 - `CLAUDE_AUTO_UPDATE` — Auto-update CLI at startup (disable for Docker/air-gapped)
+- `RALPH_SHELL_INIT_FILE` — Shell init file (e.g. `~/.zshrc`) sourced before launching Claude. Use case: zsh / Nix / asdf users whose `claude` lives on a PATH set by their shell init; Ralph runs under bash and won't see it otherwise. Missing file warns, doesn't abort. (Issue #211, ported from upstream)
 - `CB_COOLDOWN_MINUTES`, `CB_AUTO_RESET` — Circuit breaker recovery config
 - `LOG_MAX_SIZE_MB` — Max ralph.log size before rotation (default: 10)
 - `LOG_MAX_FILES` — Number of rotated log files to keep (default: 5)
