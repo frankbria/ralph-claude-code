@@ -822,6 +822,56 @@ _transcript_only_input() {
     assert_output "UNKNOWN"
 }
 
+# tapps-brain incident, 2026-05-07: with num_turns=46, sub-agent invocations
+# emit assistant messages AFTER the one carrying RALPH_STATUS. Original
+# fallback used `last` and missed the block, tripping TAP-1528 halt 3x in a row.
+# Fix: scan all assistant messages for one containing the markers.
+@test "TRANSCRIPT-FALLBACK: status parsed when later sub-agent message has no block (tapps-brain incident)" {
+    local t="$TEST_TEMP_DIR/.ralph/transcript.jsonl"
+    printf '%s\n' \
+        '{"type":"system","session_id":"test-sess"}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Working on it.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nTASKS_COMPLETED_THIS_LOOP: 1\nFILES_MODIFIED: 2\nTESTS_STATUS: DEFERRED\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nLINEAR_ISSUE: TAP-1491\nRECOMMENDATION: keep going\n---END_RALPH_STATUS---"}],"usage":{"input_tokens":100,"output_tokens":50}}}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Sub-agent reports: tests passing."}],"usage":{"input_tokens":50,"output_tokens":10}}}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"All clear."}],"usage":{"input_tokens":20,"output_tokens":5}}}' \
+        > "$t"
+
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_transcript_only_input "$t")"
+    assert_success
+
+    run jq -r '.status' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "IN_PROGRESS"
+
+    run jq -r '.linear_issue' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "TAP-1491"
+
+    run jq -r '.tasks_completed' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "1"
+
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail ".no_status_block_count should not be created when block is found"
+}
+
+# When multiple loops have run, transcript carries history. The most recent
+# block (last in transcript order) is the one for this loop.
+@test "TRANSCRIPT-FALLBACK: most recent RALPH_STATUS block wins when transcript has prior loops" {
+    local t="$TEST_TEMP_DIR/.ralph/transcript.jsonl"
+    printf '%s\n' \
+        '{"type":"system","session_id":"test-sess"}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Old loop.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nTASKS_COMPLETED_THIS_LOOP: 1\nFILES_MODIFIED: 1\nTESTS_STATUS: DEFERRED\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nLINEAR_ISSUE: TAP-100\nRECOMMENDATION: old\n---END_RALPH_STATUS---"}]}}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"New loop.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nTASKS_COMPLETED_THIS_LOOP: 2\nFILES_MODIFIED: 5\nTESTS_STATUS: DEFERRED\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nLINEAR_ISSUE: TAP-200\nRECOMMENDATION: new\n---END_RALPH_STATUS---"}]}}' \
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Trailing sub-agent chatter."}]}}' \
+        > "$t"
+
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_transcript_only_input "$t")"
+    assert_success
+
+    run jq -r '.linear_issue' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "TAP-200"
+
+    run jq -r '.files_modified' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "5"
+}
+
 # =============================================================================
 # TAP-1528: Halt detector — consecutive 'No RALPH_STATUS block' iterations
 # =============================================================================

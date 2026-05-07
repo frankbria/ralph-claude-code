@@ -60,17 +60,27 @@ _status_block=$(echo "$response_text" | sed -n '/---RALPH_STATUS---/,/---END_RAL
 
 # TRANSCRIPT-FALLBACK (Claude Code 2.1.x): The stop hook stdin no longer carries
 # the response text — 2.1.x removed the "type":"result" line from both the hook
-# payload and the transcript. If _status_block is still empty, read the last
-# assistant message's text from transcript_path and try again. This also fixes
-# response_text so question-pattern and permission-denial detection work correctly.
+# payload and the transcript. If _status_block is still empty, read assistant
+# message text from transcript_path and try again. This also fixes response_text
+# so question-pattern and permission-denial detection work correctly.
+#
+# (tapps-brain incident, 2026-05-07): the original fallback only looked at the
+# *last* assistant message. With num_turns=46 and sub-agent invocations after
+# Claude emitted RALPH_STATUS, `last` picked a follow-up message instead of the
+# one carrying the block — 3 consecutive misses tripped the TAP-1528 halt
+# detector. Fix: scan every assistant message, prefer the most recent one whose
+# text contains the RALPH_STATUS markers, and only fall back to the last
+# message if no message contains the block (preserves prior detection paths).
 if [[ -z "$_status_block" ]]; then
   _tf_for_status=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
   if [[ -n "$_tf_for_status" && -f "$_tf_for_status" ]]; then
     _last_assistant_text=$(jq -rs '
-      [.[] | select(.type == "assistant")] | last |
-      .message.content // [] |
-      [.[] | select(.type == "text") | .text] |
-      join("\n")
+      [.[] | select(.type == "assistant") |
+       .message.content // [] |
+       [.[] | select(.type == "text") | .text] |
+       join("\n")] as $texts |
+      ($texts | map(select(contains("---RALPH_STATUS---") and contains("---END_RALPH_STATUS---"))) | last) //
+      ($texts | last) // ""
     ' "$_tf_for_status" 2>/dev/null || echo "")
     if [[ -n "$_last_assistant_text" ]]; then
       response_text="$_last_assistant_text"
