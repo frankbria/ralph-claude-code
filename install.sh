@@ -641,6 +641,26 @@ else
     done
     [[ $drift_found -eq 0 ]] && echo "  [OK] all hooks match templates"
 fi
+echo ""
+
+# TAP-1530: project's on-stop.sh must contain the
+# RALPH_COORDINATOR_INVOCATION guard. Without it, every coordinator
+# brief/debrief response is counted as a missing RALPH_STATUS block and
+# trips no_status_block_3x within 1–2 main loops, wiping productive
+# sessions. Generic "drift" warnings missed this in the wild — call it
+# out by name so operators know to run ralph-upgrade.
+echo "Coordinator guard (TAP-1530):"
+PROJECT_ON_STOP=".ralph/hooks/on-stop.sh"
+if [[ ! -f "$PROJECT_ON_STOP" ]]; then
+    echo "  [SKIP] $PROJECT_ON_STOP not present in CWD"
+elif grep -q 'RALPH_COORDINATOR_INVOCATION' "$PROJECT_ON_STOP"; then
+    echo "  [OK] on-stop.sh has the TAP-1530 guard"
+else
+    echo "  [FAIL] on-stop.sh is missing the RALPH_COORDINATOR_INVOCATION guard (TAP-1530)."
+    echo "         Coordinator sub-agent responses will be counted as missing RALPH_STATUS"
+    echo "         blocks and the harness will halt on no_status_block_3x. Run 'ralph-upgrade'"
+    echo "         to sync the hook from templates/hooks/on-stop.sh."
+fi
 DOCTOREOF
     chmod +x "$INSTALL_DIR/ralph-doctor"
 

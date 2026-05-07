@@ -916,6 +916,38 @@ _no_status_block_input() {
         fail "halt reason must reference cb_open_thrash; got: $output"
 }
 
+@test "TAP-1530: RALPH_COORDINATOR_INVOCATION=1 makes the hook a no-op" {
+    # Coordinator brief/debrief responses never carry a RALPH_STATUS block by
+    # design. Without this guard, every coordinator invocation increments
+    # .no_status_block_count and trips the no_status_block_3x halt detector
+    # within 1–2 main loops.
+    run --separate-stderr env RALPH_COORDINATOR_INVOCATION=1 \
+        bash "$TEMPLATE_HOOK" <<<'{"result":"coordinator brief written, no ralph status"}'
+    assert_success
+    # Counter must not exist — hook short-circuited before any state writes.
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail "no_status_block_count must not be written for coordinator invocations"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/status.json" ]] || \
+        fail "status.json must not be overwritten by coordinator invocations"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "halt sentinel must not be written for coordinator invocations"
+}
+
+@test "TAP-1530: 5 coordinator invocations do not trip no_status_block_3x" {
+    # Regression guard for the tapps-brain halt: per loop, ralph_loop.sh
+    # spawns the coordinator twice (brief + debrief). Three loops = 6
+    # coordinator stops. None must increment the counter.
+    for _ in 1 2 3 4 5; do
+        run --separate-stderr env RALPH_COORDINATOR_INVOCATION=1 \
+            bash "$TEMPLATE_HOOK" <<<'{"result":"coordinator update"}'
+        assert_success
+    done
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail "counter must stay absent across 5 coordinator invocations"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "halt must not trip on coordinator-only stops"
+}
+
 @test "TAP-1529: progress event resets the CB-thrash counter" {
     # Seed CB OPEN.
     printf '%s\n' \

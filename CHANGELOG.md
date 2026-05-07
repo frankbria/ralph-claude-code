@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.14.1] — 2026-05-07
+
+### Fixed
+
+- **TAP-1530 follow-up — coordinator guard defense in depth + softened routing-stale warning.** Three small harness hardenings prompted by a tapps-brain incident where a stale project `on-stop.sh` was missing the `RALPH_COORDINATOR_INVOCATION` guard, causing every coordinator sub-agent invocation to be counted as a missing `RALPH_STATUS` block and tripping `no_status_block_3x` after one productive loop:
+  - **`lib/coordinator_rpc.sh`** now `export`s `RALPH_COORDINATOR_INVOCATION=1` before its claude spawns, mirroring the existing exports at `ralph_loop.sh:2380` and `:2388`. Either entry point reaching the CLI now sets the marker; the on-stop guard cannot be bypassed by the consult path. Three new BATS cases in `tests/unit/test_coordinator_rpc.bats` cover the timeout=0 path, the `timeout` path, and a static source-order check (the export must precede both invocations).
+  - **`ralph-doctor`** gains a TAP-1530-named check that greps the project's `.ralph/hooks/on-stop.sh` for the `RALPH_COORDINATOR_INVOCATION` guard string and emits a high-severity `[FAIL]` with run-`ralph-upgrade` instructions when missing. Generic hook-drift warnings missed this signal in the wild — now it is called out by name. Two new BATS cases in `tests/unit/test_startup_guards.bats` cover both the FAIL-on-missing-guard and OK-when-present paths.
+  - **Routing-log staleness warning** at startup softened from `WARN ".model_routing.jsonl is Nmin stale … routing may be silently disabled. Run 'ralph --version' and verify lib/complexity.sh:23 default."` to `INFO` describing the actual signal. The default at `lib/complexity.sh:23` is `true`; a stale log just means no productive loops have appended a routing decision since the prior session — not a default-drift bug. The old warning sent operators to chase a non-existent regression.
+
+---
+
 ## [2.13.1] — 2026-05-05
 
 ### Fixed

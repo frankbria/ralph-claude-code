@@ -17,6 +17,18 @@ if [[ ! -d "$RALPH_DIR" ]]; then
   exit 0
 fi
 
+# TAP-1530: skip when invoked by the coordinator sub-process. The coordinator
+# is spawned as a separate `claude --agent ralph-coordinator` CLI process by
+# ralph_loop.sh's _coordinator_invoke_claude(), which means its Stop hook
+# fires this same on-stop.sh against a coordinator response that intentionally
+# does not emit a RALPH_STATUS block. Without this guard, every brief and
+# debrief invocation increments .no_status_block_count, overwrites status.json
+# with stale data, and trips the no_status_block_3x halt detector within
+# 1–2 main loops (observed in tapps-brain).
+if [[ "${RALPH_COORDINATOR_INVOCATION:-}" == "1" ]]; then
+  exit 0
+fi
+
 # Read response from stdin
 INPUT=$(cat)
 

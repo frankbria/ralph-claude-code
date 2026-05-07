@@ -122,6 +122,44 @@ teardown() {
     [[ "$output" == *"MISSING"* ]] || [[ "$output" == *"FAIL"* ]]
 }
 
+@test "ralph-doctor flags missing TAP-1530 coordinator guard in project on-stop.sh" {
+    local doctor_script
+    doctor_script="$TEST_DIR/ralph-doctor"
+    awk '/ralph-doctor.*DOCTOREOF/ {flag=1; next} /^DOCTOREOF$/ {flag=0} flag' \
+        "$INSTALL_SCRIPT" > "$doctor_script"
+    chmod +x "$doctor_script"
+    mkdir -p .ralph/hooks
+    # Stale on-stop.sh missing the guard string.
+    cat > .ralph/hooks/on-stop.sh <<'EOF'
+#!/bin/bash
+# old version, no TAP-1530 guard
+exit 0
+EOF
+    chmod +x .ralph/hooks/on-stop.sh
+    run bash "$doctor_script"
+    [[ "$output" == *"TAP-1530"* ]]
+    [[ "$output" == *"FAIL"* ]]
+    [[ "$output" == *"ralph-upgrade"* ]]
+}
+
+@test "ralph-doctor reports OK when on-stop.sh has the TAP-1530 guard" {
+    local doctor_script
+    doctor_script="$TEST_DIR/ralph-doctor"
+    awk '/ralph-doctor.*DOCTOREOF/ {flag=1; next} /^DOCTOREOF$/ {flag=0} flag' \
+        "$INSTALL_SCRIPT" > "$doctor_script"
+    chmod +x "$doctor_script"
+    mkdir -p .ralph/hooks
+    cat > .ralph/hooks/on-stop.sh <<'EOF'
+#!/bin/bash
+if [[ "${RALPH_COORDINATOR_INVOCATION:-}" == "1" ]]; then exit 0; fi
+exit 0
+EOF
+    chmod +x .ralph/hooks/on-stop.sh
+    run bash "$doctor_script"
+    [[ "$output" == *"TAP-1530"* ]]
+    [[ "$output" == *"OK"* ]]
+}
+
 @test "ralph-doctor reports OK when PROMPT.md is present and non-empty" {
     local doctor_script
     doctor_script="$TEST_DIR/ralph-doctor"

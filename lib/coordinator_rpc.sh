@@ -108,6 +108,13 @@ acceptance_criteria and prior_learnings. Output ONLY a single JSON line:
 
 No prose before or after the JSON line."
 
+# TAP-1530: mark this child claude as a coordinator invocation so the
+# project's on-stop hook skips RALPH_STATUS accounting for it. Defense in
+# depth alongside ralph_loop.sh's _coordinator_invoke_claude exports —
+# either entry point reaching the CLI must set this var or the hook will
+# count the response as a missing-status block and trip no_status_block_3x.
+export RALPH_COORDINATOR_INVOCATION=1
+
 _RC=0
 if [[ "$_TIMEOUT" == "0" ]]; then
     "$_CLAUDE_CMD" \

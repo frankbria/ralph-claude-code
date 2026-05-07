@@ -158,7 +158,7 @@ atomic_write() {
 }
 
 # Version
-RALPH_VERSION="2.14.0"
+RALPH_VERSION="2.14.1"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -2371,8 +2371,13 @@ _coordinator_invoke_claude() {
         _fmt_args=(--output-format stream-json --verbose)
     fi
 
+    # TAP-1530: mark this child claude process as a coordinator invocation so
+    # the project's on-stop hook skips RALPH_STATUS accounting for it. Without
+    # this, every coordinator brief/debrief response (which has no
+    # RALPH_STATUS block by design) increments .no_status_block_count and
+    # trips the no_status_block_3x halt detector after 1–2 loops.
     if [[ "$_coord_timeout" == "0" ]]; then
-        "$claude_cmd" \
+        RALPH_COORDINATOR_INVOCATION=1 "$claude_cmd" \
             --agent ralph-coordinator \
             --permission-mode bypassPermissions \
             "${_continue_args[@]}" \
@@ -2380,7 +2385,7 @@ _coordinator_invoke_claude() {
             -p "$input" \
             >"$_stdout_target" 2>&1
     else
-        timeout "$_coord_timeout" "$claude_cmd" \
+        RALPH_COORDINATOR_INVOCATION=1 timeout "$_coord_timeout" "$claude_cmd" \
             --agent ralph-coordinator \
             --permission-mode bypassPermissions \
             "${_continue_args[@]}" \
@@ -4207,11 +4212,13 @@ main() {
             local _mtime
             _mtime=$(stat -c %Y "$_routing_log" 2>/dev/null || stat -f %m "$_routing_log" 2>/dev/null || echo "$_now")
             local _age=$((_now - _mtime))
-            # Stale: log file older than 1h while routing claims to be on.
-            # Either the lib didn't get sourced (broken install) or
-            # ralph_select_model is silently passthrough-ing every call.
+            # Old log file while routing is on. Most often this just means
+            # no productive loops have run since the prior session — a stale
+            # log does not imply routing is disabled (the default in
+            # lib/complexity.sh is `true`). Surface it as INFO so operators
+            # don't chase a non-existent default-drift bug.
             if [[ "$_age" -gt 3600 ]]; then
-                log_status "WARN" "Routing log .model_routing.jsonl is $((_age / 60))min stale ($_routing_entries entries) — routing may be silently disabled. Run 'ralph --version' and verify lib/complexity.sh:23 default."
+                log_status "INFO" "Model routing log .model_routing.jsonl has not been written in $((_age / 60))min ($_routing_entries entries). Routing is enabled; this just means no productive loops have appended a decision since then. A new entry will appear on the next task pickup."
             fi
         fi
     else
