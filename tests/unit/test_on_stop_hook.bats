@@ -821,3 +821,119 @@ _transcript_only_input() {
     run jq -r '.status' "$TEST_TEMP_DIR/.ralph/status.json"
     assert_output "UNKNOWN"
 }
+
+# =============================================================================
+# TAP-1528: Halt detector — consecutive 'No RALPH_STATUS block' iterations
+# =============================================================================
+
+# Response with no RALPH_STATUS block at all (the bug seen on tapps-brain).
+_no_status_block_input() {
+    local body='Some prose response with no structured block at all. Just text.'
+    jq -Rs '{result: .}' <<<"$body"
+}
+
+@test "TAP-1528: first no-status-block response increments counter, no halt" {
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    [[ -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail "expected .no_status_block_count file to be created"
+    run cat "$TEST_TEMP_DIR/.ralph/.no_status_block_count"
+    assert_output "1"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "halt sentinel should not exist yet (count=1, threshold=3)"
+}
+
+@test "TAP-1528: 3 consecutive no-status-block responses write halt sentinel" {
+    # Iteration 1
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    # Iteration 2
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    # Iteration 3 — should trip the halt
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+
+    run cat "$TEST_TEMP_DIR/.ralph/.no_status_block_count"
+    assert_output "3"
+    [[ -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "halt sentinel must exist after 3 consecutive no-status-block iterations"
+    run cat "$TEST_TEMP_DIR/.ralph/.harness_halt_reason"
+    [[ "$output" == *"no_status_block_3x"* ]] || \
+        fail "halt reason must reference no_status_block_3x; got: $output"
+}
+
+@test "TAP-1528: successful RALPH_STATUS parse resets the counter" {
+    # Two no-status-block iterations
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    run cat "$TEST_TEMP_DIR/.ralph/.no_status_block_count"
+    assert_output "2"
+
+    # Now a successful response — counter must be cleared.
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_status_block_input false IN_PROGRESS 0 0)"
+    assert_success
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail ".no_status_block_count should be removed after a successful parse"
+}
+
+@test "TAP-1528: threshold is overridable via RALPH_HALT_NO_STATUS_BLOCK_THRESHOLD" {
+    export RALPH_HALT_NO_STATUS_BLOCK_THRESHOLD=2
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_no_status_block_input)"
+    assert_success
+    [[ -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "halt sentinel must exist after 2 iterations when threshold=2"
+}
+
+# =============================================================================
+# TAP-1529: Halt detector — CB OPEN state thrashing
+# =============================================================================
+
+@test "TAP-1529: CB OPEN for 3 consecutive iterations writes halt sentinel" {
+    # Seed CB state already OPEN — simulate the thrashing pattern.
+    printf '%s\n' \
+        '{"state":"OPEN","consecutive_no_progress":3,"consecutive_permission_denials":0,"total_opens":1,"reason":"Fresh start (clean restart)"}' \
+        > "$TEST_TEMP_DIR/.ralph/.circuit_breaker_state"
+
+    # Three iterations with CB still OPEN and no progress.
+    for _ in 1 2 3; do
+        run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_status_block_input false IN_PROGRESS 0 0)"
+        assert_success
+    done
+
+    [[ -f "$TEST_TEMP_DIR/.ralph/.cb_open_thrash_count" ]] || \
+        fail "expected .cb_open_thrash_count file"
+    run cat "$TEST_TEMP_DIR/.ralph/.cb_open_thrash_count"
+    assert_output "3"
+    [[ -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "halt sentinel must exist after 3 consecutive CB-OPEN iterations"
+    run cat "$TEST_TEMP_DIR/.ralph/.harness_halt_reason"
+    [[ "$output" == *"cb_open_thrash"* ]] || \
+        fail "halt reason must reference cb_open_thrash; got: $output"
+}
+
+@test "TAP-1529: progress event resets the CB-thrash counter" {
+    # Seed CB OPEN.
+    printf '%s\n' \
+        '{"state":"OPEN","consecutive_no_progress":3,"consecutive_permission_denials":0,"total_opens":1,"reason":"test"}' \
+        > "$TEST_TEMP_DIR/.ralph/.circuit_breaker_state"
+
+    # Two no-progress iterations.
+    for _ in 1 2; do
+        run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_status_block_input false IN_PROGRESS 0 0)"
+        assert_success
+    done
+    run cat "$TEST_TEMP_DIR/.ralph/.cb_open_thrash_count"
+    assert_output "2"
+
+    # Now a progress event (files_modified=1) — counter must be cleared.
+    # NOTE: progress also closes the CB via the existing on-stop logic.
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<"$(_status_block_input false IN_PROGRESS 1 1)"
+    assert_success
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.cb_open_thrash_count" ]] || \
+        fail "thrash counter should be removed after progress"
+}

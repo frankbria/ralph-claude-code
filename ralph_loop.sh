@@ -2294,6 +2294,11 @@ build_loop_context() {
     # broadly and costs less than re-deriving context from scratch.
     if [[ "${RALPH_MCP_BRAIN_AVAILABLE:-false}" == "true" ]]; then
         context+="tapps-brain available: call mcp__tapps-brain__brain_recall at task start to surface prior learnings, brain_remember when a fix was non-obvious and worth preserving, and brain_learn_success / brain_learn_failure at epic boundaries to feed the quality loop. "
+    elif [[ "${RALPH_MCP_BRAIN_AUTH_FAILED:-false}" == "true" ]]; then
+        # TAP-1530: explicit negative — without this, Claude on a brain-aware
+        # project may attempt brain_recall, hit auth error, and ask the user
+        # to fix it instead of doing the task.
+        context+="tapps-brain UNAVAILABLE (auth failed): do NOT call mcp__tapps-brain__* — proceed without cross-session memory, work from PROMPT.md / Linear context only. "
     fi
 
     # TAP-915: When the coordinator wrote a brief at the top of this loop,
@@ -3432,6 +3437,10 @@ ralph_probe_mcp_servers() {
     export RALPH_MCP_TAPPS_AVAILABLE="false"
     export RALPH_MCP_DOCS_AVAILABLE="false"
     export RALPH_MCP_BRAIN_AVAILABLE="false"
+    # TAP-1530: distinguishes "container down" (silent) from "container up but
+    # token wrong" (explicit negative instruction needed so Claude does not
+    # attempt brain_recall and stall waiting for a response).
+    export RALPH_MCP_BRAIN_AUTH_FAILED="false"
 
     if ! command -v "$CLAUDE_CODE_CMD" &>/dev/null; then
         log_status "WARN" "MCP probe skipped: '$CLAUDE_CODE_CMD' not in PATH"
@@ -3523,6 +3532,9 @@ ralph_diagnose_brain_probe_failure() {
     case "$code" in
         200)
             log_status "INFO" "  $health_url -> 200 (container up) — bearer token is likely missing or wrong"
+            # TAP-1530: explicit auth-failed flag so build_loop_context can
+            # inject a negative instruction (do not attempt brain_recall).
+            export RALPH_MCP_BRAIN_AUTH_FAILED="true"
             if [[ -z "${TAPPS_BRAIN_AUTH_TOKEN:-}" ]]; then
                 log_status "INFO" "  TAPPS_BRAIN_AUTH_TOKEN is not set. Add it to ~/.ralph/secrets.env (chmod 600)."
             else
@@ -4450,6 +4462,20 @@ main() {
             ralph_audit "killswitch" "operator" "emergency_halt" "killswitch_file_detected" "halted" 2>/dev/null
             update_status "$loop_count" "$(_read_call_count)" "killswitch" "halted" "killswitch_activated"
             log_status "ERROR" "KILLSWITCH file detected - emergency halt"
+            break
+        fi
+
+        # TAP-1528 / TAP-1529: harness halt sentinel set by on-stop.sh when
+        # consecutive RALPH_STATUS-missing responses or CB-OPEN thrashing is
+        # detected. Resists CB_AUTO_RESET — operator must clear the file
+        # after fixing the cause.
+        if [[ -f "$RALPH_DIR/.harness_halt_reason" ]]; then
+            local halt_reason
+            halt_reason=$(cat "$RALPH_DIR/.harness_halt_reason" 2>/dev/null || echo "unknown")
+            ralph_audit "harness_halt" "on_stop_hook" "halt_execution" "reason=$halt_reason,loop_count=$loop_count" "halted" 2>/dev/null
+            update_status "$loop_count" "$(_read_call_count)" "harness_halt" "halted" "$halt_reason"
+            log_status "ERROR" "🛑 Harness halt: $halt_reason"
+            log_status "INFO" "  Clear .ralph/.harness_halt_reason after diagnosing the root cause to resume."
             break
         fi
 
