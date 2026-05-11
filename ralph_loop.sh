@@ -2201,8 +2201,24 @@ build_loop_context() {
             context+="Next issue: ${next_task}. "
         fi
         # Per-task model routing input (lib/complexity.sh).
-        # Prefer in-progress > next ticket; falls back to empty (routing no-ops).
+        # Prefer in-progress > next ticket; in OAuth-via-MCP mode (no
+        # LINEAR_API_KEY), both are empty by design — `linear_get_*` early-
+        # returns 1 without an API key. Fall back to the previous loop's
+        # status.json (linear_issue + recommendation) so the classifier sees
+        # task-shaped text instead of routing no_task_fallback every iteration.
         RALPH_CURRENT_TASK_TEXT="${in_progress_task:-$next_task}"
+        if [[ -z "$RALPH_CURRENT_TASK_TEXT" && -f "$RALPH_DIR/status.json" ]]; then
+            local _prev_task
+            _prev_task=$(jq -r '
+                [(.linear_issue // ""), (.recommendation // "")]
+                | map(select(. != ""))
+                | join(": ")
+                | .[0:300]
+            ' "$RALPH_DIR/status.json" 2>/dev/null) || _prev_task=""
+            if [[ -n "$_prev_task" ]]; then
+                RALPH_CURRENT_TASK_TEXT=$(printf '%s' "$_prev_task" | ralph_sanitize_prompt_text 300)
+            fi
+        fi
         context+="If 'RESUME IN PROGRESS' is shown above, work that ticket FIRST before starting any new issue — run \`git log main --grep='<TICKET-ID>'\` to check if commits exist; if the work is on an unmerged branch, merge it now (\`gh pr merge --squash --auto\` or \`git merge\`). Only start a new ticket after the in-progress one reaches Done or is confirmed blocked by a genuine R2 hard blocker. Use Linear MCP tools to list open issues, work on the highest priority one, and mark it Done as soon as the code is shipped — even if acceptance criteria are cosmetically misaligned (e.g. AC says '14 tools' and tests assert 15). 'Shipped' means commits are on \`main\`. Before Done, run \`git log main --grep='<TICKET-ID>'\` and confirm at least one matching commit exists. If work is only on a branch, attempt to self-merge (\`gh pr merge --squash --auto\` or \`git merge\`); if the merge is blocked (no permission, required checks pending, conflicts you cannot resolve this loop), post a Linear comment listing unmerged SHAs and leave the ticket **In Progress** so Ralph retries next loop — do NOT move it to In Review for this. RALPH IS HEADLESS: there is no human on standby to review, merge, or answer questions. There is no human reviewer. 'In Review' is reserved for HARD blockers only — the EXACT four: (1) missing credentials/API keys a human must generate (e.g. OAuth token requiring browser click-through), (2) explicit budget/spend cap reached, (3) irreversible destructive operation requiring human sign-off: production database migration dropping data, secret rotation, mass deletion, credential exfiltration risk — NOT security bug fixes or hardening (those are Done), (4) genuinely ambiguous product decision where both interpretations have real cost and neither is a safe default. When in doubt between Done and In Review: pick Done if AC is substantively met, In Progress if it is not. NEVER pick In Review out of uncertainty. Everything else is NOT In Review: unmerged branch → In Progress + retry; flaky tests / red build / lint failures → fix them; 'code probably works but I'm unsure' → Done if AC substantively met; 'needs code review' → Done (no reviewer exists); security bug fix or hardening → Done; 'couldn't figure out how to do X' → leave In Progress, Ralph retries with fresh context next loop. When you do use In Review, the last Linear comment MUST name one of the four exact reasons above verbatim — if you cannot, pick Done or In Progress instead. Do NOT read or modify fix_plan.md. Set EXIT_SIGNAL: true when no open issues remain. REQUIRED: include LINEAR_OPEN_COUNT: <N>, LINEAR_DONE_COUNT: <N>, and LINEAR_ISSUE: <ID-or-NONE> (the issue you worked this loop, e.g. TAP-915, or NONE if no issue was touched) in your RALPH_STATUS block. If you worked under an epic, also include LINEAR_EPIC: <ID>, LINEAR_EPIC_DONE: <N>, LINEAR_EPIC_TOTAL: <N>. Counts come from Linear MCP — the harness reads these to populate the live monitor."
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
     elif [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
