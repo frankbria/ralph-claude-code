@@ -605,6 +605,8 @@ if [[ -d ".ralph" ]]; then
     fi
     if [[ -f ".ralph/fix_plan.md" ]]; then
         echo "  [OK] .ralph/fix_plan.md: present"
+    elif [[ -f ".ralphrc" ]] && grep -qE "^[[:space:]]*RALPH_TASK_SOURCE=[\"']?linear" .ralphrc; then
+        echo "  [SKIP] .ralph/fix_plan.md: not needed (RALPH_TASK_SOURCE=linear)"
     else
         echo "  [WARN] .ralph/fix_plan.md: missing (required for file-backed task source)"
     fi

@@ -203,3 +203,53 @@ EOF
     [[ "$output" == *".ralph/PROMPT.md"* ]]
     [[ "$output" == *"present"* ]] || [[ "$output" == *"OK"* ]]
 }
+
+@test "ralph-doctor SKIPs fix_plan.md check when RALPH_TASK_SOURCE=linear" {
+    # When the project runs in Linear mode, fix_plan.md is intentionally
+    # absent (Linear is the task source). The doctor must not warn on it.
+    local doctor_script
+    doctor_script="$TEST_DIR/ralph-doctor"
+    awk '/ralph-doctor.*DOCTOREOF/ {flag=1; next} /^DOCTOREOF$/ {flag=0} flag' \
+        "$INSTALL_SCRIPT" > "$doctor_script"
+    chmod +x "$doctor_script"
+    mkdir -p .ralph
+    echo "Task instructions here" > .ralph/PROMPT.md
+    echo 'RALPH_TASK_SOURCE="linear"' > .ralphrc
+    run bash "$doctor_script"
+    [[ "$output" == *".ralph/fix_plan.md"* ]]
+    [[ "$output" == *"SKIP"* ]]
+    [[ "$output" == *"RALPH_TASK_SOURCE=linear"* ]]
+    # Must NOT print the misleading WARN.
+    [[ "$output" != *"WARN] .ralph/fix_plan.md: missing"* ]]
+}
+
+@test "ralph-doctor accepts unquoted RALPH_TASK_SOURCE=linear" {
+    # .ralphrc is sourced as bash; users may write the value with or
+    # without quotes. The regex must accept both.
+    local doctor_script
+    doctor_script="$TEST_DIR/ralph-doctor"
+    awk '/ralph-doctor.*DOCTOREOF/ {flag=1; next} /^DOCTOREOF$/ {flag=0} flag' \
+        "$INSTALL_SCRIPT" > "$doctor_script"
+    chmod +x "$doctor_script"
+    mkdir -p .ralph
+    echo "Task instructions here" > .ralph/PROMPT.md
+    echo 'RALPH_TASK_SOURCE=linear' > .ralphrc
+    run bash "$doctor_script"
+    [[ "$output" == *"SKIP"* ]]
+}
+
+@test "ralph-doctor still WARNs about missing fix_plan.md in file mode" {
+    # Default mode (no .ralphrc) or explicit RALPH_TASK_SOURCE=file should
+    # keep the existing WARN — file-backed loops genuinely need the file.
+    local doctor_script
+    doctor_script="$TEST_DIR/ralph-doctor"
+    awk '/ralph-doctor.*DOCTOREOF/ {flag=1; next} /^DOCTOREOF$/ {flag=0} flag' \
+        "$INSTALL_SCRIPT" > "$doctor_script"
+    chmod +x "$doctor_script"
+    mkdir -p .ralph
+    echo "Task instructions here" > .ralph/PROMPT.md
+    echo 'RALPH_TASK_SOURCE="file"' > .ralphrc
+    run bash "$doctor_script"
+    [[ "$output" == *"WARN"* ]]
+    [[ "$output" == *"fix_plan.md"* ]]
+}
