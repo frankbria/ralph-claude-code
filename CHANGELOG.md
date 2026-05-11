@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.14.2] — 2026-05-11
+
+### Fixed
+
+- **TAP-1531 — Session guard prevents interactive Claude Code sessions from polluting ralph state.** The `on-stop.sh` Stop hook (installed in `.claude/settings.json`) now includes a guard that distinguishes interactive Claude Code sessions from ralph autonomous loops. Without the guard, every interactive Stop event would increment `loop_count`, accumulate `session_cost_usd` against zero ralph iterations, and pollute `.no_status_block_count` — potentially tripping the `no_status_block_3x` halt detector. The fix: `ralph_loop.sh:main()` exports `RALPH_LOOP_ACTIVE=1` before invoking Claude; the hook checks `if [[ "${RALPH_LOOP_ACTIVE:-}" != "1" ]]; then exit 0; fi` at the start of its main body. When the var is unset (interactive session), the hook exits immediately (no-op). When the var is "1" (autonomous loop), the hook proceeds normally. The real-world incident (May 2026, ralph-claude-code): 885 interactive Stop events over several months accumulated $16,489 in false `session_cost_usd` and 885 fake loop increments with zero actual ralph work. The fix is transparent to existing workflows — interactive sessions work unchanged, they just won't pollute state anymore. `ralph-doctor` includes a TAP-1531 check that greps the project's `.ralph/hooks/on-stop.sh` for the `RALPH_LOOP_ACTIVE` guard and warns with run-`ralph-upgrade` instructions when missing. Syncs automatically on next upgrade or loop run via the existing `ralph-upgrade` mechanism.
+
+---
+
 ## [2.14.1] — 2026-05-07
 
 ### Fixed

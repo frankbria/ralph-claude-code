@@ -29,6 +29,19 @@ if [[ "${RALPH_COORDINATOR_INVOCATION:-}" == "1" ]]; then
   exit 0
 fi
 
+# Session guard: only mutate ralph state when invoked from ralph_loop.sh.
+# ralph_loop.sh's main() exports RALPH_LOOP_ACTIVE=1; without it we are
+# running inside an interactive Claude Code session in a ralph-managed repo
+# (which has this hook in .claude/settings.json). Interactive responses
+# never carry a RALPH_STATUS block, so without this guard they increment
+# .no_status_block_count, pollute status.json/session counters, and trip
+# the no_status_block_3x halt detector. Observed in ralph-claude-code
+# (May 2026): 885 Stop events tallied $16,489 in session_cost_usd against
+# zero ralph loops.
+if [[ "${RALPH_LOOP_ACTIVE:-}" != "1" ]]; then
+  exit 0
+fi
+
 # Read response from stdin
 INPUT=$(cat)
 

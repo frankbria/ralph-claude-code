@@ -4,6 +4,57 @@ Breaking changes downstream Ralph-managed projects need to handle, in chronologi
 
 ---
 
+## 2026-05 — Session guard auto-upgrade (TAP-1531)
+
+**TL;DR:** No action required. `ralph-upgrade` automatically syncs the session guard to your project on next run.
+
+### What changed
+
+Ralph's `on-stop.sh` Stop hook (installed in `.claude/settings.json`) now includes a guard that prevents it from mutating ralph state when invoked from an interactive Claude Code session (as opposed to a ralph autonomous loop).
+
+### The problem it solves
+
+Without the guard, every interactive Stop event in a ralph-managed repo would:
+- Increment `.ralph/.no_status_block_count` (because interactive responses never carry a RALPH_STATUS block)
+- Increment `loop_count` in `status.json`
+- Accumulate `session_cost_usd` and other session metrics against zero ralph iterations
+- Potentially trip the `no_status_block_3x` halt detector
+
+**Real incident (May 2026, ralph-claude-code):** 885 interactive Stop events over several months accumulated $16,489 in false `session_cost_usd` and 885 fake loop increments, with zero actual ralph work executed. The harness had no visibility into this pollution.
+
+### How it works
+
+The guard uses the `RALPH_LOOP_ACTIVE` environment variable:
+- `ralph_loop.sh:main()` exports `RALPH_LOOP_ACTIVE=1` before invoking Claude
+- The hook checks: `if [[ "${RALPH_LOOP_ACTIVE:-}" != "1" ]]; then exit 0; fi` at startup
+- When the var is unset (interactive session), the hook exits immediately (no-op)
+- When the var is set to "1" (autonomous loop), the hook proceeds normally
+
+### What you don't need to do
+
+- **No manual edits.** The next time you run `ralph` or `ralph --upgrade`, the fix syncs automatically
+- **No breaking changes.** The guard is transparent to existing autonomous workflows
+- **No downtime.** Interactive sessions work unchanged; they just won't pollute ralph state anymore
+
+### How to verify
+
+After `ralph-upgrade` or the next loop run:
+
+```bash
+cd <your-ralph-project>
+ralph-doctor
+```
+
+Look for the line: `[OK] on-stop.sh has the TAP-1531 session guard`
+
+If you see `[FAIL]` instead, run:
+
+```bash
+ralph-upgrade
+```
+
+---
+
 ## 2026-04-28 — Legacy `-p` mode removed (always-agent-mode)
 
 **TL;DR:** Update Claude CLI to v2.1.0 or higher, then delete two lines from your `.ralphrc`. That's it.

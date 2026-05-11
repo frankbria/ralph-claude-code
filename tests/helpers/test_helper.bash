@@ -43,6 +43,12 @@ assert_output() {
 # Test temporary directory management
 export BATS_TEST_TMPDIR="${BATS_TEST_TMPDIR:-/tmp/bats-ralph-$$}"
 
+# Hooks expect this env var set by ralph_loop.sh's main(). Mirror that
+# contract globally so on-stop.sh runs its full body across all tests.
+# Negative-path tests that need to exercise the interactive (unguarded) case
+# unset RALPH_LOOP_ACTIVE explicitly before invoking the hook.
+export RALPH_LOOP_ACTIVE=1
+
 # Setup function - runs before each test
 setup() {
     # Create unique temp directory for this test

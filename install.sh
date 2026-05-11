@@ -661,6 +661,25 @@ else
     echo "         blocks and the harness will halt on no_status_block_3x. Run 'ralph-upgrade'"
     echo "         to sync the hook from templates/hooks/on-stop.sh."
 fi
+echo ""
+
+# TAP-1531: project's on-stop.sh must contain the RALPH_LOOP_ACTIVE
+# session guard. Without it, every interactive Claude Code session in a
+# ralph-managed repo runs the full hook body — incrementing loop_count,
+# session_cost_usd, and polluting status.json against zero ralph iterations.
+# Observed in ralph-claude-code (May 2026): 885 interactive Stop events
+# tallied $16,489 in false session_cost_usd.
+echo "Session guard (TAP-1531):"
+if [[ ! -f "$PROJECT_ON_STOP" ]]; then
+    echo "  [SKIP] $PROJECT_ON_STOP not present in CWD"
+elif grep -q 'RALPH_LOOP_ACTIVE' "$PROJECT_ON_STOP"; then
+    echo "  [OK] on-stop.sh has the TAP-1531 session guard"
+else
+    echo "  [FAIL] on-stop.sh is missing the RALPH_LOOP_ACTIVE session guard (TAP-1531)."
+    echo "         Interactive Claude Code sessions will mutate ralph state and pollute"
+    echo "         status.json/session_cost_usd counters. Run 'ralph-upgrade' to sync"
+    echo "         the hook from templates/hooks/on-stop.sh."
+fi
 DOCTOREOF
     chmod +x "$INSTALL_DIR/ralph-doctor"
 

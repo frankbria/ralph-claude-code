@@ -25,6 +25,9 @@
 .ralph/.coordinator_session
 .ralph/brief.json
 .ralph/forensic-*/
+.ralph/forensics/
+.ralph/.harness_halt_reason
+.ralph/.no_status_block_count
 .claude/scheduled_tasks.lock
 
 # tapps-mcp runtime probe output (timestamped, host-specific)
@@ -98,6 +101,9 @@ sdk/build/
 
 # Python testing cache
 .pytest_cache/
+.coverage
+sdk/.coverage
+htmlcov/
 
 # tapps_upgrade backup artifacts ($file.pre-upgrade.$epoch)
 *.pre-upgrade.*

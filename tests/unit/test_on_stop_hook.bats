@@ -1019,3 +1019,65 @@ _no_status_block_input() {
     [[ ! -f "$TEST_TEMP_DIR/.ralph/.cb_open_thrash_count" ]] || \
         fail "thrash counter should be removed after progress"
 }
+
+# =============================================================================
+# Session guard — on-stop.sh must be a no-op for interactive Claude Code
+# sessions in ralph-managed repos. Only ralph_loop.sh's main() exports
+# RALPH_LOOP_ACTIVE=1. Without this guard, every interactive Stop event
+# pollutes status.json and trips the no_status_block_3x halt detector.
+# Observed in ralph-claude-code (May 2026): 885 interactive Stop events
+# tallied $16,489 against zero ralph iterations.
+# =============================================================================
+
+@test "session guard: hook exits 0 without touching state when RALPH_LOOP_ACTIVE is unset" {
+    # Seed pre-existing state so we can prove nothing mutates it.
+    printf '%s' '{"loop_count":42,"status":"PASSING"}' > "$TEST_TEMP_DIR/.ralph/status.json"
+    local pre_status_mtime
+    pre_status_mtime=$(stat -c '%Y' "$TEST_TEMP_DIR/.ralph/status.json")
+
+    # Bare response with NO RALPH_STATUS block — the worst-case interactive
+    # payload that would otherwise increment .no_status_block_count.
+    unset RALPH_LOOP_ACTIVE
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<'{"result":"Just answering a question."}'
+    assert_success
+
+    # No counter file should be created.
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail "guard breached: .no_status_block_count was written"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "guard breached: .harness_halt_reason was written"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.circuit_breaker_state" ]] || \
+        fail "guard breached: .circuit_breaker_state was written"
+
+    # status.json must be byte-identical to the seed.
+    local post_status_mtime
+    post_status_mtime=$(stat -c '%Y' "$TEST_TEMP_DIR/.ralph/status.json")
+    [[ "$pre_status_mtime" == "$post_status_mtime" ]] || \
+        fail "guard breached: status.json mtime changed ($pre_status_mtime -> $post_status_mtime)"
+    run jq -r '.loop_count' "$TEST_TEMP_DIR/.ralph/status.json"
+    assert_output "42"
+}
+
+@test "session guard: 5x bare responses with guard off leave state pristine" {
+    unset RALPH_LOOP_ACTIVE
+    for _ in 1 2 3 4 5; do
+        run --separate-stderr bash "$TEMPLATE_HOOK" <<<'{"result":"Interactive reply."}'
+        assert_success
+    done
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail "guard breached: counter incremented across 5 interactive stops"
+    [[ ! -f "$TEST_TEMP_DIR/.ralph/.harness_halt_reason" ]] || \
+        fail "guard breached: halt sentinel tripped on interactive stops"
+}
+
+@test "session guard: hook runs full body when RALPH_LOOP_ACTIVE=1" {
+    # Dual of the negative test: with the guard ON, a bare response (no
+    # RALPH_STATUS block) MUST increment .no_status_block_count to 1.
+    export RALPH_LOOP_ACTIVE=1
+    run --separate-stderr bash "$TEMPLATE_HOOK" <<<'{"result":"Bare response."}'
+    assert_success
+    [[ -f "$TEST_TEMP_DIR/.ralph/.no_status_block_count" ]] || \
+        fail "expected .no_status_block_count to be written when guard is on"
+    run cat "$TEST_TEMP_DIR/.ralph/.no_status_block_count"
+    assert_output "1"
+}

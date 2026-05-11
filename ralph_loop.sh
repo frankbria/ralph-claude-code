@@ -158,7 +158,7 @@ atomic_write() {
 }
 
 # Version
-RALPH_VERSION="2.14.1"
+RALPH_VERSION="2.14.2"
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -4122,6 +4122,16 @@ loop_count=0
 
 # Main loop
 main() {
+    # Session guard: tell .ralph/hooks/on-stop.sh that this Stop event came
+    # from an autonomous ralph loop, not an interactive Claude Code session
+    # sharing the same .claude/settings.json. Without this export, every
+    # interactive session in a ralph-managed repo increments
+    # .no_status_block_count, mutates status.json, and accumulates
+    # session_cost_usd against the autonomous run's tally — observed in
+    # ralph-claude-code (May 2026): 885 interactive Stop events tallied
+    # $16,489 against zero ralph iterations.
+    export RALPH_LOOP_ACTIVE=1
+
     # Load project-specific configuration from .ralphrc
     if load_ralphrc; then
         if [[ "$RALPHRC_LOADED" == "true" ]]; then

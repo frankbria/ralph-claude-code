@@ -23,6 +23,9 @@ setup() {
     export TAPPS_BRAIN_ENABLED=true
     export TAPPS_BRAIN_AUTH_TOKEN=test-token
     export TAPPS_BRAIN_URL=http://localhost:65535   # unreachable on purpose
+    # on-stop.sh guards against interactive Stop events; tests simulate a
+    # ralph_loop.sh invocation.
+    export RALPH_LOOP_ACTIVE=1
 }
 
 teardown() {
