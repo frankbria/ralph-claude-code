@@ -142,6 +142,36 @@ EOF
     [[ "$output" == *"ralph-upgrade"* ]]
 }
 
+@test "TAP-1532: doctor FAIL/WARN messages name ralph-upgrade-project (not bare ralph-upgrade)" {
+    # ralph-upgrade refreshes ~/.ralph/templates/ and ~/.local/bin/ only —
+    # it does NOT sync per-repo .ralph/hooks/. The remediation text in the
+    # drift WARN, the TAP-1530 FAIL, and the TAP-1531 FAIL must point users
+    # at ralph-upgrade-project, which is what actually copies the new
+    # template into a managed repo. Regression guard for the 2.14.2 issue
+    # where re-running 'ralph-upgrade' three times produced zero convergence
+    # because the diagnostic named the wrong command.
+    local doctor_script
+    doctor_script="$TEST_DIR/ralph-doctor"
+    awk '/ralph-doctor.*DOCTOREOF/ {flag=1; next} /^DOCTOREOF$/ {flag=0} flag' \
+        "$INSTALL_SCRIPT" > "$doctor_script"
+
+    # All three remediation lines must reference ralph-upgrade-project.
+    # We grep the extracted doctor script (not the install.sh heredoc) so
+    # the test catches drift in either the source or the install path.
+    grep -q "ralph-upgrade-project" "$doctor_script" \
+        || fail "doctor script missing ralph-upgrade-project remediation"
+
+    # And ensure none of the three FAIL/WARN paths use the bare
+    # 'ralph-upgrade' form as the remediation verb. We allow the literal
+    # 'ralph-upgrade' to appear *as part of* 'ralph-upgrade-project' or in
+    # an explanatory aside; what we reject is a bare "Run 'ralph-upgrade'"
+    # or "re-run 'ralph-upgrade' to sync" style instruction.
+    ! grep -qE "Run 'ralph-upgrade'[^-]" "$doctor_script" \
+        || fail "doctor script still names bare ralph-upgrade as remediation"
+    ! grep -qE "re-run 'ralph-upgrade' to sync" "$doctor_script" \
+        || fail "doctor drift WARN still says re-run ralph-upgrade"
+}
+
 @test "ralph-doctor reports OK when on-stop.sh has the TAP-1530 guard" {
     local doctor_script
     doctor_script="$TEST_DIR/ralph-doctor"

@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.14.3] — 2026-05-11
+
+### Fixed
+
+- **TAP-1532 — `ralph-doctor` remediation text named the wrong sync command.** `ralph-doctor`'s drift WARN, TAP-1530 FAIL, and (new in 2.14.2) TAP-1531 FAIL all instructed operators to "Run 'ralph-upgrade' to sync" — but `ralph-upgrade` only refreshes `~/.ralph/templates/` and `~/.local/bin/`, never the per-repo `.ralph/hooks/` tree. The actual command that syncs templates into an existing repo is `ralph-upgrade-project` (which execs `~/.ralph/ralph_upgrade_project.sh::upgrade_hooks`). Anyone who installed 2.14.2 expecting the TAP-1531 session guard to land automatically still had the guard missing in their managed repos because re-running `ralph-upgrade` is idempotent at the global layer and does not converge per-repo drift. Three call sites in `install.sh` (drift WARN, TAP-1530 FAIL, TAP-1531 FAIL) and the matching three in `~/.local/bin/ralph-doctor` updated to name `ralph-upgrade-project` and explain the global-vs-per-repo split. The `ralph-upgrade` wrapper now also prints a post-success hint pointing operators at `ralph-upgrade-project` so the per-repo step is discoverable without consulting the doctor. `MIGRATING.md` (the 2026-05 TAP-1531 section) and `CLAUDE.md` ("Hook-based response analysis" → session guard contract) updated to call out the two-command flow explicitly. Reported by an operator who hit the issue after upgrading to 2.14.2: `ralph-upgrade` reported success, templates refreshed to the 50,210-byte version, but the managed repo's hook stayed at the May-7 48,865-byte version and `ralph-doctor`'s remediation text told them to re-run the command that had just failed to fix it. Re-running `ralph-upgrade` three times in a row produced zero convergence (correct behavior; wrong diagnostic).
+
+---
+
 ## [2.14.2] — 2026-05-11
 
 ### Fixed

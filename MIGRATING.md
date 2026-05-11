@@ -6,7 +6,7 @@ Breaking changes downstream Ralph-managed projects need to handle, in chronologi
 
 ## 2026-05 — Session guard auto-upgrade (TAP-1531)
 
-**TL;DR:** No action required. `ralph-upgrade` automatically syncs the session guard to your project on next run.
+**TL;DR:** Run `ralph-upgrade` once globally, then `ralph-upgrade-project` in each existing ralph-managed repo. The first refreshes `~/.ralph/templates/` and `~/.local/bin/`; the second is what actually copies the new template into `<repo>/.ralph/hooks/on-stop.sh`. Re-running `ralph-upgrade` alone will NOT fix existing repos.
 
 ### What changed
 
@@ -38,7 +38,7 @@ The guard uses the `RALPH_LOOP_ACTIVE` environment variable:
 
 ### How to verify
 
-After `ralph-upgrade` or the next loop run:
+After running both `ralph-upgrade` (global, once) and `ralph-upgrade-project` (per-repo, from each repo's root):
 
 ```bash
 cd <your-ralph-project>
@@ -47,11 +47,13 @@ ralph-doctor
 
 Look for the line: `[OK] on-stop.sh has the TAP-1531 session guard`
 
-If you see `[FAIL]` instead, run:
+If you see `[FAIL]` instead, the project-level sync didn't run. Confirm `ralph --version` reports `2.14.3` or newer, then run from the repo root:
 
 ```bash
-ralph-upgrade
+ralph-upgrade-project
 ```
+
+`ralph-upgrade` alone is **not** sufficient — it only refreshes `~/.ralph/templates/` and global commands, never the per-repo `.ralph/hooks/` tree. This was a documentation defect in 2.14.2 fixed in 2.14.3 (see TAP-1532).
 
 ---
 

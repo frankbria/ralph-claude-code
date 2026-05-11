@@ -635,7 +635,7 @@ else
             echo "  [WARN] missing in project: $bn (template has it)"
             drift_found=1
         elif ! diff -q "$rt" "$tpl" >/dev/null 2>&1; then
-            echo "  [WARN] drift: $bn differs from template — re-run 'ralph-upgrade' to sync"
+            echo "  [WARN] drift: $bn differs from template — run 'ralph-upgrade-project' in this repo to sync (ralph-upgrade alone only refreshes ~/.ralph/templates/, not this project)"
             drift_found=1
         fi
     done
@@ -658,8 +658,10 @@ elif grep -q 'RALPH_COORDINATOR_INVOCATION' "$PROJECT_ON_STOP"; then
 else
     echo "  [FAIL] on-stop.sh is missing the RALPH_COORDINATOR_INVOCATION guard (TAP-1530)."
     echo "         Coordinator sub-agent responses will be counted as missing RALPH_STATUS"
-    echo "         blocks and the harness will halt on no_status_block_3x. Run 'ralph-upgrade'"
-    echo "         to sync the hook from templates/hooks/on-stop.sh."
+    echo "         blocks and the harness will halt on no_status_block_3x. Run"
+    echo "         'ralph-upgrade-project' from this repo to sync the hook from"
+    echo "         ~/.ralph/templates/hooks/on-stop.sh. (Note: 'ralph-upgrade' alone only"
+    echo "         refreshes the global templates, not this repo's .ralph/hooks/.)"
 fi
 echo ""
 
@@ -677,8 +679,10 @@ elif grep -q 'RALPH_LOOP_ACTIVE' "$PROJECT_ON_STOP"; then
 else
     echo "  [FAIL] on-stop.sh is missing the RALPH_LOOP_ACTIVE session guard (TAP-1531)."
     echo "         Interactive Claude Code sessions will mutate ralph state and pollute"
-    echo "         status.json/session_cost_usd counters. Run 'ralph-upgrade' to sync"
-    echo "         the hook from templates/hooks/on-stop.sh."
+    echo "         status.json/session_cost_usd counters. Run 'ralph-upgrade-project'"
+    echo "         from this repo to sync the hook from ~/.ralph/templates/hooks/on-stop.sh."
+    echo "         (Note: 'ralph-upgrade' alone only refreshes the global templates,"
+    echo "         not this repo's .ralph/hooks/.)"
 fi
 DOCTOREOF
     chmod +x "$INSTALL_DIR/ralph-doctor"
@@ -826,7 +830,19 @@ if [[ -d "$SOURCE_DIR/.git" ]]; then
     }
 fi
 
-exec "$SOURCE_DIR/install.sh" upgrade
+"$SOURCE_DIR/install.sh" upgrade
+_install_status=$?
+if [[ $_install_status -eq 0 ]]; then
+    echo ""
+    echo "Note: 'ralph-upgrade' refreshed ~/.ralph/templates/ and ~/.local/bin/ only."
+    echo "      To sync the new templates into an existing project's .ralph/ tree"
+    echo "      (hooks, agents, settings.json), run from that project's root:"
+    echo ""
+    echo "        ralph-upgrade-project"
+    echo ""
+    echo "      Run 'ralph-doctor' afterwards to verify the project picked up the changes."
+fi
+exit $_install_status
 UPGRADEEOF
     chmod +x "$INSTALL_DIR/ralph-upgrade"
 }
