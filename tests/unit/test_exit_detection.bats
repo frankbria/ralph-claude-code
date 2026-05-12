@@ -683,12 +683,18 @@ should_exit_gracefully_with_denials() {
     recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
     recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
 
-    # Check for permission denials first (highest priority - Issue #101)
+    # Check for permission denials first (Issue #101, refined for Issue #243)
+    # Halt only when the agent itself reports BLOCKED or no status; trust the agent
+    # when it reports COMPLETE or IN_PROGRESS.
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
         if [[ "$has_permission_denials" == "true" ]]; then
-            echo "permission_denied"
-            return 0
+            local agent_status=$(jq -r '.analysis.status // "UNKNOWN"' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "UNKNOWN")
+            if [[ "$agent_status" == "BLOCKED" || "$agent_status" == "UNKNOWN" || -z "$agent_status" ]]; then
+                echo "permission_denied"
+                return 0
+            fi
+            # Agent reports COMPLETE or IN_PROGRESS — recovered; fall through
         fi
     fi
 
@@ -837,6 +843,90 @@ EOF
 
     result=$(should_exit_gracefully_with_denials || true)
     assert_equal "$result" ""
+}
+
+# Test 40a: Denial with STATUS: COMPLETE — agent recovered, do NOT halt (Issue #243)
+@test "should_exit_gracefully continues on permission denial when agent reports COMPLETE" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # Denial occurred but agent reports task finished successfully
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "status": "COMPLETE",
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["mcp__some_peripheral_tool"],
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials || true)
+    assert_equal "$result" ""
+}
+
+# Test 40b: Denial with STATUS: IN_PROGRESS — agent recovered, do NOT halt (Issue #243)
+@test "should_exit_gracefully continues on permission denial when agent reports IN_PROGRESS" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "status": "IN_PROGRESS",
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["Bash(awk ...)"],
+        "exit_signal": false
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials || true)
+    assert_equal "$result" ""
+}
+
+# Test 40c: Denial with STATUS: BLOCKED — agent stuck, DO halt (Issue #243)
+@test "should_exit_gracefully halts on permission denial when agent reports BLOCKED" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "status": "BLOCKED",
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["Bash(critical-command)"],
+        "exit_signal": true
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+# Test 40d: Denial with missing status — preserve #101 safety, DO halt
+@test "should_exit_gracefully halts on permission denial when agent status is missing" {
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    # No status field at all — agent may have failed to emit RALPH_STATUS
+    cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
+{
+    "loop_number": 1,
+    "analysis": {
+        "has_permission_denials": true,
+        "permission_denial_count": 1,
+        "denied_commands": ["Bash(npm install)"]
+    }
+}
+EOF
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
 }
 
 # =============================================================================

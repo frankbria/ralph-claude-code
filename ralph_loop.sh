@@ -651,18 +651,32 @@ should_exit_gracefully() {
 
     # Check for exit conditions
 
-    # 0. Permission denials (highest priority - Issue #101)
-    # When Claude Code is denied permission to run commands, halt immediately
-    # to allow user to update .ralphrc ALLOWED_TOOLS configuration
+    # 0. Permission denials (Issue #101, refined for Issue #243)
+    # When Claude Code is denied permission to run commands, defer to the agent's
+    # own RALPH_STATUS self-report to decide whether to halt:
+    #   - STATUS: BLOCKED      → halt (agent says it is stuck)
+    #   - STATUS missing/UNKNOWN → halt (preserves #101 safety against silent loops)
+    #   - STATUS: COMPLETE | IN_PROGRESS → warn and continue (agent recovered)
+    # The agent is instructed (in its prompt) to create a GitHub Issue and route
+    # around peripheral denials, so a single denial inside an otherwise successful
+    # loop should not kill productive sessions (Issue #243).
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
         if [[ "$has_permission_denials" == "true" ]]; then
             local denied_count=$(jq -r '.analysis.permission_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
             local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
-            log_status "WARN" "🚫 Permission denied for $denied_count command(s): $denied_cmds"
-            log_status "WARN" "Update ALLOWED_TOOLS in .ralphrc to include the required tools"
-            echo "permission_denied"
-            return 0
+            local agent_status=$(jq -r '.analysis.status // "UNKNOWN"' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "UNKNOWN")
+            if [[ "$agent_status" == "BLOCKED" || "$agent_status" == "UNKNOWN" || -z "$agent_status" ]]; then
+                log_status "WARN" "🚫 Permission denied for $denied_count command(s): $denied_cmds"
+                log_status "WARN" "Agent status: $agent_status — halting"
+                log_status "WARN" "Update ALLOWED_TOOLS in .ralphrc to include the required tools"
+                echo "permission_denied"
+                return 0
+            else
+                log_status "WARN" "⚠️  Permission denied for $denied_count command(s): $denied_cmds"
+                log_status "WARN" "Agent status: $agent_status — agent reports it recovered; continuing"
+                log_status "WARN" "Consider adding the denied tool(s) to ALLOWED_TOOLS in .ralphrc"
+            fi
         fi
     fi
 
