@@ -195,15 +195,25 @@ record_loop_result() {
         ralph_files_modified=$((ralph_files_modified + 0))
     fi
 
-    # Track permission denials (Issue #101)
+    # Track permission denials (Issue #101, refined for Issue #243)
+    # Defer to the agent's RALPH_STATUS self-report, mirroring the fix in
+    # ralph_loop.sh's should_exit_gracefully (PR #264) and the producer-side
+    # analysis.status fix in lib/response_analyzer.sh. A denial paired with
+    # STATUS: COMPLETE or IN_PROGRESS means the agent recovered — treat it as
+    # no denial so the circuit doesn't open on benign single-denial sessions.
+    # Only BLOCKED or missing/UNKNOWN status counts toward the trip threshold,
+    # preserving the silent-loop safety guarantee from #101.
     local has_permission_denials="false"
+    local agent_status="UNKNOWN"
     if [[ -f "$response_analysis_file" ]]; then
         has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$response_analysis_file" 2>/dev/null || echo "false")
+        agent_status=$(jq -r '.analysis.status // "UNKNOWN"' "$response_analysis_file" 2>/dev/null || echo "UNKNOWN")
     fi
 
-    if [[ "$has_permission_denials" == "true" ]]; then
+    if [[ "$has_permission_denials" == "true" ]] && [[ "$agent_status" == "BLOCKED" || "$agent_status" == "UNKNOWN" || -z "$agent_status" ]]; then
         consecutive_permission_denials=$((consecutive_permission_denials + 1))
     else
+        # Either no denial, or agent recovered — reset counter
         consecutive_permission_denials=0
     fi
 
