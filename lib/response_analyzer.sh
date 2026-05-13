@@ -175,12 +175,35 @@ parse_json_response() {
             fi
             # Also check STATUS field as fallback ONLY when EXIT_SIGNAL was not specified
             # This respects explicit EXIT_SIGNAL: false which means "task complete, continue working"
+            #
+            # Use anchored grep so "TESTS_STATUS:" doesn't match alongside "STATUS:" — a naive
+            # `grep STATUS:` would join values across both lines and produce e.g. "COMPLETE PASSING".
             local embedded_status
-            embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
+            embedded_status=$(echo "$result_text" | grep -E "^STATUS:" | head -1 | cut -d: -f2 | xargs)
             if [[ "$embedded_status" == "COMPLETE" && "$explicit_exit_signal_found" != "true" ]]; then
                 # STATUS: COMPLETE without any EXIT_SIGNAL field implies completion
                 exit_signal="true"
                 [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Inferred EXIT_SIGNAL=true from .result STATUS=COMPLETE (no explicit EXIT_SIGNAL found)" >&2
+            fi
+        fi
+    fi
+
+    # Issue #243 (second half): always promote embedded STATUS into `status` so
+    # downstream consumers (analyze_response → .analysis.status → ralph_loop.sh
+    # permission-denial handler from PR #264) can defer to the agent's own
+    # RALPH_STATUS self-report. The block above only uses STATUS to derive
+    # exit_signal; it never updates `status` itself, so .analysis.status would
+    # always be "UNKNOWN" and the loop would halt on every denial regardless of
+    # whether the agent recovered.
+    if [[ "$status" == "UNKNOWN" && "$has_result_field" == "true" ]]; then
+        local status_promotion_text
+        status_promotion_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
+        if [[ -n "$status_promotion_text" ]] && echo "$status_promotion_text" | grep -q -- "---RALPH_STATUS---"; then
+            local promoted_status
+            promoted_status=$(echo "$status_promotion_text" | grep -E "^STATUS:" | head -1 | cut -d: -f2 | xargs)
+            if [[ -n "$promoted_status" ]]; then
+                status="$promoted_status"
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Promoted STATUS=$status from RALPH_STATUS block (Issue #243)" >&2
             fi
         fi
     fi
@@ -373,6 +396,11 @@ analyze_response() {
             local permission_denial_count=$(jq -r '.permission_denial_count' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
             local denied_commands_json=$(jq -r '.denied_commands' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "[]")
 
+            # Agent status from RALPH_STATUS block (Issue #243). Surfaced into
+            # analysis.status so ralph_loop.sh's permission-denial handler can
+            # decide whether to halt (BLOCKED/UNKNOWN) or continue (COMPLETE/IN_PROGRESS).
+            local agent_status=$(jq -r '.status // "UNKNOWN"' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "UNKNOWN")
+
             # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
                 store_session_id "$session_id"
@@ -437,6 +465,7 @@ analyze_response() {
                 --arg timestamp "$(get_iso_timestamp)" \
                 --arg output_file "$output_file" \
                 --arg output_format "json" \
+                --arg status "$agent_status" \
                 --argjson has_completion_signal "$has_completion_signal" \
                 --argjson is_test_only "$is_test_only" \
                 --argjson is_stuck "$is_stuck" \
@@ -457,6 +486,7 @@ analyze_response() {
                     output_file: $output_file,
                     output_format: $output_format,
                     analysis: {
+                        status: $status,
                         has_completion_signal: $has_completion_signal,
                         is_test_only: $is_test_only,
                         is_stuck: $is_stuck,
@@ -485,10 +515,17 @@ analyze_response() {
     # If explicit signal found, heuristics should NOT override Claude's intent
     local explicit_exit_signal_found=false
 
+    # Agent status from RALPH_STATUS block (Issue #243). Default UNKNOWN — set
+    # below when the block is present. Surfaced into analysis.status downstream.
+    local status="UNKNOWN"
+
     # 1. Check for explicit structured output (if Claude follows schema)
     if grep -q -- "---RALPH_STATUS---" "$output_file"; then
         # Parse structured output
-        local status=$(grep "STATUS:" "$output_file" | cut -d: -f2 | xargs)
+        # Anchored "^STATUS:" so "TESTS_STATUS:" doesn't co-match — naive grep
+        # would join values across both lines into e.g. "COMPLETE PASSING".
+        status=$(grep -E "^STATUS:" "$output_file" | head -1 | cut -d: -f2 | xargs)
+        [[ -z "$status" ]] && status="UNKNOWN"
         local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | cut -d: -f2 | xargs)
 
         # If EXIT_SIGNAL is explicitly provided, respect it
@@ -658,6 +695,7 @@ analyze_response() {
         --arg timestamp "$(get_iso_timestamp)" \
         --arg output_file "$output_file" \
         --arg output_format "text" \
+        --arg status "$status" \
         --argjson has_completion_signal "$has_completion_signal" \
         --argjson is_test_only "$is_test_only" \
         --argjson is_stuck "$is_stuck" \
@@ -675,6 +713,7 @@ analyze_response() {
             output_file: $output_file,
             output_format: $output_format,
             analysis: {
+                status: $status,
                 has_completion_signal: $has_completion_signal,
                 is_test_only: $is_test_only,
                 is_stuck: $is_stuck,

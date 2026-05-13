@@ -1403,3 +1403,87 @@ EOF
     # Must call reset_session before break
     echo "$exit_block" | grep -q 'reset_session'
 }
+
+# =============================================================================
+# END-TO-END: analyze_response → should_exit_gracefully on permission denials
+#
+# These tests pipe a realistic Claude CLI JSON file (matching the shape of an
+# actual production halt) through the *real* analyze_response, then through
+# should_exit_gracefully_with_denials. They are the integration tests that
+# would have caught the "analysis.status never written" defect when PR #264
+# was first opened.
+# =============================================================================
+
+@test "end-to-end: COMPLETE status from real analyze_response output continues past denial" {
+    # Reproduces the exact shape of the production halt at game-one
+    # 2026-05-13 07:24 UTC: agent merged 6 PRs successfully, hit one denied
+    # `echo "..." >> file` redirect, recovered using the Edit tool, reported
+    # COMPLETE. Wrapper must continue, not halt.
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    local output_file="$RALPH_DIR/claude_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Merged 6 PRs.\n\n---RALPH_STATUS---\nSTATUS: COMPLETE\nTASKS_COMPLETED_THIS_LOOP: 6\nFILES_MODIFIED: 8\nTESTS_STATUS: PASSING\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nPERMISSION_DENIALS: none\n---END_RALPH_STATUS---",
+    "sessionId": "session-e2e-complete",
+    "permission_denials": [
+        {"tool_name": "Bash", "tool_input": {"command": "echo \"line\" >> file.log"}}
+    ]
+}
+EOF
+
+    # Drive the real analyzer — no hand-crafted .response_analysis fixture
+    analyze_response "$output_file" 1 "$RESPONSE_ANALYSIS_FILE"
+
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    result=$(should_exit_gracefully_with_denials || true)
+    assert_equal "$result" ""
+}
+
+@test "end-to-end: missing RALPH_STATUS from real analyze_response halts on denial" {
+    # Safety preservation (#101): if the agent fails to emit a RALPH_STATUS
+    # block at all and there are denials, the loop must still halt — we cannot
+    # tell whether the agent recovered.
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    local output_file="$RALPH_DIR/claude_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Did stuff but never wrote a status block.",
+    "sessionId": "session-e2e-missing",
+    "permission_denials": [
+        {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}
+    ]
+}
+EOF
+
+    analyze_response "$output_file" 1 "$RESPONSE_ANALYSIS_FILE"
+
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}
+
+@test "end-to-end: BLOCKED status from real analyze_response halts on denial" {
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+
+    local output_file="$RALPH_DIR/claude_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Cannot proceed.\n\n---RALPH_STATUS---\nSTATUS: BLOCKED\nTESTS_STATUS: NOT_RUN\nEXIT_SIGNAL: true\n---END_RALPH_STATUS---",
+    "sessionId": "session-e2e-blocked",
+    "permission_denials": [
+        {"tool_name": "Bash", "tool_input": {"command": "critical-tool"}}
+    ]
+}
+EOF
+
+    analyze_response "$output_file" 1 "$RESPONSE_ANALYSIS_FILE"
+
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
+
+    result=$(should_exit_gracefully_with_denials)
+    assert_equal "$result" "permission_denied"
+}

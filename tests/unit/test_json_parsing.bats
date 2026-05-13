@@ -1155,3 +1155,161 @@ EOF
     exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "false"
 }
+
+# =============================================================================
+# RALPH_STATUS STATUS PROPAGATION TESTS (Issue #243 — second half)
+#
+# PR #264 makes ralph_loop.sh defer to .analysis.status when handling permission
+# denials. For that to work, parse_json_response must extract the STATUS value
+# from the embedded RALPH_STATUS block and propagate it through analyze_response
+# into the .analysis.status field of .response_analysis.
+#
+# Without these tests, the upstream PR shipped a feature that read a field the
+# producer never wrote — denial recovery silently never worked in production.
+# =============================================================================
+
+@test "parse_json_response promotes embedded STATUS=COMPLETE from RALPH_STATUS block" {
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Did the work.\n\n---RALPH_STATUS---\nSTATUS: COMPLETE\nTASKS_COMPLETED_THIS_LOOP: 1\nTESTS_STATUS: PASSING\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---",
+    "sessionId": "session-status-complete"
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local result_file="$RALPH_DIR/.json_parse_result"
+    [[ -f "$result_file" ]]
+
+    local parsed_status
+    parsed_status=$(jq -r '.status' "$result_file")
+    assert_equal "$parsed_status" "COMPLETE"
+}
+
+@test "parse_json_response promotes embedded STATUS=IN_PROGRESS from RALPH_STATUS block" {
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Still working.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nTESTS_STATUS: NOT_RUN\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---",
+    "sessionId": "session-status-in-progress"
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local parsed_status
+    parsed_status=$(jq -r '.status' "$RALPH_DIR/.json_parse_result")
+    assert_equal "$parsed_status" "IN_PROGRESS"
+}
+
+@test "parse_json_response promotes embedded STATUS=BLOCKED from RALPH_STATUS block" {
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Cannot proceed.\n\n---RALPH_STATUS---\nSTATUS: BLOCKED\nTESTS_STATUS: NOT_RUN\nEXIT_SIGNAL: true\n---END_RALPH_STATUS---",
+    "sessionId": "session-status-blocked"
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local parsed_status
+    parsed_status=$(jq -r '.status' "$RALPH_DIR/.json_parse_result")
+    assert_equal "$parsed_status" "BLOCKED"
+}
+
+@test "parse_json_response disambiguates STATUS from TESTS_STATUS in RALPH_STATUS block" {
+    # Regression guard: a naive `grep STATUS:` matches both "STATUS:" and
+    # "TESTS_STATUS:", joining their values. Anchor extraction must take only
+    # the STATUS line, not concatenate "COMPLETE FAILING".
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Done.\n\n---RALPH_STATUS---\nSTATUS: COMPLETE\nTESTS_STATUS: FAILING\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---",
+    "sessionId": "session-status-disambig"
+}
+EOF
+
+    run parse_json_response "$output_file"
+    assert_equal "$status" "0"
+
+    local parsed_status
+    parsed_status=$(jq -r '.status' "$RALPH_DIR/.json_parse_result")
+    assert_equal "$parsed_status" "COMPLETE"
+}
+
+@test "analyze_response surfaces analysis.status from embedded RALPH_STATUS (JSON path)" {
+    # Contract test: PR #264's ralph_loop.sh patch reads .analysis.status —
+    # this asserts analyze_response actually writes it for Claude CLI JSON
+    # output. Mirrors the exact shape from a real production halt
+    # (game-one repo, 2026-05-13 07:24 UTC) where the agent reported COMPLETE
+    # after recovering from a single denied tool call.
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Merged 6 PRs.\n\n---RALPH_STATUS---\nSTATUS: COMPLETE\nTASKS_COMPLETED_THIS_LOOP: 6\nFILES_MODIFIED: 8\nTESTS_STATUS: PASSING\nWORK_TYPE: IMPLEMENTATION\nEXIT_SIGNAL: false\nPERMISSION_DENIALS: none\n---END_RALPH_STATUS---",
+    "sessionId": "session-real-shape",
+    "permission_denials": [
+        {"tool_name": "Bash", "tool_input": {"command": "echo \"line\" >> file.log"}}
+    ]
+}
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local analysis_status
+    analysis_status=$(jq -r '.analysis.status' "$RALPH_DIR/.response_analysis")
+    assert_equal "$analysis_status" "COMPLETE"
+
+    # Sanity: the denial is still surfaced (we want the recovery path, not
+    # to hide that a denial happened).
+    local has_denials
+    has_denials=$(jq -r '.analysis.has_permission_denials' "$RALPH_DIR/.response_analysis")
+    assert_equal "$has_denials" "true"
+}
+
+@test "analyze_response surfaces analysis.status from RALPH_STATUS (text path)" {
+    # Text-fallback path must populate analysis.status the same way the JSON
+    # path does — both feed the same downstream check in ralph_loop.sh.
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+Did the work and finished cleanly.
+
+---RALPH_STATUS---
+STATUS: COMPLETE
+TASKS_COMPLETED_THIS_LOOP: 2
+TESTS_STATUS: PASSING
+EXIT_SIGNAL: false
+---END_RALPH_STATUS---
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local analysis_status
+    analysis_status=$(jq -r '.analysis.status' "$RALPH_DIR/.response_analysis")
+    assert_equal "$analysis_status" "COMPLETE"
+}
+
+@test "analyze_response defaults analysis.status to UNKNOWN when no RALPH_STATUS block" {
+    # Preserves #101 safety: missing/UNKNOWN status with denials still halts.
+    local output_file="$LOG_DIR/test_output.log"
+    cat > "$output_file" << 'EOF'
+{
+    "result": "Did stuff but never wrote a RALPH_STATUS block.",
+    "sessionId": "session-no-block"
+}
+EOF
+
+    run analyze_response "$output_file" 1 "$RALPH_DIR/.response_analysis"
+    assert_success
+
+    local analysis_status
+    analysis_status=$(jq -r '.analysis.status' "$RALPH_DIR/.response_analysis")
+    assert_equal "$analysis_status" "UNKNOWN"
+}
