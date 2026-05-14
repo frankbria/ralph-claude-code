@@ -761,3 +761,197 @@ exec_detect_output_errors() {
 
     return 1
 }
+
+# =============================================================================
+# TAP-1682: per-issue coordinator brief cache.
+#
+# When the same Linear issue stays "current" across multiple loops (a 5-point
+# story routinely spans 4–8 iterations), re-running the coordinator each loop
+# regenerates the same brief at 60–120s per call. The cache short-circuits
+# that: brief.json is copied to .ralph/.brief_cache/<id>.json after each
+# successful run, and the next loop reads it back in <100ms.
+#
+# Cache schema (one file per Linear issue):
+#   {
+#     "linear_issue_id":    "TAP-1681",
+#     "issue_updated_at":   "2026-05-14T02:02:29Z",   // optional; coordinator
+#                                                    // sets this when it
+#                                                    // observed updatedAt
+#     "cached_at":          1747189349,               // unix epoch seconds
+#     "brief":              { ... full brief.json ... }
+#   }
+#
+# Eviction:
+#   miss     — cache file does not exist
+#   expired  — now - cached_at > RALPH_BRIEF_CACHE_MAX_AGE_SECONDS (default 1800)
+#   stale    — current_issue_updated_at provided AND mismatches cached value
+#   hit      — file present, fresh, and (if checkable) matching issue_updated_at
+#
+# In OAuth-via-MCP mode the harness cannot fetch updatedAt itself (no API
+# key), so stale detection is best-effort — most evictions go through the
+# age path, which is sufficient because the Linear backlog rarely changes
+# in <30 min for an actively-worked issue.
+
+# Resolved cache directory. Honors RALPH_BRIEF_CACHE_DIR override (tests use
+# a tmpdir); otherwise lives under the active RALPH_DIR so it's wiped with
+# the rest of state when an operator runs `ralph --rollback`.
+brief_cache_dir() {
+    echo "${RALPH_BRIEF_CACHE_DIR:-${RALPH_DIR:-.ralph}/.brief_cache}"
+}
+
+brief_cache_path() {
+    local issue_id="$1"
+    printf '%s/%s.json' "$(brief_cache_dir)" "$issue_id"
+}
+
+# exec_load_cached_brief — populate brief.json from cache when fresh.
+#
+# Args:
+#   $1 issue_id              — Linear issue identifier (e.g. TAP-1681)
+#   $2 current_updated_at    — OPTIONAL; if supplied and the cache's
+#                              issue_updated_at mismatches, the cache is
+#                              treated as stale and a refresh is forced.
+#   $3 max_age_override      — OPTIONAL; defaults to
+#                              RALPH_BRIEF_CACHE_MAX_AGE_SECONDS (1800).
+#
+# Returns:
+#   0 — hit; brief.json was overwritten with the cached payload
+#   1 — miss / stale / expired / malformed cache (caller should spawn coord)
+#
+# Logs (via log_status when available):
+#   INFO  "coordinator: cache hit for <id> (age=<n>s)"
+#   INFO  "coordinator: cache miss for <id>"
+#   INFO  "coordinator: cache stale for <id> (updated_at changed)"
+#   INFO  "coordinator: cache expired for <id> (age=<n>s > max=<m>s)"
+exec_load_cached_brief() {
+    local issue_id="${1:-}"
+    local current_updated_at="${2:-}"
+    local max_age="${3:-${RALPH_BRIEF_CACHE_MAX_AGE_SECONDS:-1800}}"
+
+    [[ -n "$issue_id" ]] || return 1
+
+    local cache_file
+    cache_file=$(brief_cache_path "$issue_id")
+
+    if [[ ! -s "$cache_file" ]]; then
+        _brief_cache_log "INFO" "coordinator: cache miss for $issue_id"
+        return 1
+    fi
+
+    # Read both fields in one jq pass — keeps the on-disk read cheap even
+    # though jq itself is the slow part of the hit path.
+    local meta
+    meta=$(jq -r '[(.cached_at // 0), (.issue_updated_at // "")] | @tsv' "$cache_file" 2>/dev/null)
+    if [[ -z "$meta" ]]; then
+        _brief_cache_log "INFO" "coordinator: cache malformed for $issue_id — treating as miss"
+        return 1
+    fi
+    local cached_at cached_updated_at
+    cached_at=$(echo "$meta" | cut -f1)
+    cached_updated_at=$(echo "$meta" | cut -f2)
+
+    # Stale check first: if the caller knows the current updatedAt and it
+    # disagrees with the cache, the brief is obsolete even if it is young.
+    if [[ -n "$current_updated_at" && -n "$cached_updated_at" \
+          && "$current_updated_at" != "$cached_updated_at" ]]; then
+        _brief_cache_log "INFO" "coordinator: cache stale for $issue_id (updated_at changed: $cached_updated_at -> $current_updated_at)"
+        return 1
+    fi
+
+    # Age check.
+    local now age
+    now=$(date -u +%s)
+    age=$(( now - cached_at ))
+    if [[ "$age" -gt "$max_age" ]]; then
+        _brief_cache_log "INFO" "coordinator: cache expired for $issue_id (age=${age}s > max=${max_age}s)"
+        return 1
+    fi
+
+    # Hit. Extract the brief payload and write to brief.json atomically so a
+    # crash mid-copy cannot leave a half-written brief.
+    local brief_target tmp
+    if declare -F brief_path >/dev/null 2>&1; then
+        brief_target=$(brief_path)
+    else
+        brief_target="${RALPH_DIR:-.ralph}/brief.json"
+    fi
+    [[ -n "$brief_target" ]] || return 1
+    mkdir -p -- "$(dirname "$brief_target")" 2>/dev/null || true
+    tmp="${brief_target}.tmp.$$.${RANDOM}"
+    if ! jq -e '.brief' "$cache_file" > "$tmp" 2>/dev/null; then
+        rm -f -- "$tmp" 2>/dev/null
+        _brief_cache_log "INFO" "coordinator: cache had no .brief payload for $issue_id — treating as miss"
+        return 1
+    fi
+    sync -- "$tmp" 2>/dev/null || true
+    if ! mv -f -- "$tmp" "$brief_target"; then
+        rm -f -- "$tmp" 2>/dev/null
+        return 1
+    fi
+
+    _brief_cache_log "INFO" "coordinator: cache hit for $issue_id (age=${age}s)"
+    return 0
+}
+
+# exec_save_brief_cache — copy a freshly-written brief.json into the cache.
+#
+# Called from ralph_spawn_coordinator AFTER a successful coordinator run.
+# Atomic-write per the TAP-535 pattern: tmp file + mv -f, with `rm -f` to
+# clean up if the rename failed on WSL/NTFS.
+#
+# Args:
+#   $1 issue_id              — Linear issue identifier
+#   $2 issue_updated_at      — OPTIONAL; coordinator's observed updatedAt
+#                              (the harness writes empty in OAuth-via-MCP
+#                              mode where it has no Linear API access).
+#
+# Returns 0 on success, 1 on any failure (callers ignore the return code —
+# cache write must never block the loop).
+exec_save_brief_cache() {
+    local issue_id="${1:-}"
+    local issue_updated_at="${2:-}"
+    [[ -n "$issue_id" ]] || return 1
+
+    local brief_target
+    if declare -F brief_path >/dev/null 2>&1; then
+        brief_target=$(brief_path)
+    else
+        brief_target="${RALPH_DIR:-.ralph}/brief.json"
+    fi
+    [[ -s "$brief_target" ]] || return 1
+
+    local cache_dir cache_file
+    cache_dir=$(brief_cache_dir)
+    cache_file=$(brief_cache_path "$issue_id")
+    mkdir -p -- "$cache_dir" 2>/dev/null || return 1
+
+    local now
+    now=$(date -u +%s)
+    local tmp="${cache_file}.tmp.$$.${RANDOM}"
+    if ! jq -n \
+        --arg id "$issue_id" \
+        --arg ts "$issue_updated_at" \
+        --argjson now "$now" \
+        --slurpfile brief "$brief_target" \
+        '{linear_issue_id: $id, issue_updated_at: $ts, cached_at: $now, brief: $brief[0]}' \
+        > "$tmp" 2>/dev/null; then
+        rm -f -- "$tmp" 2>/dev/null
+        return 1
+    fi
+    sync -- "$tmp" 2>/dev/null || true
+    if ! mv -f -- "$tmp" "$cache_file"; then
+        rm -f -- "$tmp" 2>/dev/null
+        return 1
+    fi
+    _brief_cache_log "INFO" "coordinator: brief cached for $issue_id"
+    return 0
+}
+
+# Internal: log_status when the parent shell has it (ralph_loop.sh runtime),
+# silent no-op otherwise (tests source this module standalone).
+_brief_cache_log() {
+    local level="$1"; shift
+    if declare -F log_status >/dev/null 2>&1; then
+        log_status "$level" "$*"
+    fi
+}

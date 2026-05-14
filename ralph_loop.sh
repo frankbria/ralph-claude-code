@@ -2364,7 +2364,17 @@ _coordinator_invoke_claude() {
     # a clean session (currently none, reserved for future debug paths).
     local force_fresh="${2:-}"
     local claude_cmd="${CLAUDE_CODE_CMD:-claude}"
-    local _coord_timeout="${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}"
+    # TAP-1682: adaptive coordinator timeout. ralph_compute_coordinator_timeout
+    # honors RALPH_COORDINATOR_TIMEOUT_SECONDS as a hard override; without
+    # that, P95×2 of the last 30 wall-clock samples (clamped [30,600]) sizes
+    # the budget to actual coordinator latency. Falls back to 120s when
+    # samples are sparse.
+    local _coord_timeout
+    if declare -F ralph_compute_coordinator_timeout >/dev/null 2>&1; then
+        _coord_timeout=$(ralph_compute_coordinator_timeout)
+    else
+        _coord_timeout="${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}"
+    fi
 
     # TAP-921: resume-or-spawn — if a fresh persisted session_id exists,
     # pass `--resume <sid>` so the coordinator's accumulated context (prior
@@ -2397,6 +2407,11 @@ _coordinator_invoke_claude() {
     # this, every coordinator brief/debrief response (which has no
     # RALPH_STATUS block by design) increments .no_status_block_count and
     # trips the no_status_block_3x halt detector after 1–2 loops.
+    # TAP-1682: record coordinator wall-clock so ralph_compute_coordinator_timeout
+    # can adapt P95×2. Recorded regardless of success / failure / timeout so
+    # the distribution reflects real ops (slow MCP cold starts and all).
+    local _coord_start_ts _coord_end_ts _coord_duration
+    _coord_start_ts=$(date -u +%s)
     if [[ "$_coord_timeout" == "0" ]]; then
         RALPH_COORDINATOR_INVOCATION=1 "$claude_cmd" \
             --agent ralph-coordinator \
@@ -2415,6 +2430,11 @@ _coordinator_invoke_claude() {
             >"$_stdout_target" 2>&1
     fi
     local _rc=$?
+    _coord_end_ts=$(date -u +%s)
+    _coord_duration=$(( _coord_end_ts - _coord_start_ts ))
+    if declare -F ralph_record_coordinator_timing >/dev/null 2>&1; then
+        ralph_record_coordinator_timing "$_coord_duration" "$_rc"
+    fi
 
     # Always try to extract session_id, even on timeout/failure — partial
     # output usually still carries the system/init line with the session_id.
@@ -2496,6 +2516,30 @@ ralph_spawn_coordinator() {
         task_input=$(grep -m1 '^[[:space:]]*- \[ \]' "${RALPH_DIR}/fix_plan.md" 2>/dev/null) || task_input=""
     fi
 
+    # TAP-1682: cache lookup BEFORE clearing the prior brief. The cache key
+    # is the Linear issue identifier — read from status.json (.linear_issue
+    # is written by the on-stop hook from Claude's RALPH_STATUS block) or
+    # the locality-optimizer hint file. File-mode loops have no per-issue
+    # identity, so caching is linear-mode-only by design.
+    local _cache_issue_id=""
+    if [[ "$task_source" == "linear" ]]; then
+        if [[ -f "${RALPH_DIR}/status.json" ]]; then
+            _cache_issue_id=$(jq -r '.linear_issue // empty' "${RALPH_DIR}/status.json" 2>/dev/null || echo "")
+        fi
+        if [[ -z "$_cache_issue_id" && -f "${RALPH_DIR}/.linear_next_issue" ]]; then
+            _cache_issue_id=$(head -1 "${RALPH_DIR}/.linear_next_issue" 2>/dev/null | tr -d '[:space:]')
+        fi
+        if [[ -n "$_cache_issue_id" ]] && declare -F exec_load_cached_brief >/dev/null 2>&1; then
+            if exec_load_cached_brief "$_cache_issue_id"; then
+                # Hit: brief.json was already overwritten by the helper.
+                local _risk
+                _risk=$(brief_read_field risk_level 2>/dev/null) || _risk="unknown"
+                log_status "INFO" "coordinator: using cached brief for $_cache_issue_id (risk=${_risk}) — skipping spawn"
+                return 0
+            fi
+        fi
+    fi
+
     # Drop any stale brief from a previous loop so a coordinator failure
     # leaves the consumer reading "no brief" rather than yesterday's
     # recommendation.
@@ -2517,7 +2561,17 @@ Write ${brief_target} per the schema in lib/brief.sh, then return a one-line sum
         # can tell whether to raise RALPH_COORDINATOR_TIMEOUT_SECONDS or
         # debug a CLI/agent-config issue.
         if [[ $_coord_rc -eq 124 ]]; then
-            log_status "WARN" "coordinator: timed out after ${RALPH_COORDINATOR_TIMEOUT_SECONDS:-120}s — continuing without brief (raise RALPH_COORDINATOR_TIMEOUT_SECONDS or set RALPH_COORDINATOR_DISABLED=true)"
+            local _tmo
+            _tmo=$(ralph_compute_coordinator_timeout 2>/dev/null || echo "120")
+            log_status "WARN" "coordinator: timed out after ${_tmo}s — continuing without brief (set RALPH_COORDINATOR_TIMEOUT_SECONDS to pin a value, or RALPH_COORDINATOR_DISABLED=true to turn it off)"
+            # TAP-1682: graceful degradation — even a stale cached brief
+            # beats no brief at all. Use a much higher max-age (24h) so a
+            # cold-start outage still gets routing+prior-learnings context.
+            if [[ -n "$_cache_issue_id" ]] && declare -F exec_load_cached_brief >/dev/null 2>&1; then
+                if exec_load_cached_brief "$_cache_issue_id" "" 86400; then
+                    log_status "WARN" "coordinator: falling back to stale cached brief for $_cache_issue_id"
+                fi
+            fi
         else
             log_status "WARN" "coordinator: spawn failed (exit $_coord_rc) — continuing without brief"
         fi
@@ -2528,6 +2582,14 @@ Write ${brief_target} per the schema in lib/brief.sh, then return a one-line sum
         local _risk
         _risk=$(brief_read_field risk_level 2>/dev/null) || _risk="unknown"
         log_status "INFO" "coordinator: brief written (risk=${_risk})"
+        # TAP-1682: populate cache so subsequent loops for the same issue
+        # skip the spawn entirely. issue_updated_at is read from brief.json
+        # when the coordinator surfaced it (best-effort); empty otherwise.
+        if [[ -n "$_cache_issue_id" ]] && declare -F exec_save_brief_cache >/dev/null 2>&1; then
+            local _brief_updated_at=""
+            _brief_updated_at=$(brief_read_field linear_issue_updated_at 2>/dev/null) || _brief_updated_at=""
+            exec_save_brief_cache "$_cache_issue_id" "$_brief_updated_at" || true
+        fi
     else
         log_status "WARN" "coordinator: brief missing or invalid — clearing"
         rm -f "$brief_target" 2>/dev/null || true
@@ -3747,6 +3809,84 @@ ralph_compute_adaptive_timeout() {
 
     log_status "DEBUG" "Adaptive timeout: P95=${p95_seconds}s × ${ADAPTIVE_TIMEOUT_MULTIPLIER} = ${timeout_minutes}m (range: ${ADAPTIVE_TIMEOUT_MIN_MINUTES}-${ADAPTIVE_TIMEOUT_MAX_MINUTES}m, samples: $sample_count)"
     echo "$timeout_minutes"
+}
+
+# =============================================================================
+# TAP-1682: Coordinator adaptive timeout — P95×2 of the last 30 coordinator
+# wall-clock samples, clamped to [30, 600] seconds, falling back to 120 when
+# no samples exist. Mirrors ralph_compute_adaptive_timeout but scoped to the
+# coordinator path because coordinator latency (10–30s on warm MCP, 90–180s
+# on cold start) has a very different distribution from main-loop Claude
+# invocations. Samples live in .ralph/.coordinator_timings.jsonl — one
+# `{"ts":<epoch>,"duration_seconds":<int>,"exit_code":<int>}` per line.
+# =============================================================================
+
+COORDINATOR_TIMINGS_LOG="${RALPH_DIR}/.coordinator_timings.jsonl"
+COORDINATOR_TIMING_SAMPLE_CAP=30
+
+# Append one coordinator wall-clock sample. Called from
+# _coordinator_invoke_claude regardless of success/failure so the P95 reflects
+# real-world latency including transient failures.
+ralph_record_coordinator_timing() {
+    local duration_seconds="$1"
+    local exit_code="${2:-0}"
+    [[ -n "$duration_seconds" ]] || return 0
+    local line
+    line=$(printf '{"ts":%s,"duration_seconds":%s,"exit_code":%s}' \
+        "$(date -u +%s)" "$duration_seconds" "$exit_code")
+    printf '%s\n' "$line" >> "$COORDINATOR_TIMINGS_LOG" 2>/dev/null || return 0
+    # Bound the file so a long-running ralph install does not unbounded-grow.
+    local count
+    count=$(wc -l < "$COORDINATOR_TIMINGS_LOG" 2>/dev/null | tr -d '[:space:]')
+    if [[ "${count:-0}" -gt "$COORDINATOR_TIMING_SAMPLE_CAP" ]]; then
+        tail -"$COORDINATOR_TIMING_SAMPLE_CAP" "$COORDINATOR_TIMINGS_LOG" \
+            > "${COORDINATOR_TIMINGS_LOG}.tmp" 2>/dev/null
+        mv -f "${COORDINATOR_TIMINGS_LOG}.tmp" "$COORDINATOR_TIMINGS_LOG" 2>/dev/null
+        rm -f "${COORDINATOR_TIMINGS_LOG}.tmp" 2>/dev/null || true
+    fi
+}
+
+# Compute the coordinator timeout in SECONDS (not minutes — coordinator runs
+# are bounded enough to want sub-minute granularity). Honors
+# RALPH_COORDINATOR_TIMEOUT_SECONDS as a hard override so operators can pin a
+# value during incident response without disabling adaptivity globally.
+ralph_compute_coordinator_timeout() {
+    # Operator override always wins. "0" still means "no timeout" downstream.
+    if [[ -n "${RALPH_COORDINATOR_TIMEOUT_SECONDS:-}" ]]; then
+        echo "${RALPH_COORDINATOR_TIMEOUT_SECONDS}"
+        return 0
+    fi
+
+    local min_samples="${RALPH_COORDINATOR_TIMEOUT_MIN_SAMPLES:-3}"
+    local min_seconds="${RALPH_COORDINATOR_TIMEOUT_MIN_SECONDS:-30}"
+    local max_seconds="${RALPH_COORDINATOR_TIMEOUT_MAX_SECONDS:-600}"
+    local fallback="${RALPH_COORDINATOR_TIMEOUT_FALLBACK_SECONDS:-120}"
+
+    local sample_count=0
+    if [[ -f "$COORDINATOR_TIMINGS_LOG" ]]; then
+        sample_count=$(wc -l < "$COORDINATOR_TIMINGS_LOG" 2>/dev/null | tr -d '[:space:]')
+    fi
+    if [[ "${sample_count:-0}" -lt "$min_samples" ]]; then
+        echo "$fallback"
+        return 0
+    fi
+
+    # Extract durations, sort, pick P95 index, ×2.
+    local p95_index p95_seconds
+    p95_index=$(( (sample_count * 95) / 100 ))
+    [[ "$p95_index" -lt 1 ]] && p95_index=1
+    p95_seconds=$(jq -r '.duration_seconds // empty' "$COORDINATOR_TIMINGS_LOG" 2>/dev/null \
+        | grep -E '^[0-9]+$' \
+        | sort -n \
+        | sed -n "${p95_index}p")
+    if [[ -z "$p95_seconds" ]]; then
+        echo "$fallback"
+        return 0
+    fi
+    local timeout_seconds=$((p95_seconds * 2))
+    [[ "$timeout_seconds" -lt "$min_seconds" ]] && timeout_seconds=$min_seconds
+    [[ "$timeout_seconds" -gt "$max_seconds" ]] && timeout_seconds=$max_seconds
+    echo "$timeout_seconds"
 }
 
 # Main execution function
