@@ -2274,6 +2274,43 @@ build_loop_context() {
         fi
     fi
 
+    # TAP-1683 (USYNC-2): hardened escalation + advance directive. These
+    # are the highest-priority context for the loop, so they get PREPENDED
+    # to `$context` rather than appended — the function ends with a hard
+    # 1500-char truncation, and getting buried below the Linear-mode
+    # boilerplate would silently drop them. The on-stop hook owns the
+    # counter file and the .linear_advance_action marker; we only read.
+    local _ql_count_file="$RALPH_DIR/.consecutive_questions"
+    local _ql_threshold="${RALPH_QUESTION_LOOP_THRESHOLD:-2}"
+    local _ql_prefix=""
+    if [[ -f "$_ql_count_file" ]]; then
+        local _ql_n
+        read -r _ql_n < "$_ql_count_file" 2>/dev/null || _ql_n=0
+        _ql_n=$(printf '%s' "$_ql_n" | tr -cd '0-9')
+        _ql_n=${_ql_n:-0}
+        if [[ "$_ql_n" -ge "$_ql_threshold" ]]; then
+            _ql_prefix+="ESCALATION (USYNC-2): the previous ${_ql_n} consecutive loops ended with questions and no action. Stop asking. Pick the safest defensible default for every open question this loop, IMPLEMENT it, and DOCUMENT each assumption in your commit message and (in linear mode) as a Linear comment on the issue. If the question is a genuine R2 hard blocker (missing credentials, budget cap, irreversible destructive op, or a product decision where both options have real cost and neither is safe), state which of the four it is and emit STATUS: BLOCKED with EXIT_SIGNAL: false. \"I'm not sure\" is NOT a hard blocker. "
+            log_status "INFO" "USYNC-2 escalation injected (consecutive_questions=$_ql_n threshold=$_ql_threshold)"
+        fi
+    fi
+    local _ql_advance_file="$RALPH_DIR/.linear_advance_action"
+    if [[ "${RALPH_TASK_SOURCE:-file}" == "linear" && -f "$_ql_advance_file" ]]; then
+        local _ql_adv_id _ql_adv_label
+        _ql_adv_id=$(sed -n '1p' "$_ql_advance_file" 2>/dev/null | tr -cd 'A-Za-z0-9-')
+        _ql_adv_label=$(sed -n '2p' "$_ql_advance_file" 2>/dev/null | tr -cd 'A-Za-z0-9:-')
+        [[ -z "$_ql_adv_label" ]] && _ql_adv_label="blocked:waiting-for-answer"
+        if [[ -n "$_ql_adv_id" ]]; then
+            _ql_prefix+="URGENT (USYNC-2 advance): ${_ql_adv_id} has stalled on ${_ql_threshold}+ consecutive question loops. THIS LOOP: (1) add the label '${_ql_adv_label}' to ${_ql_adv_id} via mcp__plugin_linear_linear__save_issue, (2) post a Linear comment on ${_ql_adv_id} listing the unresolved questions, (3) delete .ralph/.linear_advance_action so it does not re-apply, (4) pick a DIFFERENT open issue (not ${_ql_adv_id}) and work that one. "
+            log_status "WARN" "USYNC-2 advance directive injected for $_ql_adv_id (label=$_ql_adv_label)"
+        else
+            # Marker present but unparseable — clean up so we don't loop.
+            rm -f "$_ql_advance_file" 2>/dev/null || true
+        fi
+    fi
+    if [[ -n "$_ql_prefix" ]]; then
+        context="${_ql_prefix}${context}"
+    fi
+
     # CTXMGMT-3: Inject carried state from Continue-As-New reset
     # TAP-669: continue-state values (current_task, recommendation) originate
     # from Claude output or Linear — same untrusted surface as prev_summary.

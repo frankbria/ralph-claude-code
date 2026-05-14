@@ -804,6 +804,107 @@ else
 fi
 
 # =============================================================================
+# TAP-1683 (USYNC-2): Consecutive-question policy.
+#
+# USYNC-1 detection above (`asking_questions=true`) used to be log-only.
+# That left the harness in a hot loop: Claude asks → no status block →
+# circuit breaker eventually opens → cooldown → restart on the same task →
+# Claude asks again. AgentForge field telemetry shows this cycle repeating
+# hundreds of times across 2026-04 → 2026-05.
+#
+# Policy (resets cleanly on real progress):
+#   counter = 0          — normal
+#   counter == threshold — `build_loop_context` injects a hardened "decide
+#                          and act" directive on the next loop (read via the
+#                          counter file; the existing single-shot USYNC-2
+#                          nudge fires on its own at counter ≥ 1)
+#   counter >  threshold — advance past the current task and reset:
+#                          - linear mode: write .ralph/.linear_advance_action
+#                            so the next loop's context tells Claude to label
+#                            the issue `blocked:waiting-for-answer` via MCP
+#                            and pick a different ticket; clear the locality
+#                            hint so re-selection happens immediately.
+#                          - file mode: append `<!-- BLOCKED: questions -->`
+#                            directly to the first unchecked task line in
+#                            fix_plan.md (the harness owns fix_plan.md, no
+#                            agent round-trip needed).
+# =============================================================================
+_ql_threshold="${RALPH_QUESTION_LOOP_THRESHOLD:-2}"
+_ql_count_file="$RALPH_DIR/.consecutive_questions"
+
+# Increment counter on a question-loop pattern (asked questions + no status
+# block). Reset on real progress (tasks completed OR files modified). The
+# reset path runs regardless of question detection so a productive loop
+# always clears the counter, even if Claude rambled.
+if [[ "$tasks_done" -ge 1 || "$files_modified" -ge 1 ]]; then
+  rm -f "$_ql_count_file" 2>/dev/null || true
+elif [[ "$asking_questions" == "true" && -z "$_status_block" ]]; then
+  _ql_prev=0
+  if [[ -f "$_ql_count_file" ]]; then
+    read -r _ql_prev < "$_ql_count_file" 2>/dev/null || _ql_prev=0
+    [[ "$_ql_prev" =~ ^[0-9]+$ ]] || _ql_prev=0
+  fi
+  _ql_new=$((_ql_prev + 1))
+  printf '%s\n' "$_ql_new" > "$_ql_count_file" 2>/dev/null || true
+  if [[ -f "$_ralph_log" ]]; then
+    echo "[$_ts] [INFO] on-stop: consecutive_questions=$_ql_new (threshold=$_ql_threshold, USYNC-2)" >> "$_ralph_log"
+  fi
+
+  # Advance past the current task when the counter exceeds the threshold.
+  # The intermediate `==threshold` value is handled by build_loop_context
+  # (escalation injection) so this branch only triggers the heavier action.
+  if [[ "$_ql_new" -gt "$_ql_threshold" ]]; then
+    _ql_task_source="${RALPH_TASK_SOURCE:-file}"
+    if [[ "$_ql_task_source" == "linear" ]]; then
+      # Determine the issue to label-block. A bare question-loop drops
+      # LINEAR_ISSUE for the current write (Claude shipped no status block),
+      # so the hook prefers status.json's sticky .last_linear_issue
+      # pointer that TAP-1201 already maintains. Falls back to .linear_issue
+      # if it happens to be present (response had a block but still asked).
+      _ql_issue=$(jq -r '.last_linear_issue // .linear_issue // ""' \
+                  "$RALPH_DIR/status.json" 2>/dev/null || echo "")
+      _ql_issue=$(printf '%s' "$_ql_issue" | tr -cd 'A-Za-z0-9-')
+      if [[ -n "$_ql_issue" && "$_ql_issue" != "null" && "$_ql_issue" != "NONE" ]]; then
+        # Atomic write per TAP-535. Two-line marker: issue ID then reason.
+        _ql_tmp="$RALPH_DIR/.linear_advance_action.tmp.$$.${RANDOM}"
+        printf '%s\nblocked:waiting-for-answer\n' "$_ql_issue" \
+          > "$_ql_tmp" 2>/dev/null \
+          && mv -f "$_ql_tmp" "$RALPH_DIR/.linear_advance_action" \
+          && rm -f "$_ql_tmp" 2>/dev/null
+        # Clear the locality hint so the next loop's selection is fresh.
+        rm -f "$RALPH_DIR/.linear_next_issue" 2>/dev/null || true
+        if [[ -f "$_ralph_log" ]]; then
+          echo "[$_ts] [WARN] on-stop: USYNC-2 advance — $_ql_issue blocked after $_ql_new question loops, queued for blocked:waiting-for-answer label" >> "$_ralph_log"
+        fi
+      fi
+    else
+      # File mode: stamp BLOCKED marker directly onto the first unchecked
+      # task line. Idempotent — skip if the marker is already present.
+      _ql_plan="$RALPH_DIR/fix_plan.md"
+      if [[ -f "$_ql_plan" ]] && ! grep -qF '<!-- BLOCKED: questions -->' "$_ql_plan" 2>/dev/null; then
+        _ql_plan_tmp="$_ql_plan.tmp.$$.${RANDOM}"
+        awk '
+          BEGIN { marked = 0 }
+          !marked && /^[[:space:]]*- \[ \]/ {
+            print $0 " <!-- BLOCKED: questions -->"
+            marked = 1
+            next
+          }
+          { print }
+        ' "$_ql_plan" > "$_ql_plan_tmp" 2>/dev/null \
+          && mv -f "$_ql_plan_tmp" "$_ql_plan" \
+          && rm -f "$_ql_plan_tmp" 2>/dev/null
+        if [[ -f "$_ralph_log" ]]; then
+          echo "[$_ts] [WARN] on-stop: USYNC-2 advance — first unchecked fix_plan.md task marked <!-- BLOCKED: questions --> after $_ql_new question loops" >> "$_ralph_log"
+        fi
+      fi
+    fi
+    # Reset counter — the advance action means we're moving on, not retrying.
+    rm -f "$_ql_count_file" 2>/dev/null || true
+  fi
+fi
+
+# =============================================================================
 # TAP-1529: Halt detector — CB OPEN state thrashing (consecutive opens).
 #
 # When the CB enters OPEN state for N+ consecutive iterations without an
