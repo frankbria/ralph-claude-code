@@ -15,6 +15,14 @@
 #   Tier 2 (merge only):       .ralphrc (append missing sections),
 #                               .claude/settings.json (inject missing Ralph hooks)
 #   Tier 3 (never touch):      fix_plan.md, status.json, .circuit_breaker_state
+#
+# TAP-1681: agent definitions and PROMPT.md ship with embedded conditional
+# blocks bracketed by <!--TASK_SOURCE:{file,linear}:{start,end}--> markers.
+# Every copy of a template into a project resolves those blocks against the
+# project's .ralphrc RALPH_TASK_SOURCE (default "file"), so a Linear-mode
+# project stops seeing fix_plan.md wording. `--resync-templates` forces a
+# rewrite of PROMPT.md and the ralph agent file even when the running hash
+# happens to match (used by `ralph-doctor` remediation guidance).
 
 set -euo pipefail
 
@@ -59,6 +67,61 @@ log() {
 # Empty when no project context (e.g. --all summary lines), in which case
 # audit() degrades to stderr-only.
 declare -g AUDIT_LOG_PATH=""
+
+# TAP-1681: per-project resolved task source. Set by detect_task_source() at
+# the start of upgrade_single_project(); read by the resolver below so the
+# same value is used for both PROMPT.md and the ralph agent file.
+declare -g PROJECT_TASK_SOURCE="file"
+
+# Read RALPH_TASK_SOURCE from the project's .ralphrc. Falls back to "file"
+# when the file is missing or the key is unset — matches ralph_loop.sh's
+# default. Strips quotes and whitespace so `="linear"`, `=linear`,
+# `= "linear" ` all normalize to `linear`.
+detect_task_source() {
+    local project="$1"
+    local rc="$project/.ralphrc"
+    local source=""
+    if [[ -f "$rc" ]]; then
+        # `|| true` so `set -e + pipefail` doesn't abort when the file has
+        # no RALPH_TASK_SOURCE line (a perfectly valid file-mode config —
+        # grep returns 1, the pipeline exits non-zero, and we still want to
+        # fall through to the default).
+        source=$(grep -E '^[[:space:]]*RALPH_TASK_SOURCE=' "$rc" 2>/dev/null \
+            | tail -1 \
+            | sed -e 's/^[^=]*=//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+                  -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//") || true
+    fi
+    case "$source" in
+        linear) PROJECT_TASK_SOURCE="linear" ;;
+        *)      PROJECT_TASK_SOURCE="file" ;;
+    esac
+}
+
+# Strip lines bracketed by `<!--TASK_SOURCE:OTHER:start-->` /
+# `<!--TASK_SOURCE:OTHER:end-->` (where OTHER is the *other* mode), and
+# also strip the marker lines for the active mode (keeping the content).
+# Reads from $1 path, writes resolved content to stdout. Idempotent — files
+# without markers pass through unchanged so the resolver can run blindly.
+resolve_task_source_blocks() {
+    local src="$1"
+    local active="${2:-$PROJECT_TASK_SOURCE}"
+    local other
+    case "$active" in
+        linear) other="file" ;;
+        *)      other="linear" ;;
+    esac
+    awk -v active="$active" -v other="$other" '
+        BEGIN { strip = 0 }
+        # Strip the OTHER block (markers + content).
+        $0 ~ ("<!--TASK_SOURCE:" other ":start-->")  { strip = 1; next }
+        strip && $0 ~ ("<!--TASK_SOURCE:" other ":end-->") { strip = 0; next }
+        strip { next }
+        # Drop just the marker lines for the ACTIVE block; keep its content.
+        $0 ~ ("<!--TASK_SOURCE:" active ":start-->") { next }
+        $0 ~ ("<!--TASK_SOURCE:" active ":end-->")   { next }
+        { print }
+    ' "$src"
+}
 
 init_audit_log() {
     local project="$1"
@@ -381,37 +444,51 @@ upgrade_agents() {
         name="$(basename "$src_agent")"
         local dst_agent="$agents_dst/$name"
 
+        # TAP-1681: resolve TASK_SOURCE conditional blocks against the
+        # project's .ralphrc before any hash compare or copy. The ralph.md
+        # template carries both file-mode and linear-mode wording; the
+        # resolver strips the inactive branch so a Linear-mode project no
+        # longer sees `Read .ralph/fix_plan.md`. The resolver passes
+        # marker-less files through unchanged, so other ralph* agents
+        # without TASK_SOURCE blocks behave exactly as before.
+        local src_resolved
+        src_resolved=$(mktemp "${TMPDIR:-/tmp}/ralph-agent-resolved.XXXXXX")
+        resolve_task_source_blocks "$src_agent" "$PROJECT_TASK_SOURCE" \
+            | tr -d $'\r' > "$src_resolved"
+
         # TAP-1415: track create-vs-update once so log + counter agree.
         local is_create=true
         [[ -f "$dst_agent" ]] && is_create=false
 
-        if [[ "$is_create" == "false" ]]; then
+        if [[ "$is_create" == "false" && "$FORCE_RESYNC" != "true" ]]; then
             local src_hash dst_hash
-            src_hash=$(tr -d $'\r' < "$src_agent" | sha256sum | cut -d' ' -f1)
+            src_hash=$(sha256sum < "$src_resolved" | cut -d' ' -f1)
             dst_hash=$(tr -d $'\r' < "$dst_agent" | sha256sum | cut -d' ' -f1)
 
             if [[ "$src_hash" == "$dst_hash" ]]; then
                 PROJ_SKIPPED=$((PROJ_SKIPPED + 1))
+                rm -f "$src_resolved"
                 continue
             fi
         fi
 
         if [[ "$DRY_RUN" == "true" ]]; then
             if [[ "$is_create" == "true" ]]; then
-                log DRY "Would create agent: $name"
+                log DRY "Would create agent: $name (task_source=$PROJECT_TASK_SOURCE)"
             else
-                log DRY "Would update agent: $name"
+                log DRY "Would update agent: $name (task_source=$PROJECT_TASK_SOURCE)"
             fi
         else
             create_backup "$project" ".claude/agents/$name"
             [[ "$is_create" == "false" ]] && chmod u+w "$dst_agent" 2>/dev/null || true
-            tr -d $'\r' < "$src_agent" > "$dst_agent"
+            cp -f "$src_resolved" "$dst_agent"
             if [[ "$is_create" == "true" ]]; then
-                log SUCCESS "Created agent: $name"
+                log SUCCESS "Created agent: $name (task_source=$PROJECT_TASK_SOURCE)"
             else
-                log SUCCESS "Updated agent: $name"
+                log SUCCESS "Updated agent: $name (task_source=$PROJECT_TASK_SOURCE)"
             fi
         fi
+        rm -f "$src_resolved"
         if [[ "$is_create" == "true" ]]; then
             PROJ_CREATED=$((PROJ_CREATED + 1))
         else
@@ -763,9 +840,16 @@ upgrade_prompt_md() {
         return 0
     fi
 
-    # Extract the managed section from the template
+    # Extract the managed section from the template, then resolve
+    # TAP-1681 TASK_SOURCE blocks against the project's task source. A
+    # marker-less template passes through the resolver unchanged.
+    local template_resolved
+    template_resolved=$(mktemp "${TMPDIR:-/tmp}/ralph-prompt-resolved.XXXXXX")
+    resolve_task_source_blocks "$template_prompt" "$PROJECT_TASK_SOURCE" \
+        > "$template_resolved"
     local template_section
-    template_section=$(awk '/<!-- RALPH:START/,/<!-- RALPH:END -->/' "$template_prompt" 2>/dev/null)
+    template_section=$(awk '/<!-- RALPH:START/,/<!-- RALPH:END -->/' "$template_resolved" 2>/dev/null)
+    rm -f "$template_resolved"
     if [[ -z "$template_section" ]]; then
         log WARN "PROMPT.md template has empty RALPH section — skipping"
         return 0
@@ -775,11 +859,13 @@ upgrade_prompt_md() {
     local project_section
     project_section=$(awk '/<!-- RALPH:START/,/<!-- RALPH:END -->/' "$project_prompt" 2>/dev/null)
 
-    # Hash comparison — skip if already current (strip CR for cross-platform)
+    # Hash comparison — skip if already current. `--resync-templates`
+    # (FORCE_RESYNC=true) bypasses the equality check so operators can
+    # repair drifted Linear-mode projects without first touching files.
     local tmpl_hash proj_hash
     tmpl_hash=$(printf '%s' "$template_section" | tr -d $'\r' | sha256sum | cut -d' ' -f1)
     proj_hash=$(printf '%s' "$project_section" | tr -d $'\r' | sha256sum | cut -d' ' -f1)
-    if [[ "$tmpl_hash" == "$proj_hash" ]]; then
+    if [[ "$tmpl_hash" == "$proj_hash" && "$FORCE_RESYNC" != "true" ]]; then
         PROJ_SKIPPED=$((PROJ_SKIPPED + 1))
         return 0
     fi
@@ -847,7 +933,12 @@ upgrade_single_project() {
     # always reflects the most recent upgrade. Set RALPH_UPGRADE_VERBOSE=true
     # to also stream audit lines to stderr.
     init_audit_log "$project"
-    audit "upgrade_single_project: $project (DRY_RUN=${DRY_RUN:-false} HOOKS_ONLY=${HOOKS_ONLY:-false})"
+    audit "upgrade_single_project: $project (DRY_RUN=${DRY_RUN:-false} HOOKS_ONLY=${HOOKS_ONLY:-false} FORCE_RESYNC=${FORCE_RESYNC:-false})"
+
+    # TAP-1681: detect task source once per project so PROMPT.md and the
+    # ralph agent file resolve consistently.
+    detect_task_source "$project"
+    audit "detect_task_source: PROJECT_TASK_SOURCE=$PROJECT_TASK_SOURCE"
 
     # Tier 1: hooks (always run — this is the cheapest, most common targeted upgrade)
     upgrade_hooks "$project"
@@ -982,12 +1073,16 @@ USAGE:
   ralph-upgrade-project --all [OPTIONS]
 
 OPTIONS:
-  --all              Discover and upgrade all Ralph projects
-  --dry-run          Preview changes without modifying files
-  --yes, -y          Skip confirmation prompts
-  --hooks-only       Only update hook scripts (skip agents, config merges)
-  --skip-merge       Skip .ralphrc and settings.json merges
-  --search-dir DIR   Additional parent directory to scan (repeatable)
+  --all                Discover and upgrade all Ralph projects
+  --dry-run            Preview changes without modifying files
+  --yes, -y            Skip confirmation prompts
+  --hooks-only         Only update hook scripts (skip agents, config merges)
+  --skip-merge         Skip .ralphrc and settings.json merges
+  --resync-templates   Force-rewrite PROMPT.md and the ralph agent file
+                       against the project's RALPH_TASK_SOURCE, even when
+                       hashes match. Use after switching a project to
+                       Linear mode (file-mode → linear-mode drift).
+  --search-dir DIR     Additional parent directory to scan (repeatable)
   -v, --verbose      Verbose output
   -h, --help         Show this help
   --version          Show version
@@ -1020,6 +1115,7 @@ main() {
     AUTO_YES="false"
     HOOKS_ONLY="false"
     SKIP_MERGE="false"
+    FORCE_RESYNC="false"
     VERBOSE="false"
     BACKUP_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
@@ -1031,6 +1127,7 @@ main() {
             --yes|-y)    AUTO_YES="true" ;;
             --hooks-only) HOOKS_ONLY="true" ;;
             --skip-merge) SKIP_MERGE="true" ;;
+            --resync-templates) FORCE_RESYNC="true" ;;
             --search-dir)
                 shift
                 [[ -d "$1" ]] && extra_search_dirs+=("$1") || log WARN "Not a directory: $1"

@@ -57,7 +57,13 @@ project code. Deleting them halts the loop.
 ## File Structure
 - `.ralph/`: Ralph configuration and documentation
   - `specs/`: Project specifications and requirements
-  - `fix_plan.md`: Prioritized TODO list
+<!--TASK_SOURCE:file:start-->
+  - `fix_plan.md`: Prioritized TODO list (source of truth for tasks)
+<!--TASK_SOURCE:file:end-->
+<!--TASK_SOURCE:linear:start-->
+  - Tasks live in your Linear project (`RALPH_LINEAR_PROJECT`), not in
+    `fix_plan.md`. Read open issues via `mcp__plugin_linear_linear__list_issues`.
+<!--TASK_SOURCE:linear:end-->
   - `AGENT.md`: Project build and run instructions
   - `PROMPT.md`: This file
   - `logs/`: Loop execution logs
@@ -68,16 +74,31 @@ project code. Deleting them halts the loop.
 
 ## Current Objectives
 1. Study `.ralph/specs/*` to learn about the project specifications.
-2. Pick the next task from the configured backend (`fix_plan.md` or
-   Linear — see the **ralph-workflow** skill for the full contract).
+<!--TASK_SOURCE:file:start-->
+2. Read `.ralph/fix_plan.md` and pick the first unchecked `- [ ]` item —
+   fix_plan.md is the single source of truth for tasks in file mode.
+<!--TASK_SOURCE:file:end-->
+<!--TASK_SOURCE:linear:start-->
+2. List open Linear issues in your project via
+   `mcp__plugin_linear_linear__list_issues` and pick the highest-priority
+   unblocked one. Do NOT read `.ralph/fix_plan.md` — Linear is the single
+   source of truth in this mode. The full workflow lives in the
+   **ralph-workflow** skill (linear-mode contract).
+<!--TASK_SOURCE:linear:end-->
 3. **Verify the task is still needed** before writing code: re-read the
    acceptance criteria and search the codebase for prior work. If the
    problem is already fixed, close the task with evidence and move on —
    do not double-fix it. (This is step 2 of the ralph-workflow contract.)
 4. Implement the highest-priority remaining item using best practices.
 5. Use sub-agents (ralph-explorer, ralph-tester) for expensive operations.
-6. Update the task source (`fix_plan.md` checkbox or Linear status) and
-   commit changes.
+<!--TASK_SOURCE:file:start-->
+6. Tick the `fix_plan.md` checkbox (`- [ ]` → `- [x]`) and commit changes.
+<!--TASK_SOURCE:file:end-->
+<!--TASK_SOURCE:linear:start-->
+6. Move the Linear issue to Done via
+   `mcp__plugin_linear_linear__save_issue` once the work is on `main`,
+   and commit changes.
+<!--TASK_SOURCE:linear:end-->
 
 ## Current Task
 Follow the **ralph-workflow** skill's per-loop execution contract. Pick

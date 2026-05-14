@@ -1,7 +1,8 @@
 ---
 name: ralph
 description: >
-  Autonomous development agent. Works through fix_plan.md tasks one at a time.
+  Autonomous development agent. Works through tasks one at a time from the
+  configured backend (fix_plan.md in file mode, Linear MCP in linear mode).
   Reads instructions from .ralph/PROMPT.md. Reports status after each task.
 tools:
   - Read
@@ -67,7 +68,15 @@ Parse the returned JSON and act on the verdict:
 
 Skip consultation if `.ralph/brief.json` is missing or if the coordinator is disabled.
 
+<!--TASK_SOURCE:file:start-->
 1. Read .ralph/fix_plan.md — identify unchecked `- [ ]` items.
+<!--TASK_SOURCE:file:end-->
+<!--TASK_SOURCE:linear:start-->
+1. List open Linear issues in `RALPH_LINEAR_PROJECT` via
+   `mcp__plugin_linear_linear__list_issues` (or honor the `LOCALITY HINT`
+   injected at session start). Do NOT read .ralph/fix_plan.md — Linear is
+   the single source of truth in this mode.
+<!--TASK_SOURCE:linear:end-->
 2. Assess complexity of upcoming tasks and determine batch size (see Rules).
 3. Search the codebase for existing implementations before writing new code.
 4. If the task uses an external library API, look up docs before writing code.

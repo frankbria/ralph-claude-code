@@ -686,6 +686,53 @@ else
     echo "         (Note: 'ralph-upgrade' alone only refreshes the global templates,"
     echo "         not this repo's .ralph/hooks/.)"
 fi
+echo ""
+
+# TAP-1681: in Linear mode the project's PROMPT.md and ralph agent file
+# must not carry file-mode wording. AgentForge field telemetry (Ralph
+# 2.14.4, 35 sessions, ~30 days) showed every loop opened with
+# `Read(.ralph/fix_plan.md) ❌ File does not exist` — because the
+# templates were copied at install time and the project later switched
+# to Linear mode in .ralphrc without re-templating PROMPT.md / ralph.md.
+# The per-loop Read error wastes tokens, drives Claude into a "no plan
+# exists" branch, and trips the no-progress circuit breaker.
+echo "Linear-mode template drift (TAP-1681):"
+if [[ ! -f ".ralphrc" ]]; then
+    echo "  [SKIP] no .ralphrc in CWD"
+elif ! grep -qE "^[[:space:]]*RALPH_TASK_SOURCE=[\"']?linear" .ralphrc; then
+    echo "  [SKIP] RALPH_TASK_SOURCE is not linear — drift check N/A"
+else
+    drift_files=()
+    for f in ".ralph/PROMPT.md" ".claude/agents/ralph.md"; do
+        [[ -f "$f" ]] || continue
+        # Only flag file-mode phrases that appear OUTSIDE a
+        # <!--TASK_SOURCE:linear:*--> block. The new template carries
+        # both branches; after `ralph-upgrade-project --resync-templates`
+        # the file branch is stripped entirely.
+        if awk '
+            /<!--TASK_SOURCE:linear:start-->/ { in_linear=1; next }
+            /<!--TASK_SOURCE:linear:end-->/   { in_linear=0; next }
+            !in_linear && (/fix_plan\.md is the single source of truth/ || /Read \.ralph\/fix_plan\.md/) {
+                found=1; exit
+            }
+            END { exit (found ? 0 : 1) }
+        ' "$f"; then
+            drift_files+=("$f")
+        fi
+    done
+    if (( ${#drift_files[@]} == 0 )); then
+        echo "  [OK] PROMPT.md and ralph.md align with linear-mode templates"
+    else
+        for f in "${drift_files[@]}"; do
+            echo "  [WARN] $f still carries file-mode wording while RALPH_TASK_SOURCE=linear."
+        done
+        echo "         Every loop in Linear mode will tell Claude to Read .ralph/fix_plan.md,"
+        echo "         which does not exist — the Read fails, Claude branches into 'no plan'"
+        echo "         recovery, and the no-progress circuit breaker eventually opens."
+        echo "         Remediation: run 'ralph-upgrade-project --resync-templates' from this"
+        echo "         repo to re-template PROMPT.md and ralph.md against the linear branch."
+    fi
+fi
 DOCTOREOF
     chmod +x "$INSTALL_DIR/ralph-doctor"
 
