@@ -702,6 +702,26 @@ if [[ -f "$RALPH_DIR/.circuit_breaker_state" ]]; then
     jq '.consecutive_no_progress = 0 | .consecutive_permission_denials = 0 | .state = "CLOSED"' \
       "$RALPH_DIR/.circuit_breaker_state" > "$local_tmp" 2>/dev/null \
       && mv "$local_tmp" "$RALPH_DIR/.circuit_breaker_state"
+  elif [[ "$work_type" == "PLANNING" && -n "$_status_block" ]]; then
+    # TAP-1686: Plan Mode loops produce a plan, not files. When the
+    # coordinator marks a task HIGH-risk, build_loop_context sets
+    # RALPH_PERMISSION_MODE=plan and Claude responds with a numbered plan
+    # plus WORK_TYPE: PLANNING. By definition files_modified=0 here —
+    # without this branch the loop would fall through to the no-progress
+    # arm and start counting toward CB OPEN even though the work
+    # (producing the plan) is exactly what we asked for. Reset the
+    # counter the same way EXIT-CLEAN does so a Plan Mode loop never
+    # contributes to stagnation. Requires a valid RALPH_STATUS block —
+    # bare planning text without the block still increments no-progress.
+    jq '.consecutive_no_progress = 0 | .consecutive_permission_denials = 0 | .state = "CLOSED"' \
+      "$RALPH_DIR/.circuit_breaker_state" > "$local_tmp" 2>/dev/null \
+      && mv "$local_tmp" "$RALPH_DIR/.circuit_breaker_state"
+    # TAP-1686: log marker uses the explicit path rather than $_ralph_log
+    # (which is bound further down in this script under `set -u`).
+    _tap1686_log="$RALPH_DIR/logs/ralph.log"
+    if [[ -f "$_tap1686_log" ]]; then
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] on-stop: TAP-1686 Plan Mode loop — productive without files_modified" >> "$_tap1686_log"
+    fi
   else
     # No progress — single jq call to read threshold, increment, and conditionally open
     # LOGFIX-8: Also increment total_opens when transitioning to OPEN

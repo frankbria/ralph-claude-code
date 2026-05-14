@@ -238,10 +238,47 @@ Project-level config lives in `.ralphrc` (sourced as bash). Key variables:
 - `RALPH_COORDINATOR_TIMEOUT_SECONDS` — Hard override for the coordinator timeout. When unset (the recommended default), Ralph computes the timeout adaptively via `ralph_compute_coordinator_timeout`: P95×2 of the last 30 wall-clock samples in `.ralph/.coordinator_timings.jsonl`, clamped to `[RALPH_COORDINATOR_TIMEOUT_MIN_SECONDS, RALPH_COORDINATOR_TIMEOUT_MAX_SECONDS]` (defaults 30 and 600), falling back to `RALPH_COORDINATOR_TIMEOUT_FALLBACK_SECONDS` (default 120) when fewer than `RALPH_COORDINATOR_TIMEOUT_MIN_SAMPLES` (default 3) samples exist. Set this env var to pin a value during incident response; set `0` to disable the watchdog entirely (only useful when MCP cold-start latency is highly variable). Set `RALPH_COORDINATOR_DISABLED=true` to skip the coordinator altogether. (TAP-1682)
 - `RALPH_BRIEF_CACHE_MAX_AGE_SECONDS` — Coordinator brief cache TTL in seconds (default: `1800`, i.e. 30 minutes). When the same Linear issue is the current task across consecutive loops, `ralph_spawn_coordinator` reads back the previous brief from `.ralph/.brief_cache/<linear_issue_id>.json` instead of re-spawning Haiku. Cache entries are evicted when this age is exceeded OR when the coordinator surfaces a newer `linear_issue_updated_at` than the cached one. On a coordinator timeout (exit 124) the harness retries the cache with a 24-hour TTL as graceful degradation — even a stale brief is better than none. File mode loops bypass the cache (no per-issue identity). (TAP-1682)
 - `RALPH_BRIEF_CACHE_DIR` — Override the cache directory (default: `$RALPH_DIR/.brief_cache`). Tests use a tmpdir; operators rarely touch this. (TAP-1682)
+- `RALPH_PERMISSION_MODE` — Override the Claude CLI permission mode for the next loop. When unset (the default), `.claude/agents/ralph.md`'s frontmatter `permissionMode: bypassPermissions` takes effect. When set, the harness appends `--permission-mode <value>` to the CLI invocation and the agent file is overridden. The coordinator-driven HIGH-risk path automatically sets this to `plan` for the affected loop only (see "Plan Mode for HIGH-risk tasks" below); operators can also pin a value during incident response. Accepts any mode Claude Code recognizes (`plan`, `acceptEdits`, `default`, `bypassPermissions`). (TAP-1686)
 - `RALPH_CACHE_HIT_RATE_WARN` — Threshold percentage (default: `30`). When the rolling-session prompt-cache hit rate falls below this value, `ralph-monitor` renders the "Prompt cache" panel in red and appends a one-line investigation hint ("session hit rate X% < threshold Y% — investigate prompt-prefix instability"). The math is `cache_read / (cache_read + cache_create + input_uncached)`. Cold-start loops render as `0%` (not NaN) because the loop denominator is non-zero even when `cache_read=0`. Missing `loop_cache_*` / `session_cache_*` fields default to `0` at both the hook write and the monitor read. See **Observability: prompt cache** below. (TAP-1685)
 - `RALPH_QUESTION_LOOP_THRESHOLD` — Maximum number of consecutive loops Ralph tolerates Claude asking questions instead of acting before forcing an advance (default: `2`). USYNC-1 (in `on-stop.sh`) already detects the question patterns; this knob is the **policy** that turns that signal into action. At `counter >= threshold`, the next loop's `--append-system-prompt` is **prepended** (so the 1500-char truncation cannot drop it) with a hardened "decide and act" directive. At `counter > threshold`, the hook advances past the current task: in linear mode it writes `.ralph/.linear_advance_action` so the next loop tells Claude to apply a `blocked:waiting-for-answer` label via the Linear MCP and pivot to a different ticket; in file mode it appends `<!-- BLOCKED: questions -->` directly to the first unchecked task line in `fix_plan.md`. The counter resets to zero on any productive loop (`tasks_completed >= 1` OR `files_modified >= 1`). Origin: USYNC-1 was passive telemetry; AgentForge field data (2026-04 → 2026-05) showed the same project re-entering the question/CB cycle hundreds of times before this policy landed. (TAP-1683)
 
 Environment variables override `.ralphrc` settings.
+
+## Plan Mode for HIGH-risk tasks (TAP-1686)
+
+When the coordinator writes `.ralph/brief.json` with `risk_level: HIGH`,
+`build_loop_context` flips the next Claude invocation into Plan Mode:
+
+1. **`RALPH_PERMISSION_MODE=plan`** is exported for the loop (only if no
+   operator override is already set).
+2. **`build_claude_command`** reads that variable and appends
+   `--permission-mode plan` to the CLI invocation, overriding the agent
+   file's `bypassPermissions` default for this single loop.
+3. **The agent file (`.claude/agents/ralph.md`)** carries a "When Plan
+   Mode applies" section telling Claude to emit a numbered plan + post
+   it as a Linear comment / `<!-- PLAN -->` marker in `fix_plan.md`, AND
+   to set `WORK_TYPE: PLANNING` + `FILES_MODIFIED: 0` in its
+   `RALPH_STATUS` block.
+4. **`on-stop.sh`** has a dedicated branch that treats
+   `WORK_TYPE: PLANNING + RALPH_STATUS block present` as **productive** —
+   `consecutive_no_progress` is reset, the same way EXIT-CLEAN resets it
+   on a legitimate exit. Without this branch the zero-file Plan Mode
+   loop would fall through to the no-progress arm and trip the CB.
+
+The next loop (with the plan now in Linear / `fix_plan.md` and the brief
+potentially still HIGH) either remains in Plan Mode or transitions back
+to `bypassPermissions` once the coordinator is satisfied — the brief's
+`risk_level` is the gate.
+
+**Operator safety knobs**:
+- Set `RALPH_PERMISSION_MODE` in the environment to pin a value (the
+  harness honors a pre-set override and does NOT clobber it on HIGH-risk
+  briefs — useful when an operator wants `acceptEdits` for an
+  incident-response loop regardless of the coordinator's classification).
+- A bare `WORK_TYPE: PLANNING` text response without a parseable
+  `RALPH_STATUS` block does NOT trip the productivity branch — the
+  no-progress counter still increments, so a stuck planner can be caught
+  by the CB.
 
 ## Observability: Prompt Cache (TAP-1685)
 

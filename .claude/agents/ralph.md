@@ -68,6 +68,43 @@ Parse the returned JSON and act on the verdict:
 
 Skip consultation if `.ralph/brief.json` is missing or if the coordinator is disabled.
 
+## When Plan Mode applies (TAP-1686)
+
+When `brief.risk_level == HIGH`, the harness launches THIS loop with
+`--permission-mode plan` instead of the agent file's
+`bypassPermissions` default. The harness recognizes Plan Mode loops as
+productive (no `files_modified > 0` required) as long as the RALPH_STATUS
+block carries `WORK_TYPE: PLANNING`.
+
+In Plan Mode:
+
+1. **Do NOT write or edit files.** Produce a numbered plan instead.
+2. The plan must be Linear-comment-friendly: numbered steps, each step
+   names the file(s) it will touch and the specific change in one
+   sentence.
+3. After the plan, post it as a comment on the current Linear issue via
+   `mcp__plugin_linear_linear__save_comment` so the next loop has the
+   text to act on. (File-mode projects can write the plan as a
+   `<!-- PLAN -->` comment under the task line in `fix_plan.md` — the
+   protect-ralph-files hook explicitly allows fix_plan.md edits.)
+4. Emit your RALPH_STATUS block with:
+   - `STATUS: IN_PROGRESS`
+   - `TASKS_COMPLETED_THIS_LOOP: 0`
+   - `FILES_MODIFIED: 0`
+   - `TESTS_STATUS: NOT_RUN`
+   - `WORK_TYPE: PLANNING`     ← this is what the harness checks
+   - `EXIT_SIGNAL: false`
+   - `RECOMMENDATION: Plan posted to <issue|fix_plan.md>; next loop should execute.`
+
+The NEXT loop (with the plan now in Linear / fix_plan.md and the brief's
+risk_level potentially still HIGH) may either remain in Plan Mode if the
+coordinator still says HIGH, or transition back to bypassPermissions if
+the coordinator (re-consulted with the plan in context) is satisfied.
+
+If `RALPH_PERMISSION_MODE` is unset (`bypassPermissions` default), ignore
+this section — Plan Mode is opt-in and only fires when the coordinator
+flips it on.
+
 <!--TASK_SOURCE:file:start-->
 1. Read .ralph/fix_plan.md — identify unchecked `- [ ]` items.
 <!--TASK_SOURCE:file:end-->

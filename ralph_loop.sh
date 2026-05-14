@@ -2372,6 +2372,20 @@ build_loop_context() {
         if [[ "$_brief_risk" == "HIGH" ]]; then
             local _rpc_path="${SCRIPT_DIR}/lib/coordinator_rpc.sh"
             context+="Risk level is HIGH — coordinator consultation required before implementation. COORDINATOR_RPC_PATH=${_rpc_path} "
+            # TAP-1686: HIGH-risk → flip permission mode to plan for THIS
+            # loop only. `build_claude_command` reads RALPH_PERMISSION_MODE
+            # and appends `--permission-mode plan` to the CLI, overriding
+            # the agent file's bypassPermissions default. Plan Mode forces
+            # Claude to describe its changes before mutating files; the
+            # next loop applies the plan (or rejects it after review).
+            # Honors a pre-existing operator override — if someone has
+            # already pinned RALPH_PERMISSION_MODE (e.g. during incident
+            # response), don't second-guess them.
+            if [[ -z "${RALPH_PERMISSION_MODE:-}" ]]; then
+                export RALPH_PERMISSION_MODE="plan"
+                context+="PLAN MODE ACTIVE (TAP-1686): emit a numbered plan first; do NOT write files this loop. Post the plan as a Linear comment so the next loop has it. Set WORK_TYPE: PLANNING and FILES_MODIFIED: 0 in your RALPH_STATUS block — the harness recognizes Plan Mode loops as productive even with zero files modified. "
+                log_status "INFO" "TAP-1686: HIGH-risk brief → RALPH_PERMISSION_MODE=plan for loop"
+            fi
         fi
     fi
 
@@ -3279,6 +3293,18 @@ build_claude_command() {
     fi
     [[ -n "$effective_model" ]] && CLAUDE_CMD_ARGS+=("--model" "$effective_model")
     [[ -n "$CLAUDE_EFFORT" ]] && CLAUDE_CMD_ARGS+=("--effort" "$CLAUDE_EFFORT")
+
+    # TAP-1686: per-loop permission-mode override. When the coordinator
+    # marks the current task HIGH-risk in `.ralph/brief.json`, build_loop_context
+    # sets `RALPH_PERMISSION_MODE=plan` for this iteration. Without this
+    # override the agent file's `permissionMode: bypassPermissions` would
+    # take precedence and Plan Mode never engages. Pass-through for any
+    # other valid mode (plan / acceptEdits / default / bypassPermissions)
+    # so operators can pin a value via env var during incident response.
+    if [[ -n "${RALPH_PERMISSION_MODE:-}" ]]; then
+        CLAUDE_CMD_ARGS+=("--permission-mode" "$RALPH_PERMISSION_MODE")
+        log_status "INFO" "TAP-1686: permission-mode override=${RALPH_PERMISSION_MODE} (agent default bypassed for this loop)"
+    fi
 
     # Agent invocation
     CLAUDE_CMD_ARGS+=("--agent" "${RALPH_AGENT_NAME:-ralph}")
