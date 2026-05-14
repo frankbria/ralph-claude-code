@@ -137,7 +137,35 @@ substitutions: "fix_plan.md task" ↔ "Linear issue", "tick checkbox" ↔
    epic / cycle (linear mode):
    - **Not an epic boundary** → skip QA. Set `TESTS_STATUS: DEFERRED`.
    - **Epic boundary** → run full QA (lint + type + test) for everything in
-     the section. If anything fails, fix it before the status block.
+     the section, in **parallel fan-out** (TAP-1684 — see "Parallel QA
+     fan-out" below). If anything fails, fix it before the status block.
+
+   **Parallel QA fan-out at the epic boundary.** Dispatch
+   `ralph-tester`, `ralph-reviewer`, and `tapps-validator` in **one
+   message with three `Task` tool calls**, not serially. Claude Code's
+   `Task` tool runs sibling calls concurrently; serial dispatch waits
+   for the slowest agent at every step and inflates epic-boundary
+   wall-clock by the sum of all three (typical 4–7 min) when it could
+   cost the slowest one (typical 3–5 min). Worked example — note the
+   three calls in a single assistant message:
+
+   ```
+   <message>
+   Task(ralph-tester,   "Run full QA for the <epic-name> section: pytest, ruff, mypy on changed files. Report PASS/FAIL with a one-line summary.")
+   Task(ralph-reviewer, "Review the diff for the <epic-name> section against acceptance criteria. Report PASS/FAIL with the one issue that blocks PASS, if any.")
+   Task(tapps-validator,"Validate quality gates on changed files in the <epic-name> section via tapps_validate_changed. Report PASS/FAIL.")
+   </message>
+   ```
+
+   **Aggregation rule (TAP-1684).** A single FAIL or TIMEOUT from any
+   of the three collapses the gate to FAIL — the same semantics serial
+   dispatch had via early-exit. Name the failing agent in your follow-
+   up commit / RECOMMENDATION so the operator can act on the right
+   signal. **Order of results in the assistant's response is not
+   significant** — wait for all three to return before deciding. The
+   helper `exec_aggregate_qa_results` (`lib/exec_helpers.sh`) implements
+   the same rule for any harness-side aggregation; the agent surface
+   here applies the same logic in prose.
 7.5. **Deslop pass (epic boundary only).** After QA is green, invoke the
    `simplify` skill on the files changed in this epic. The simplify skill
    removes dead code, unused imports, redundant comments, and speculative
@@ -167,10 +195,28 @@ Every field is mandatory. `FILES_MODIFIED` counts files the loop actually
 touched (not files you read). `RECOMMENDATION` is one line — the harness
 surfaces it to the operator as a summary.
 
+**Linear-mode additions** (when `RALPH_TASK_SOURCE=linear`): also include
+these so the live monitor can show what you're working on and the harness
+can detect plan_complete:
+
+```
+LINEAR_ISSUE: <ID-or-NONE>      (e.g. TAP-915, or NONE if no issue touched)
+LINEAR_OPEN_COUNT: <N>          (open issues in the project, via Linear MCP)
+LINEAR_DONE_COUNT: <N>          (completed issues, via Linear MCP)
+LINEAR_EPIC: <ID>               (optional — only if working under an epic)
+LINEAR_EPIC_DONE: <N>           (optional — stories Done in the epic)
+LINEAR_EPIC_TOTAL: <N>          (optional — total stories in the epic)
+```
+
 ## The EXIT_SIGNAL gate
 
-`EXIT_SIGNAL: true` is the hand-off to the harness saying "the plan is done,
-stop looping." It requires **all** of the following:
+`EXIT_SIGNAL: true` is the hand-off to the harness saying "stop looping —
+either the plan is done, or there is nothing actionable to do right now."
+
+There are two valid grounds for emitting it:
+
+**Grounds 1 — plan complete** (paired with `STATUS: COMPLETE`). Requires
+**all** of the following:
 
 1. Every item in `fix_plan.md` is `[x]` (file mode), **or** the Linear
    project has zero open issues (linear mode).
@@ -179,11 +225,38 @@ stop looping." It requires **all** of the following:
 4. Every requirement under `specs/` is implemented.
 5. Nothing meaningful is left to do.
 
-**Never** pair `EXIT_SIGNAL: true` with `TESTS_STATUS: DEFERRED`. Final exit
-requires actual QA, not a mid-epic deferral. The harness combines your
-`EXIT_SIGNAL` with NLP completion heuristics (a dual-condition gate) to
-avoid shutting down on a stray "done" mid-epic — but that safety net only
-works if you are honest about the state.
+**Grounds 2 — queue fully blocked** (paired with `STATUS: BLOCKED`).
+Requires **all** of the following:
+
+1. Every open item in the queue (file mode: every unchecked `- [ ]`;
+   linear mode: every Backlog/Todo/In-Progress issue) is blocked on
+   external action you cannot resolve in this loop — credentials you
+   cannot generate, upstream systems not yet ready, human decisions,
+   `blocked:foo` labels, etc.
+2. You actually checked — listed the queue and assessed each item, not
+   just the one task you happened to pick.
+3. No path exists to make any of them actionable through reasonable
+   workarounds (different approach, smaller scope, parallel task).
+
+In Grounds 2, `RECOMMENDATION` must summarize what needs to unblock and
+roughly when to retry. The harness treats this as a clean exit (no
+circuit-breaker increment) — you save it from grinding on a fully blocked
+queue and tripping the no-progress breaker on what is actually a correct
+"nothing to do right now" state.
+
+"I couldn't figure out this one task" is **not** Grounds 2 — that is
+`STATUS: IN_PROGRESS` with the circuit breaker deciding when Ralph has had
+enough attempts. Grounds 2 is a queue-wide assessment, not a per-task
+escape hatch.
+
+**Never** pair `EXIT_SIGNAL: true` with `TESTS_STATUS: DEFERRED` (under
+Grounds 1 — final completion exit requires actual QA, not a mid-epic
+deferral). Under Grounds 2, `TESTS_STATUS: NOT_RUN` is correct because
+no work happened.
+
+The harness combines your `EXIT_SIGNAL` with NLP completion heuristics
+(a dual-condition gate) to avoid shutting down on a stray "done" mid-epic
+— but that safety net only works if you are honest about the state.
 
 ## Epic-boundary QA rules
 
@@ -295,10 +368,13 @@ RECOMMENDATION: No remaining work, all specs implemented
 ---END_RALPH_STATUS---
 ```
 
-### Blocked on external dependency
+### Single task blocked on external dependency
 
-Task genuinely requires a credential, human decision, or missing upstream
-that no reasonable workaround bypasses:
+The task you picked genuinely requires a credential, human decision, or
+missing upstream that no reasonable workaround bypasses, **but other tasks
+in the queue may still be actionable**. Pick a different unblocked task
+instead — only emit this block if you've already attempted the queue and
+this is the one you landed on:
 
 ```
 ---RALPH_STATUS---
@@ -314,6 +390,32 @@ RECOMMENDATION: Blocked on [specific dependency] — need [what is needed]
 
 "I couldn't figure it out" is **not** blocked — that's `IN_PROGRESS` with
 the circuit breaker deciding when Ralph has had enough attempts.
+
+### Whole queue blocked — clean exit
+
+You assessed the entire open queue (every unchecked `- [ ]` in file mode,
+every Backlog/Todo/In-Progress issue in linear mode) and **every single
+item is blocked on external action you cannot resolve this loop**. There
+is no actionable task to pick. This is the EXIT_SIGNAL gate's "Grounds 2"
+case — emit `EXIT_SIGNAL: true` so the harness exits cleanly instead of
+burning loops on a queue with nothing actionable in it:
+
+```
+---RALPH_STATUS---
+STATUS: BLOCKED
+TASKS_COMPLETED_THIS_LOOP: 0
+FILES_MODIFIED: 0
+TESTS_STATUS: NOT_RUN
+WORK_TYPE: VERIFICATION
+EXIT_SIGNAL: true
+RECOMMENDATION: All N open issues blocked on [summary of blockers] — re-run after [unblock condition]
+---END_RALPH_STATUS---
+```
+
+Use this **only** after a real queue-wide assessment, not as an escape
+hatch for a single hard task. The harness will treat this as a clean exit
+(no circuit-breaker increment) the same way it does `STATUS: COMPLETE` +
+`EXIT_SIGNAL: true`.
 
 ### Stuck on a recurring error
 

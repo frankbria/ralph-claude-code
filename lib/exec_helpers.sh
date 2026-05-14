@@ -955,3 +955,88 @@ _brief_cache_log() {
         log_status "$level" "$*"
     fi
 }
+
+# =============================================================================
+# TAP-1684: parallel epic-boundary QA aggregation.
+#
+# The ralph-workflow skill + ralph.md QA section instruct Claude to dispatch
+# `ralph-tester`, `ralph-reviewer`, and `tapps-validator` in parallel at
+# every epic boundary (three Task calls in one message). The agents run
+# concurrently and each returns its own PASS / FAIL / TIMEOUT verdict.
+# This helper collapses those three independent results to a single
+# go/no-go decision that preserves the semantics serial mode had via
+# early-exit: any FAIL or TIMEOUT collapses the gate to FAIL.
+#
+# The function is harness-side because the same aggregation rule applies in
+# two places: (1) Claude reading its own sub-agent reports and writing a
+# RALPH_STATUS block, (2) any future harness-driven dispatch that wants to
+# decide PASS/FAIL without re-asking the main agent. Centralizing the rule
+# keeps the two paths in lockstep.
+
+# exec_aggregate_qa_results — combine three sub-agent verdicts to one.
+#
+# Args (positional, three pairs of <agent-name> <verdict>):
+#   $1 $2  — first  agent name and verdict (PASS | FAIL | TIMEOUT)
+#   $3 $4  — second agent name and verdict
+#   $5 $6  — third  agent name and verdict
+#
+# Verdict normalization is case-insensitive. Anything outside the set
+# {PASS, FAIL, TIMEOUT} is treated as FAIL (defensive — an unparseable
+# verdict is no safer than an explicit fail).
+#
+# Output (stdout, one line):
+#   "PASS"                          when all three are PASS
+#   "FAIL: <agent1>[, <agent2>...]" listing every agent whose verdict was
+#                                   not PASS, in argument order. The first
+#                                   non-PASS verdict's category is reported
+#                                   in parentheses, e.g.
+#                                   "FAIL: ralph-tester (TIMEOUT)".
+#
+# Return code:
+#   0 on PASS, 1 on any other aggregate. Callers can branch on either
+#   stdout or the exit code.
+exec_aggregate_qa_results() {
+    local -a names=()
+    local -a verdicts=()
+    while [[ $# -gt 0 ]]; do
+        names+=("$1")
+        verdicts+=("$2")
+        shift 2
+    done
+
+    # Defensive: any agent count != 3 is FAIL. The contract is fixed to
+    # three (tester + reviewer + validator); other counts mean the caller
+    # misread the skill's worked example.
+    if [[ "${#names[@]}" -ne 3 ]]; then
+        printf 'FAIL: bad-agent-count (got %d, expected 3)\n' "${#names[@]}"
+        return 1
+    fi
+
+    local -a fail_names=()
+    local first_fail_kind=""
+    local i v
+    for i in 0 1 2; do
+        v=$(printf '%s' "${verdicts[$i]}" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z')
+        case "$v" in
+            PASS) ;;
+            FAIL|TIMEOUT)
+                fail_names+=("${names[$i]}")
+                [[ -z "$first_fail_kind" ]] && first_fail_kind="$v"
+                ;;
+            *)
+                fail_names+=("${names[$i]}")
+                [[ -z "$first_fail_kind" ]] && first_fail_kind="FAIL"
+                ;;
+        esac
+    done
+
+    if [[ "${#fail_names[@]}" -eq 0 ]]; then
+        printf 'PASS\n'
+        return 0
+    fi
+    local joined
+    joined=$(printf '%s, ' "${fail_names[@]}")
+    joined="${joined%, }"
+    printf 'FAIL: %s (%s)\n' "$joined" "$first_fail_kind"
+    return 1
+}

@@ -137,7 +137,35 @@ substitutions: "fix_plan.md task" ↔ "Linear issue", "tick checkbox" ↔
    epic / cycle (linear mode):
    - **Not an epic boundary** → skip QA. Set `TESTS_STATUS: DEFERRED`.
    - **Epic boundary** → run full QA (lint + type + test) for everything in
-     the section. If anything fails, fix it before the status block.
+     the section, in **parallel fan-out** (TAP-1684 — see "Parallel QA
+     fan-out" below). If anything fails, fix it before the status block.
+
+   **Parallel QA fan-out at the epic boundary.** Dispatch
+   `ralph-tester`, `ralph-reviewer`, and `tapps-validator` in **one
+   message with three `Task` tool calls**, not serially. Claude Code's
+   `Task` tool runs sibling calls concurrently; serial dispatch waits
+   for the slowest agent at every step and inflates epic-boundary
+   wall-clock by the sum of all three (typical 4–7 min) when it could
+   cost the slowest one (typical 3–5 min). Worked example — note the
+   three calls in a single assistant message:
+
+   ```
+   <message>
+   Task(ralph-tester,   "Run full QA for the <epic-name> section: pytest, ruff, mypy on changed files. Report PASS/FAIL with a one-line summary.")
+   Task(ralph-reviewer, "Review the diff for the <epic-name> section against acceptance criteria. Report PASS/FAIL with the one issue that blocks PASS, if any.")
+   Task(tapps-validator,"Validate quality gates on changed files in the <epic-name> section via tapps_validate_changed. Report PASS/FAIL.")
+   </message>
+   ```
+
+   **Aggregation rule (TAP-1684).** A single FAIL or TIMEOUT from any
+   of the three collapses the gate to FAIL — the same semantics serial
+   dispatch had via early-exit. Name the failing agent in your follow-
+   up commit / RECOMMENDATION so the operator can act on the right
+   signal. **Order of results in the assistant's response is not
+   significant** — wait for all three to return before deciding. The
+   helper `exec_aggregate_qa_results` (`lib/exec_helpers.sh`) implements
+   the same rule for any harness-side aggregation; the agent surface
+   here applies the same logic in prose.
 7.5. **Deslop pass (epic boundary only).** After QA is green, invoke the
    `simplify` skill on the files changed in this epic. The simplify skill
    removes dead code, unused imports, redundant comments, and speculative

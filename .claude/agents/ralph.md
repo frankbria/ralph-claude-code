@@ -107,10 +107,34 @@ is completed by this batch. Sections like `## High Priority`, `## Phase 1`, `## 
 are all epic boundaries.
 
 ### When to run QA:
-- **Epic boundary reached** → spawn ralph-tester with full scope for the section
-- **All tasks complete** (EXIT_SIGNAL: true) → mandatory full QA before final status
-- **LARGE task** (cross-module/architectural) → run QA for that task's scope only
+- **Epic boundary reached** → **parallel fan-out (TAP-1684)**: dispatch
+  ralph-tester + ralph-reviewer + tapps-validator in ONE message with three
+  `Task` tool calls (see the worked example below). The three agents run
+  concurrently; aggregation rule is "any FAIL or TIMEOUT ⇒ FAIL".
+- **All tasks complete** (EXIT_SIGNAL: true) → mandatory full QA before final status (same parallel fan-out rule).
+- **LARGE task** (cross-module/architectural) → run QA for that task's scope only.
 - **Coordinator-elevated QA** (TAP-923) — `.ralph/brief.json` has `qa_required: true` → run ralph-tester this loop regardless of epic boundary. The coordinator sets this when a consultation surfaces a non-trivial risk; honor it. The flag survives across loops within a task until cleared by the next debrief.
+
+### Parallel QA fan-out (TAP-1684) — worked example:
+
+At the epic boundary, send one message containing three `Task` calls.
+Claude Code runs them concurrently; serial dispatch would cost the sum of
+all three durations (typical 4–7 min) instead of the slowest one (typical
+3–5 min). The aggregation rule is **any FAIL or TIMEOUT ⇒ FAIL** — same
+semantics serial mode had via early-exit.
+
+```
+<single assistant message>
+Task(ralph-tester,    "Run full QA for the <epic-name> section: pytest, ruff, mypy on changed files. Report PASS/FAIL with a one-line summary.")
+Task(ralph-reviewer,  "Review the diff for the <epic-name> section against acceptance criteria. Report PASS/FAIL with the one issue that blocks PASS, if any.")
+Task(tapps-validator, "Validate quality gates on changed files in the <epic-name> section via tapps_validate_changed. Report PASS/FAIL.")
+</single assistant message>
+```
+
+Wait for all three results before deciding. Order of results is not
+significant. The helper `exec_aggregate_qa_results` in
+`lib/exec_helpers.sh` implements the same rule for any harness-side
+aggregation; the agent surface here applies the same logic in prose.
 
 ### When the coordinator returns BLOCK:
 A `verdict: BLOCK` from `bash lib/coordinator_rpc.sh consult` means the proposed plan violates an acceptance criterion or a known prior failure. Do NOT proceed with that plan, do NOT commit anything tied to it. Report `STATUS: BLOCKED` with the coordinator's `reason` in RECOMMENDATION. The loop logs the block flag once on its own — your job is to stop, not to clean up.
