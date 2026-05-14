@@ -407,6 +407,9 @@ display_status() {
         # Cache hit — independent gate. If the hook populates cache tokens
         # but not input/output (old hook), we still show the cache stats so
         # the user isn't staring at a blank monitor.
+        # TAP-1685: per-loop reads happen here; the dedicated panel below
+        # surfaces the full per-loop / session split. Keep the one-liner
+        # so the at-a-glance summary survives even on narrow terminals.
         if [[ "$cache_read" != "0" || "$cache_create" != "0" ]]; then
             local cache_hit_pct=$(awk -v r="$cache_read" -v c="$cache_create" -v i="$session_in" 'BEGIN{d=r+c+i; if(d>0) printf "%.0f", r/d*100; else print 0}')
             local cache_read_fmt=$(printf "%'d" "$cache_read" 2>/dev/null || echo "$cache_read")
@@ -432,6 +435,65 @@ display_status() {
         fi
         echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────────┘${NC}"
         echo
+
+        # =====================================================================
+        # TAP-1685: Prompt cache panel — per-loop and rolling-session hit-rate.
+        #
+        # Hit-rate math:
+        #   hit_rate = cache_read / (cache_read + cache_create + input_uncached)
+        #
+        # Missing fields default to 0 (hook already does this via `// 0` in jq,
+        # and we re-`// 0` here as defense-in-depth). Cold-start loops have
+        # cache_read=0 + non-zero cache_create → 0% (NOT NaN). Sessions with
+        # zero traffic across the board collapse the denominator to 0 — we
+        # then short-circuit to "no data yet" rather than render a fake
+        # percentage.
+        #
+        # WARN threshold: when the SESSION hit rate falls below
+        # RALPH_CACHE_HIT_RATE_WARN (default 30%), the panel turns red and
+        # appends a one-line investigation hint. Single-loop panels never
+        # trigger the warn — first-cold-loop is normal and not a regression
+        # signal; the rolling session number is the one that matters.
+        local loop_cache_read=$(echo "$status_data" | jq -r '.loop_cache_read_tokens // 0' 2>/dev/null || echo "0")
+        local loop_cache_create=$(echo "$status_data" | jq -r '.loop_cache_create_tokens // 0' 2>/dev/null || echo "0")
+        [[ "$loop_cache_read" =~ ^[0-9]+$ ]] || loop_cache_read=0
+        [[ "$loop_cache_create" =~ ^[0-9]+$ ]] || loop_cache_create=0
+        local _warn_pct="${RALPH_CACHE_HIT_RATE_WARN:-30}"
+        [[ "$_warn_pct" =~ ^[0-9]+$ ]] || _warn_pct=30
+        local loop_hit_pct=$(awk -v r="$loop_cache_read" -v c="$loop_cache_create" -v i="$loop_in" 'BEGIN{d=r+c+i; if(d>0) printf "%.0f", r/d*100; else print -1}')
+        local sess_hit_pct=$(awk -v r="$cache_read" -v c="$cache_create" -v i="$session_in" 'BEGIN{d=r+c+i; if(d>0) printf "%.0f", r/d*100; else print -1}')
+        local _sess_have_data="false"
+        [[ "$sess_hit_pct" != "-1" ]] && _sess_have_data="true"
+        local _warn_active="false"
+        if [[ "$_sess_have_data" == "true" && "$sess_hit_pct" -lt "$_warn_pct" ]]; then
+            _warn_active="true"
+        fi
+        # Only render the panel once we have either a loop or session number
+        # to show — keeps the dashboard quiet before the first response.
+        if [[ "$loop_hit_pct" != "-1" || "$_sess_have_data" == "true" ]]; then
+            local _box_color="$CYAN"
+            local _pct_color="$GREEN"
+            if [[ "$_warn_active" == "true" ]]; then
+                _box_color="$RED"
+                _pct_color="$RED"
+            fi
+            echo -e "${_box_color}┌─ Prompt cache (TAP-1685) ──────────────────────────────────────────────┐${NC}"
+            if [[ "$loop_hit_pct" == "-1" ]]; then
+                echo -e "${_box_color}│${NC} Loop:           ${YELLOW}no data yet${NC}"
+            else
+                echo -e "${_box_color}│${NC} Loop:           ${_pct_color}${loop_hit_pct}%${NC} hit  (read=${loop_cache_read}, create=${loop_cache_create}, in=${loop_in})"
+            fi
+            if [[ "$_sess_have_data" == "true" ]]; then
+                echo -e "${_box_color}│${NC} Session:        ${_pct_color}${sess_hit_pct}%${NC} hit  (read=${cache_read}, create=${cache_create}, in=${session_in})"
+            else
+                echo -e "${_box_color}│${NC} Session:        ${YELLOW}no data yet${NC}"
+            fi
+            if [[ "$_warn_active" == "true" ]]; then
+                echo -e "${_box_color}│${NC} ${RED}WARN:${NC}           session hit rate ${sess_hit_pct}% < threshold ${_warn_pct}% — investigate prompt-prefix instability (locality hints, skill edits, agent file drift)"
+            fi
+            echo -e "${_box_color}└─────────────────────────────────────────────────────────────────────────┘${NC}"
+            echo
+        fi
 
     else
         echo -e "${RED}┌─ Status ────────────────────────────────────────────────────────────────┐${NC}"

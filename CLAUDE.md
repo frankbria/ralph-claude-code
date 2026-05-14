@@ -238,9 +238,50 @@ Project-level config lives in `.ralphrc` (sourced as bash). Key variables:
 - `RALPH_COORDINATOR_TIMEOUT_SECONDS` — Hard override for the coordinator timeout. When unset (the recommended default), Ralph computes the timeout adaptively via `ralph_compute_coordinator_timeout`: P95×2 of the last 30 wall-clock samples in `.ralph/.coordinator_timings.jsonl`, clamped to `[RALPH_COORDINATOR_TIMEOUT_MIN_SECONDS, RALPH_COORDINATOR_TIMEOUT_MAX_SECONDS]` (defaults 30 and 600), falling back to `RALPH_COORDINATOR_TIMEOUT_FALLBACK_SECONDS` (default 120) when fewer than `RALPH_COORDINATOR_TIMEOUT_MIN_SAMPLES` (default 3) samples exist. Set this env var to pin a value during incident response; set `0` to disable the watchdog entirely (only useful when MCP cold-start latency is highly variable). Set `RALPH_COORDINATOR_DISABLED=true` to skip the coordinator altogether. (TAP-1682)
 - `RALPH_BRIEF_CACHE_MAX_AGE_SECONDS` — Coordinator brief cache TTL in seconds (default: `1800`, i.e. 30 minutes). When the same Linear issue is the current task across consecutive loops, `ralph_spawn_coordinator` reads back the previous brief from `.ralph/.brief_cache/<linear_issue_id>.json` instead of re-spawning Haiku. Cache entries are evicted when this age is exceeded OR when the coordinator surfaces a newer `linear_issue_updated_at` than the cached one. On a coordinator timeout (exit 124) the harness retries the cache with a 24-hour TTL as graceful degradation — even a stale brief is better than none. File mode loops bypass the cache (no per-issue identity). (TAP-1682)
 - `RALPH_BRIEF_CACHE_DIR` — Override the cache directory (default: `$RALPH_DIR/.brief_cache`). Tests use a tmpdir; operators rarely touch this. (TAP-1682)
+- `RALPH_CACHE_HIT_RATE_WARN` — Threshold percentage (default: `30`). When the rolling-session prompt-cache hit rate falls below this value, `ralph-monitor` renders the "Prompt cache" panel in red and appends a one-line investigation hint ("session hit rate X% < threshold Y% — investigate prompt-prefix instability"). The math is `cache_read / (cache_read + cache_create + input_uncached)`. Cold-start loops render as `0%` (not NaN) because the loop denominator is non-zero even when `cache_read=0`. Missing `loop_cache_*` / `session_cache_*` fields default to `0` at both the hook write and the monitor read. See **Observability: prompt cache** below. (TAP-1685)
 - `RALPH_QUESTION_LOOP_THRESHOLD` — Maximum number of consecutive loops Ralph tolerates Claude asking questions instead of acting before forcing an advance (default: `2`). USYNC-1 (in `on-stop.sh`) already detects the question patterns; this knob is the **policy** that turns that signal into action. At `counter >= threshold`, the next loop's `--append-system-prompt` is **prepended** (so the 1500-char truncation cannot drop it) with a hardened "decide and act" directive. At `counter > threshold`, the hook advances past the current task: in linear mode it writes `.ralph/.linear_advance_action` so the next loop tells Claude to apply a `blocked:waiting-for-answer` label via the Linear MCP and pivot to a different ticket; in file mode it appends `<!-- BLOCKED: questions -->` directly to the first unchecked task line in `fix_plan.md`. The counter resets to zero on any productive loop (`tasks_completed >= 1` OR `files_modified >= 1`). Origin: USYNC-1 was passive telemetry; AgentForge field data (2026-04 → 2026-05) showed the same project re-entering the question/CB cycle hundreds of times before this policy landed. (TAP-1683)
 
 Environment variables override `.ralphrc` settings.
+
+## Observability: Prompt Cache (TAP-1685)
+
+Prompt caching is the single biggest input-token saving on the Ralph hot
+path — when the stable system-prompt prefix (`CLAUDE.md` + agent file +
+skill content) survives across loops, each loop pays cache-read prices on
+those tokens instead of full input prices. When the prefix changes between
+loops (template edits, skill updates, locality hints inserted at the wrong
+position, USYNC-2 directive injections), the cache is busted and every
+loop pays full freight. `status.json` captures the token-level signal
+correctly via `loop_cache_read_tokens` / `loop_cache_create_tokens` /
+`session_cache_read_tokens` / `session_cache_create_tokens`; `ralph-monitor`
+surfaces it via a dedicated "Prompt cache" panel.
+
+**Panel contents:**
+
+```
+┌─ Prompt cache (TAP-1685) ──────────────────────────────────────────────┐
+│ Loop:           93% hit  (read=89000, create=200, in=6000)
+│ Session:        91% hit  (read=910000, create=8000, in=80000)
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+When the session hit rate drops below `RALPH_CACHE_HIT_RATE_WARN` (default
+`30%`) the panel turns red and emits an extra line:
+
+```
+│ WARN:           session hit rate 12% < threshold 30% — investigate prompt-prefix instability (locality hints, skill edits, agent file drift)
+```
+
+Common causes of low hit rate:
+- A skill / agent / CLAUDE.md edit landed mid-session (every subsequent loop refreshes the prefix).
+- `build_loop_context` started injecting variable content high in the prompt — locality hints (TAP-593) and USYNC-2 directives (TAP-1683) are *prepended* on purpose, but any new prefix you add should go after the stable block.
+- The session was Continue-As-New reset (CTXMGMT-3) — first post-reset loop is always cold.
+
+Single-loop cold cache is normal (first loop after Continue-As-New, fresh
+session, or after a Ralph install upgrade). The dashboard does not warn on
+the loop-level percentage; only the rolling-session number triggers the
+WARN, because that's the one that signals a sustained regression rather
+than a one-off cold start.
 
 ## Observability: Task-Type Routing & QA Escalation
 
