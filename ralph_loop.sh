@@ -174,6 +174,12 @@ LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TOKEN_COUNT_FILE="$RALPH_DIR/.token_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
+# TAP-1838: Sentinel-based MCP probe cache. When true (default), skips
+# `claude mcp list` if the probe inputs (claude version + MCP config files)
+# are unchanged since the last successful probe. Age threshold is in seconds.
+RALPH_MCP_PROBE_SKIP_IF_UNCHANGED="${RALPH_MCP_PROBE_SKIP_IF_UNCHANGED:-true}"
+RALPH_MCP_PROBE_SENTINEL_FILE="${RALPH_DIR}/.mcp-probe-sentinel"
+RALPH_MCP_PROBE_SENTINEL_MAX_AGE="${RALPH_MCP_PROBE_SENTINEL_MAX_AGE:-86400}"
 USE_TMUX=false
 RALPH_SERVICE=""           # Monorepo service scope (Issue #163)
 RALPH_TASK_SOURCE="file"   # Task backend: "file" (fix_plan.md) or "linear"
@@ -3570,6 +3576,27 @@ ralph_mcp_failure_summary() {
 }
 
 # =============================================================================
+# TAP-1838: Compute a hash over the inputs that can invalidate a cached MCP
+# probe result. Inputs: `claude --version` + `.mcp.json` + `~/.claude.json`.
+# Outputs the hex digest on stdout; empty string when no hash command is
+# available (caller must treat this as a cache-miss and run the live probe).
+# =============================================================================
+ralph_mcp_compute_probe_hash() {
+    local _ver _mcp _global _input
+    _ver=$(get_cached_claude_version 2>/dev/null || echo "unknown")
+    _mcp=$(cat ".mcp.json" 2>/dev/null || echo "")
+    _global=$(cat "${HOME}/.claude.json" 2>/dev/null || echo "")
+    _input="${_ver}|${_mcp}|${_global}"
+    if command -v sha256sum &>/dev/null; then
+        printf '%s' "$_input" | sha256sum | awk '{print $1}'
+    elif command -v shasum &>/dev/null; then
+        printf '%s' "$_input" | shasum -a 256 | awk '{print $1}'
+    else
+        echo ""
+    fi
+}
+
+# =============================================================================
 # TAP-584 (epic TAP-583): Probe global MCP server availability ONCE at startup.
 # Sets RALPH_MCP_TAPPS_AVAILABLE / RALPH_MCP_DOCS_AVAILABLE /
 # RALPH_MCP_BRAIN_AVAILABLE in the environment. Downstream stories (TAP-585
@@ -3583,6 +3610,11 @@ ralph_mcp_failure_summary() {
 #
 # Server registration: each MCP server is registered by the *project* (via
 # `.mcp.json` or `claude mcp add`), not by Ralph. Ralph only probes and steers.
+#
+# TAP-1838: Sentinel cache — when RALPH_MCP_PROBE_SKIP_IF_UNCHANGED=true
+# (default), a valid sentinel file with a matching input hash causes the
+# function to return immediately with cached flag values, skipping the 30s
+# `claude mcp list` call.
 # =============================================================================
 ralph_probe_mcp_servers() {
     export RALPH_MCP_TAPPS_AVAILABLE="false"
@@ -3596,6 +3628,30 @@ ralph_probe_mcp_servers() {
     if ! command -v "$CLAUDE_CODE_CMD" &>/dev/null; then
         log_status "WARN" "MCP probe skipped: '$CLAUDE_CODE_CMD' not in PATH"
         return 0
+    fi
+
+    # TAP-1838: Sentinel cache check. If probe inputs (claude version + MCP
+    # config files) are unchanged since the last successful probe and the
+    # sentinel is < RALPH_MCP_PROBE_SENTINEL_MAX_AGE seconds old, load the
+    # cached flags and skip the expensive `claude mcp list` call.
+    local _sentinel_file="${RALPH_MCP_PROBE_SENTINEL_FILE:-${RALPH_DIR}/.mcp-probe-sentinel}"
+    local _max_age="${RALPH_MCP_PROBE_SENTINEL_MAX_AGE:-86400}"
+    if [[ "${RALPH_MCP_PROBE_SKIP_IF_UNCHANGED:-true}" == "true" && -f "$_sentinel_file" ]]; then
+        local _ts _age _stored_hash _live_hash
+        _ts=$(awk -F= '/^ts=/{print $2}' "$_sentinel_file" 2>/dev/null || echo 0)
+        _age=$(( $(date +%s) - _ts ))
+        if (( _age < _max_age )); then
+            _stored_hash=$(awk -F= '/^hash=/{print $2}' "$_sentinel_file" 2>/dev/null || echo "")
+            _live_hash=$(ralph_mcp_compute_probe_hash 2>/dev/null || echo "")
+            if [[ -n "$_live_hash" && "$_stored_hash" == "$_live_hash" ]]; then
+                RALPH_MCP_TAPPS_AVAILABLE=$(awk -F= '/^tapps=/{print $2}' "$_sentinel_file" 2>/dev/null || echo "false")
+                RALPH_MCP_DOCS_AVAILABLE=$(awk -F= '/^docs=/{print $2}' "$_sentinel_file" 2>/dev/null || echo "false")
+                RALPH_MCP_BRAIN_AVAILABLE=$(awk -F= '/^brain=/{print $2}' "$_sentinel_file" 2>/dev/null || echo "false")
+                RALPH_MCP_BRAIN_AUTH_FAILED=$(awk -F= '/^brain_auth_failed=/{print $2}' "$_sentinel_file" 2>/dev/null || echo "false")
+                log_status "INFO" "MCP probe cached (age ${_age}s): tapps=${RALPH_MCP_TAPPS_AVAILABLE} docs=${RALPH_MCP_DOCS_AVAILABLE} brain=${RALPH_MCP_BRAIN_AVAILABLE}"
+                return 0
+            fi
+        fi
     fi
 
     # Upper bound on the probe wait — a hung MCP transport must not stall startup.
@@ -3647,6 +3703,25 @@ ralph_probe_mcp_servers() {
         log_status "INFO" "MCP probe: tapps-brain reachable"
     else
         ralph_diagnose_brain_probe_failure
+    fi
+
+    # TAP-1838: Write sentinel so the next startup can skip the live probe when
+    # inputs are unchanged. Only written when the hash is computable — if
+    # sha256sum/shasum are absent the sentinel stays missing and the probe
+    # runs every time (safe degradation).
+    if [[ "${RALPH_MCP_PROBE_SKIP_IF_UNCHANGED:-true}" == "true" ]]; then
+        local _cur_hash
+        _cur_hash=$(ralph_mcp_compute_probe_hash 2>/dev/null || echo "")
+        if [[ -n "$_cur_hash" ]]; then
+            {
+                printf 'ts=%d\n' "$(date +%s)"
+                printf 'hash=%s\n' "$_cur_hash"
+                printf 'tapps=%s\n' "$RALPH_MCP_TAPPS_AVAILABLE"
+                printf 'docs=%s\n' "$RALPH_MCP_DOCS_AVAILABLE"
+                printf 'brain=%s\n' "$RALPH_MCP_BRAIN_AVAILABLE"
+                printf 'brain_auth_failed=%s\n' "$RALPH_MCP_BRAIN_AUTH_FAILED"
+            } > "$_sentinel_file" 2>/dev/null || true
+        fi
     fi
 }
 

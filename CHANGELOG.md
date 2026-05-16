@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **TAP-1838 — MCP probe sentinel: skip `claude mcp list` when inputs are unchanged.** `ralph_probe_mcp_servers()` ran `claude mcp list` (up to 30s) on every session start, even when the `claude` binary version and both MCP config files (`.mcp.json`, `~/.claude.json`) were unchanged from the last run. A new `ralph_mcp_compute_probe_hash()` helper computes a SHA-256 over those three inputs; on a successful live probe the result is written to `.ralph/.mcp-probe-sentinel` (key=value format: `ts`, `hash`, `tapps`, `docs`, `brain`, `brain_auth_failed`). Subsequent startups that find a sentinel younger than `RALPH_MCP_PROBE_SENTINEL_MAX_AGE` seconds (default 86400 / 24 h) with a matching hash load the cached flags immediately and skip the live probe entirely. New knob: `RALPH_MCP_PROBE_SKIP_IF_UNCHANGED=true` (default true) — set to `false` to always run the live probe. Sentinel is not written when (a) `claude mcp list` returns empty output (probe failed), or (b) no SHA-256 command is available (safe degradation: probe runs every time). 17 new BATS cases in `tests/unit/test_mcp_probe_sentinel.bats`.
+
 ---
 
 ## [2.15.0] — 2026-05-14
