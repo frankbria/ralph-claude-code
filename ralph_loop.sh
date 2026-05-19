@@ -1019,7 +1019,11 @@ init_claude_session() {
         fi
 
         # Session is valid, try to read it
-        local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
+        # Fix #254: Read only the first line and strip any whitespace/CR — if the file was
+        # corrupted by a multi-line write (e.g. jq returning multiple matches), don't pass
+        # multi-line content to --resume.
+        local session_id
+        session_id=$(head -n 1 "$CLAUDE_SESSION_FILE" 2>/dev/null | tr -d '\r\n[:space:]')
         if [[ -n "$session_id" ]]; then
             log_status "INFO" "Resuming Claude session: ${session_id:0:20}... (${age_hours}h old)"
             echo "$session_id"
@@ -1046,8 +1050,15 @@ save_claude_session() {
     fi
 
     # Try to extract session ID from JSON output
+    # Fix #254: If output_file contains JSONL (multiple objects) or nested objects with
+    # session_id at multiple paths, jq -r returns multi-line output. Take first non-empty
+    # line and strip whitespace to guarantee a single clean ID gets passed to --resume.
     if [[ -f "$output_file" ]]; then
-        local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
+        local session_id
+        session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null \
+                     | grep -v '^$' \
+                     | head -n 1 \
+                     | tr -d '\r\n[:space:]')
         if [[ -n "$session_id" && "$session_id" != "null" ]]; then
             echo "$session_id" > "$CLAUDE_SESSION_FILE"
             log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
