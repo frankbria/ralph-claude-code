@@ -54,6 +54,23 @@ detect_questions() {
 # JSON OUTPUT FORMAT DETECTION AND PARSING
 # =============================================================================
 
+# Max file size for full jq validation (1 MB). Above this threshold the file is
+# probably a truncated streaming JSONL dump after a productive timeout (issue #250) —
+# `jq empty` would attempt to parse the entire content and hang/crash on malformed input.
+# Files above this size fall back to text mode, which the rest of the analyzer already handles.
+# Override via env var RALPH_JSONL_SAFE_MAX_BYTES.
+RALPH_JSONL_SAFE_MAX_BYTES=${RALPH_JSONL_SAFE_MAX_BYTES:-1048576}
+
+# _file_size_bytes - Cross-platform stat helper (BSD/macOS + GNU/Linux).
+# Returns byte size of $1, or 0 if file missing.
+_file_size_bytes() {
+    local f="$1"
+    [[ ! -f "$f" ]] && { printf '0'; return; }
+    local size
+    size=$(stat -f%z "$f" 2>/dev/null || stat -c%s "$f" 2>/dev/null || echo 0)
+    printf '%d' "${size:-0}"
+}
+
 # Detect output format (json or text)
 # Returns: "json" if valid JSON, "text" otherwise
 detect_output_format() {
@@ -70,6 +87,23 @@ detect_output_format() {
     if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
         echo "text"
         return
+    fi
+
+    # Fix #250: Guard against productive-timeout JSONL dumps (~4 MB, 12K+ lines).
+    # `jq empty` on these hangs because Claude was killed mid-stream and the file is
+    # not well-formed JSON. Size cap + check for `"type":"result"` marker (the line
+    # Claude writes last on clean completion). If file is large AND lacks the marker,
+    # the stream is truncated — fall back to text mode without invoking jq on the
+    # full file. Downstream ralph_loop.sh already extracts a result_line from streams
+    # when present (see "Extracted and validated session data from stream output"),
+    # so this guard only kicks in for the unrecoverable case.
+    local size
+    size=$(_file_size_bytes "$output_file")
+    if [[ "$size" -gt "$RALPH_JSONL_SAFE_MAX_BYTES" ]]; then
+        if ! grep -q '"type"[[:space:]]*:[[:space:]]*"result"' "$output_file" 2>/dev/null; then
+            echo "text"
+            return
+        fi
     fi
 
     # Validate as JSON using jq
