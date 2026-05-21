@@ -112,6 +112,27 @@ MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
 
+# _safe_count - Count regex matches in a file safely for bash arithmetic.
+# Fixes #255, #251, #260 — `$(grep -cE … || echo "0")` can return:
+#   - "0\n0" when grep has no matches AND fallback echo also fires
+#   - "5\r" when file has CRLF line endings (Windows/macOS-edited files)
+# Both cause `$((var + var))` arithmetic syntax errors.
+# This helper normalizes output to a single integer with no whitespace.
+# Usage: count=$(_safe_count "pattern" "$file")
+_safe_count() {
+    local pattern="$1"
+    local file="$2"
+    [[ ! -f "$file" ]] && { printf '0'; return 0; }
+    local raw
+    raw=$(grep -cE "$pattern" "$file" 2>/dev/null | tr -d '\r\n[:space:]' | head -c 10)
+    # Validate result is a non-negative integer; fallback to 0
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+        printf '%d' "$raw"
+    else
+        printf '0'
+    fi
+}
+
 # .ralphrc configuration file
 RALPHRC_FILE=".ralphrc"
 RALPHRC_LOADED=false
@@ -711,8 +732,11 @@ should_exit_gracefully() {
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        local completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        # Use _safe_count to avoid arithmetic crash on CRLF / no-match (issues #255, #251, #260)
+        local uncompleted_items
+        local completed_items
+        uncompleted_items=$(_safe_count "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md")
+        completed_items=$(_safe_count "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md")
         local total_items=$((uncompleted_items + completed_items))
 
         if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
@@ -876,8 +900,10 @@ build_loop_context() {
 
     # Extract incomplete tasks from fix_plan.md
     # Bug #3 Fix: Support indented markdown checkboxes with [[:space:]]* pattern
+    # Use _safe_count to avoid arithmetic issues with CRLF / no-match (issues #255, #251, #260)
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local incomplete_tasks=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
+        local incomplete_tasks
+        incomplete_tasks=$(_safe_count "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md")
         context+="Remaining tasks: ${incomplete_tasks}. "
     fi
 
@@ -993,7 +1019,11 @@ init_claude_session() {
         fi
 
         # Session is valid, try to read it
-        local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
+        # Fix #254: Read only the first line and strip any whitespace/CR — if the file was
+        # corrupted by a multi-line write (e.g. jq returning multiple matches), don't pass
+        # multi-line content to --resume.
+        local session_id
+        session_id=$(head -n 1 "$CLAUDE_SESSION_FILE" 2>/dev/null | tr -d '\r\n[:space:]')
         if [[ -n "$session_id" ]]; then
             log_status "INFO" "Resuming Claude session: ${session_id:0:20}... (${age_hours}h old)"
             echo "$session_id"
@@ -1020,8 +1050,15 @@ save_claude_session() {
     fi
 
     # Try to extract session ID from JSON output
+    # Fix #254: If output_file contains JSONL (multiple objects) or nested objects with
+    # session_id at multiple paths, jq -r returns multi-line output. Take first non-empty
+    # line and strip whitespace to guarantee a single clean ID gets passed to --resume.
     if [[ -f "$output_file" ]]; then
-        local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
+        local session_id
+        session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null \
+                     | grep -v '^$' \
+                     | head -n 1 \
+                     | tr -d '\r\n[:space:]')
         if [[ -n "$session_id" && "$session_id" != "null" ]]; then
             echo "$session_id" > "$CLAUDE_SESSION_FILE"
             log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
