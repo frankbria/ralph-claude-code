@@ -386,6 +386,81 @@ create_sample_stream_json_rate_limit_rejected() {
 EOF
 }
 
+# =============================================================================
+# Task import fixtures (beads / GitHub Issues) — for test_task_imports.bats
+# =============================================================================
+
+# Sample beads JSON with mixed statuses (open / in_progress / closed)
+create_sample_beads_json() {
+    cat << 'EOF'
+[
+  {"id":"proj-001","title":"Fix authentication bug","status":"open","priority":"P1"},
+  {"id":"proj-002","title":"Add dark mode toggle","status":"in_progress","priority":"P2"},
+  {"id":"proj-003","title":"Migrate old API","status":"closed","priority":"P3"},
+  {"id":"proj-004","title":"Write docs","status":"open","priority":"P2"}
+]
+EOF
+}
+
+# Empty beads JSON
+create_sample_beads_json_empty() {
+    echo "[]"
+}
+
+# Malformed JSON to trigger fallback path
+create_sample_beads_json_malformed() {
+    echo '[{"id":"proj-001","title":"Broken'
+}
+
+# JSON with entries missing id/title — exercises jq guards from PR #150
+create_sample_beads_json_missing_fields() {
+    cat << 'EOF'
+[
+  {"id":"proj-001","title":"Has both fields","status":"open"},
+  {"id":"","title":"Missing id","status":"open"},
+  {"id":"proj-003","title":"","status":"open"},
+  {"title":"No id key","status":"open"},
+  {"id":"proj-005","status":"open"}
+]
+EOF
+}
+
+# Text-format bd list output (used when JSON path fails)
+create_sample_beads_text() {
+    cat << 'EOF'
+○ proj-001 [● P2] [task] - Fix authentication bug
+◐ proj-002 [● P1] [task] - Add dark mode toggle
+● proj-003 [● P3] [task] - Migrate old API
+○ proj-004 [● P2] [task] - Write docs
+EOF
+}
+
+# GitHub issues JSON without labels
+create_sample_github_json() {
+    cat << 'EOF'
+[
+  {"number":123,"title":"Add feature X","labels":[]},
+  {"number":124,"title":"Fix bug Y","labels":[]},
+  {"number":125,"title":"Refactor Z","labels":[]}
+]
+EOF
+}
+
+# Empty GitHub issues JSON
+create_sample_github_json_empty() {
+    echo "[]"
+}
+
+# GitHub issues JSON with labels (for label-filtering tests)
+create_sample_github_json_with_labels() {
+    cat << 'EOF'
+[
+  {"number":201,"title":"Tagged task one","labels":[{"name":"ralph-task"}]},
+  {"number":202,"title":"Tagged task two","labels":[{"name":"ralph-task"},{"name":"bug"}]}
+]
+EOF
+}
+
 # Sample stream-json output with prompt echo containing "5-hour limit" text (false positive scenario)
 # rate_limit_event shows status:allowed, but type:user lines contain echoed file content
 create_sample_stream_json_with_prompt_echo() {
