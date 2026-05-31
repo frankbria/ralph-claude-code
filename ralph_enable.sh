@@ -43,7 +43,7 @@ SKIP_TASKS=false
 TASK_SOURCE=""
 PRD_FILE=""
 GITHUB_LABEL=""
-IMPORT_LIMIT="0"
+IMPORT_LIMIT="50"
 NON_INTERACTIVE=false
 SHOW_HELP=false
 
@@ -64,7 +64,7 @@ Options:
     --from <source>     Import tasks from: beads, github, prd
     --prd <file>        PRD file to convert (when --from prd)
     --label <label>     GitHub label filter (when --from github)
-    --limit <n>         Max issues to import (default: 0 = all)
+    --limit <n>         Max issues to import per source (default: 50; use 0 for all)
     --force             Overwrite existing .ralph/ configuration
     --skip-tasks        Skip task import, use default templates
     --non-interactive   Run with defaults (no prompts)

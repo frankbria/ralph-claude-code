@@ -50,7 +50,7 @@ FORCE_OVERWRITE=false
 TASK_SOURCE=""
 PRD_FILE=""
 GITHUB_LABEL="ralph-task"
-IMPORT_LIMIT="0"
+IMPORT_LIMIT="50"
 PROJECT_NAME=""
 PROJECT_TYPE=""
 OUTPUT_JSON=false
@@ -74,7 +74,7 @@ Options:
     --from <source>       Import tasks from: beads, github, prd, none
     --prd <file>          PRD file to convert (when --from prd)
     --label <label>       GitHub label filter (default: ralph-task)
-    --limit <n>           Max issues to import (default: 0 = all)
+    --limit <n>           Max issues to import per source (default: 50; use 0 for all)
     --project-name <name> Override detected project name
     --project-type <type> Override detected type (typescript, python, etc.)
     --force               Overwrite existing .ralph/ configuration

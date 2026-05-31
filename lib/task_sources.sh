@@ -171,7 +171,7 @@ check_github_available() {
 #
 # Parameters:
 #   $1 (label) - Label to filter by (optional)
-#   $2 (limit) - Maximum number of issues (optional, default: "0" = all)
+#   $2 (limit) - Maximum number of issues (optional, default: 50; pass 0 for all)
 #
 # Outputs:
 #   Tasks in markdown checkbox format
@@ -190,7 +190,7 @@ check_github_available() {
 #
 fetch_github_tasks() {
     local label="${1:-}"
-    local limit="${2:-0}"
+    local limit="${2:-50}"
     local tasks=""
     local json_output
 
@@ -521,7 +521,7 @@ prioritize_tasks() {
 #   $1 (sources) - Space-separated list of sources: beads, github, prd
 #   $2 (prd_file) - Path to PRD file (required if prd in sources)
 #   $3 (github_label) - GitHub label filter (optional)
-#   $4 (limit) - Max issues to fetch per source (optional, default: "0" = all)
+#   $4 (limit) - Max issues to fetch per source (optional, default: 50; pass 0 for all)
 #
 # Outputs:
 #   Combined tasks in markdown format
@@ -534,7 +534,7 @@ import_tasks_from_sources() {
     local sources=$1
     local prd_file="${2:-}"
     local github_label="${3:-}"
-    local limit="${4:-0}"
+    local limit="${4:-50}"
 
     local all_tasks=""
     local source_count=0
