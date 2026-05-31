@@ -267,3 +267,118 @@ EOF
     # 'none' doesn't import anything, so fails
     assert_failure
 }
+
+# =============================================================================
+# GITHUB FETCH — limit and pagination (4 tests)
+# =============================================================================
+#
+# These tests mock the `gh` CLI with a fake binary on PATH that records its
+# args to a file and writes fixture JSON based on subcommand. They also set
+# up a minimal git repo with a github.com remote so check_github_available
+# returns success.
+
+# Helper: build a mock gh binary that records args and emits fixture JSON
+_mock_gh_with_fixture() {
+    local api_fixture="$1"
+    local list_fixture="$2"
+    local args_file="$TEST_DIR/gh_args"
+
+    mkdir -p "$TEST_DIR/mock_bin"
+    cat > "$TEST_DIR/mock_bin/gh" << EOF
+#!/bin/bash
+# Record each invocation's args on its own line (append)
+printf '%s\n' "\$*" >> "$args_file"
+case "\$1" in
+    api)
+        cat <<'JSON'
+$api_fixture
+JSON
+        ;;
+    issue)
+        cat <<'JSON'
+$list_fixture
+JSON
+        ;;
+esac
+exit 0
+EOF
+    chmod +x "$TEST_DIR/mock_bin/gh"
+    export PATH="$TEST_DIR/mock_bin:$PATH"
+}
+
+# Helper: fake a git repo with github.com remote so check_github_available passes
+_fake_github_repo() {
+    git init -q . >/dev/null 2>&1
+    git remote add origin https://github.com/fake/repo.git >/dev/null 2>&1
+}
+
+@test "fetch_github_tasks with limit=0 uses gh api with --paginate" {
+    _fake_github_repo
+    _mock_gh_with_fixture \
+        '[{"number":1,"title":"issue one"},{"number":2,"title":"issue two"}]' \
+        '[]'
+
+    run fetch_github_tasks "" "0"
+    assert_success
+
+    # Verify gh api was invoked with --paginate and expected form fields
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"api"* ]]
+    [[ "$args" == *"--paginate"* ]]
+    [[ "$args" == *"repos/{owner}/{repo}/issues"* ]]
+    [[ "$args" == *"state=open"* ]]
+    [[ "$args" == *"per_page=100"* ]]
+    # Must NOT fall back to the bounded `issue list` path
+    [[ "$args" != *"issue list"* ]]
+}
+
+@test "fetch_github_tasks with limit=0 filters out pull requests" {
+    _fake_github_repo
+    # Mixed response: two issues and one PR (PRs have a .pull_request field)
+    _mock_gh_with_fixture \
+        '[{"number":1,"title":"real issue"},{"number":2,"title":"a pull request","pull_request":{"url":"x"}},{"number":3,"title":"another issue"}]' \
+        '[]'
+
+    run fetch_github_tasks "" "0"
+    assert_success
+
+    [[ "$output" == *"#1"* ]]
+    [[ "$output" == *"real issue"* ]]
+    [[ "$output" == *"#3"* ]]
+    [[ "$output" == *"another issue"* ]]
+    # The PR must be filtered out
+    [[ "$output" != *"#2"* ]]
+    [[ "$output" != *"pull request"* ]]
+}
+
+@test "fetch_github_tasks with positive limit uses gh issue list" {
+    _fake_github_repo
+    _mock_gh_with_fixture \
+        '[]' \
+        '[{"number":42,"title":"bounded fetch"}]'
+
+    run fetch_github_tasks "" "5"
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    # Must use the bounded list path, not the paginated api path
+    [[ "$args" == *"issue list"* ]]
+    [[ "$args" == *"--limit 5"* ]]
+    [[ "$args" != *"--paginate"* ]]
+    [[ "$output" == *"#42"* ]]
+}
+
+@test "fetch_github_tasks with limit=0 plumbs label as URL-encoded field" {
+    _fake_github_repo
+    _mock_gh_with_fixture '[]' '[]'
+
+    run fetch_github_tasks "needs-triage" "0"
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    # -f labels=needs-triage ensures gh URL-encodes values with spaces/specials
+    [[ "$args" == *"labels=needs-triage"* ]]
+}
