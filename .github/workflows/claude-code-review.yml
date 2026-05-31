@@ -20,6 +20,14 @@ concurrency:
 
 jobs:
   claude-review:
+    # Only review PRs from known/trusted authors. author_association is maintained
+    # automatically by GitHub: anyone who has had a PR merged becomes CONTRIBUTOR,
+    # so the trust list grows on its own with no manual upkeep. First-time/unknown
+    # authors are skipped (safe default) until their first PR lands. This gate is
+    # what makes the per-author `allowed_non_write_users` below safe — only authors
+    # who pass this association check ever reach the action.
+    if: |
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,6 +65,15 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Explicit github_token needed for pull_request_target (OIDC doesn't work)
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # By default the action only runs for users with write access, which blocks
+          # external fork contributors (they only have read). Rather than a blanket '*'
+          # bypass, allow exactly one user: the author of THIS PR. Because the job-level
+          # `if:` above has already confirmed that author is a trusted association
+          # (CONTRIBUTOR and up), this permits only an already-vetted individual per run —
+          # never a wildcard. Combined with minimal permissions + read-only allowed-tools,
+          # this lets Claude review fork PRs from known contributors without opening the
+          # door to arbitrary actors. See docs/security.md in the action repo.
+          allowed_non_write_users: ${{ github.event.pull_request.user.login }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
