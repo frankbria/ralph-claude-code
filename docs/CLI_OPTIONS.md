@@ -201,6 +201,8 @@ ralph --allowed-tools "Write,Read,Edit,Bash(git *),Bash(npm *)"
 
 > **Why specific git subcommands?** The default intentionally omits `Bash(git *)` to prevent `git clean`, `git rm`, and `git reset`, which could delete `.ralph/` configuration files. See [File Protection](../CLAUDE.md#file-protection-issue-149).
 
+> **Debugging denied commands.** If a command is denied even though your `ALLOWED_TOOLS` looks correct, run `RALPH_VERBOSE=true ralph` to log the exact argv passed to Claude, or `tools/inspect-allowed-tools.sh` to inspect parsing without invoking Claude. For compound commands with pipes/redirects (e.g., `mvn clean | tail`), ralph automatically downgrades the denial to a warning when the base command is already allowed — see issue #243. The broader `Bash(git *)` wildcard limitation is tracked in issue #154.
+
 ---
 
 ### `--no-continue`

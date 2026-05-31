@@ -1358,6 +1358,29 @@ build_claude_command() {
     local prompt_content
     prompt_content=$(cat "$prompt_file")
     CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
+
+    # Diagnostic logging (Issue #154): when RALPH_VERBOSE=true, dump the exact
+    # argv that will be passed to Claude CLI — minus the prompt body, which is
+    # noisy and may contain secrets. Lets users verify --allowedTools entries
+    # actually reach Claude (e.g., when investigating Bash(git *) denials).
+    if [[ "${RALPH_VERBOSE:-false}" == "true" ]]; then
+        local -a redacted_args=()
+        local skip_prompt=false
+        for arg in "${CLAUDE_CMD_ARGS[@]}"; do
+            if [[ "$skip_prompt" == "true" ]]; then
+                redacted_args+=("<prompt:${#arg} chars>")
+                skip_prompt=false
+                continue
+            fi
+            if [[ "$arg" == "-p" ]]; then
+                redacted_args+=("$arg")
+                skip_prompt=true
+                continue
+            fi
+            redacted_args+=("$arg")
+        done
+        log_status "DEBUG" "Claude argv (${#CLAUDE_CMD_ARGS[@]} args): ${redacted_args[*]}"
+    fi
 }
 
 # create_backup - Create a git backup branch before a loop iteration (Issue #23)
