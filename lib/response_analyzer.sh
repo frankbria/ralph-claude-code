@@ -71,6 +71,82 @@ _file_size_bytes() {
     printf '%d' "${size:-0}"
 }
 
+# =============================================================================
+# Compound-command permission-denial detection (issue #243)
+# =============================================================================
+#
+# Claude Code's --allowedTools matcher does not match compound shell commands
+# (those containing pipes, redirects, &&, ||, ;) against patterns like
+# `Bash(mvn *)`. So `mvn clean compile 2>&1 | tail -40` is denied even when
+# `Bash(mvn *)` is configured.
+#
+# This is a Claude CLI limitation, not a real permission gap — halting the
+# loop in that case is wrong. The helpers below extract the base command from
+# a denied invocation and check whether the user's ALLOWED_TOOLS already
+# permits arbitrary arguments to it.
+
+# _extract_base_command — first whitespace/redirect/pipe-delimited token.
+# Args: $1 = full shell command (e.g., "mvn clean compile 2>&1 | tail -40")
+# Stdout: base command (e.g., "mvn"), empty if input is empty.
+_extract_base_command() {
+    local cmd="$1"
+    # Strip leading whitespace
+    cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+    [[ -z "$cmd" ]] && return 0
+    # Take everything up to the first whitespace, pipe, redirect, semicolon,
+    # or ampersand. Uses a character class in a `%%` pattern.
+    printf '%s' "${cmd%%[ $'\t'|;\&\<\>]*}"
+}
+
+# _base_command_in_allowed_tools — does CLAUDE_ALLOWED_TOOLS permit ARBITRARY
+# arguments to $base_cmd? Returns 0 if yes.
+#
+# A pattern is considered to permit arbitrary args if its inside-of-`Bash(...)`:
+#   * is literal `*`                                — universal allow
+#   * starts with `$base_cmd` followed by `*`        — e.g., `Bash(git*)`
+#   * starts with `$base_cmd ` and contains a `*`    — e.g., `Bash(git *)` or
+#                                                      `Bash(git diff *)`
+#
+# Exact-only patterns like `Bash(npm install)` are NOT considered covering,
+# because they don't permit `npm test` either — a denial there is a real gap.
+_base_command_in_allowed_tools() {
+    local base_cmd="$1"
+    local allowed_tools="$2"
+
+    [[ -z "$base_cmd" || -z "$allowed_tools" ]] && return 1
+
+    local IFS=','
+    local entry
+    for entry in $allowed_tools; do
+        # Trim whitespace
+        entry="${entry#"${entry%%[![:space:]]*}"}"
+        entry="${entry%"${entry##*[![:space:]]}"}"
+
+        # Universal allow
+        [[ "$entry" == "Bash(*)" || "$entry" == "*" ]] && return 0
+
+        # Must be Bash(...) form to match a shell command
+        [[ "$entry" != "Bash("*")" ]] && continue
+
+        local inside="${entry#Bash(}"
+        inside="${inside%)}"
+
+        # Inside must start with the base command
+        [[ "$inside" == "$base_cmd"* ]] || continue
+        local rest="${inside#"$base_cmd"}"
+
+        # Pattern is e.g. `mvn*`
+        if [[ "$rest" == "*"* ]]; then
+            return 0
+        fi
+        # Pattern is e.g. `mvn *` or `mvn clean *`
+        if [[ "$rest" == " "* && "$rest" == *"*"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Detect output format (json or text)
 # Returns: "json" if valid JSON, "text" otherwise
 detect_output_format() {
@@ -286,6 +362,43 @@ parse_json_response() {
         denied_commands_json=$(jq -r '[.permission_denials[] | if .tool_name == "Bash" then "Bash(\(.tool_input.command // "?" | split("\n")[0] | .[0:60]))" else .tool_name // "unknown" end]' "$output_file" 2>/dev/null || echo "[]")
     fi
 
+    # Compound-command detection (issue #243).
+    # Claude CLI does not match compound shell commands (with pipes/redirects)
+    # against `Bash(<cmd> *)` patterns, so a denial here may be a false positive.
+    # If EVERY denial is a Bash command whose base is already covered by
+    # CLAUDE_ALLOWED_TOOLS, treat it as a compound-command limitation instead
+    # of a real permission gap — the loop should continue with an advisory.
+    local has_compound_command_limitation="false"
+    local compound_command_count=0
+    if [[ $permission_denial_count -gt 0 && -n "${CLAUDE_ALLOWED_TOOLS:-}" ]]; then
+        # Count Bash denials. Anything else (e.g., AskUserQuestion) is a real gap.
+        local bash_denial_count
+        bash_denial_count=$(jq -r '[.permission_denials[] | select(.tool_name == "Bash")] | length' "$output_file" 2>/dev/null || echo "0")
+        bash_denial_count=$((bash_denial_count + 0))
+
+        if [[ $bash_denial_count -gt 0 && $bash_denial_count -eq $permission_denial_count ]]; then
+            # All denials are Bash — check coverage of each base command
+            local covered=0
+            local denied_full_commands
+            denied_full_commands=$(jq -r '.permission_denials[] | select(.tool_name == "Bash") | .tool_input.command // ""' "$output_file" 2>/dev/null)
+            while IFS= read -r full_cmd; do
+                [[ -z "$full_cmd" ]] && continue
+                local base
+                base=$(_extract_base_command "$full_cmd")
+                if [[ -n "$base" ]] && _base_command_in_allowed_tools "$base" "$CLAUDE_ALLOWED_TOOLS"; then
+                    covered=$((covered + 1))
+                fi
+            done <<< "$denied_full_commands"
+
+            if [[ $covered -eq $bash_denial_count ]]; then
+                has_compound_command_limitation="true"
+                compound_command_count=$bash_denial_count
+                # Downgrade has_permission_denials — the loop should continue
+                has_permission_denials="false"
+            fi
+        fi
+    fi
+
     # Normalize values
     # Convert exit_signal to boolean string
     # Only infer from status/completion_status if no explicit EXIT_SIGNAL was provided
@@ -348,6 +461,8 @@ parse_json_response() {
         --argjson has_permission_denials "$has_permission_denials" \
         --argjson permission_denial_count "$permission_denial_count" \
         --argjson denied_commands "$denied_commands_json" \
+        --argjson has_compound_command_limitation "$has_compound_command_limitation" \
+        --argjson compound_command_count "$compound_command_count" \
         '{
             status: $status,
             exit_signal: $exit_signal,
@@ -363,6 +478,8 @@ parse_json_response() {
             has_permission_denials: $has_permission_denials,
             permission_denial_count: $permission_denial_count,
             denied_commands: $denied_commands,
+            has_compound_command_limitation: $has_compound_command_limitation,
+            compound_command_count: $compound_command_count,
             metadata: {
                 loop_number: $loop_number,
                 session_id: $session_id
@@ -422,6 +539,9 @@ analyze_response() {
             local has_permission_denials=$(jq -r '.has_permission_denials' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             local permission_denial_count=$(jq -r '.permission_denial_count' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
             local denied_commands_json=$(jq -r '.denied_commands' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "[]")
+            # Compound-command limitation flag (Issue #243)
+            local has_compound_command_limitation=$(jq -r '.has_compound_command_limitation // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            local compound_command_count=$(jq -r '.compound_command_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
 
             # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
@@ -499,6 +619,8 @@ analyze_response() {
                 --argjson has_permission_denials "$has_permission_denials" \
                 --argjson permission_denial_count "$permission_denial_count" \
                 --argjson denied_commands "$denied_commands_json" \
+                --argjson has_compound_command_limitation "$has_compound_command_limitation" \
+                --argjson compound_command_count "$compound_command_count" \
                 --argjson asking_questions "$asking_questions" \
                 --argjson question_count "$question_count" \
                 '{
@@ -519,6 +641,8 @@ analyze_response() {
                         has_permission_denials: $has_permission_denials,
                         permission_denial_count: $permission_denial_count,
                         denied_commands: $denied_commands,
+                        has_compound_command_limitation: $has_compound_command_limitation,
+                        compound_command_count: $compound_command_count,
                         asking_questions: $asking_questions,
                         question_count: $question_count
                     }

@@ -691,10 +691,21 @@ should_exit_gracefully() {
 
     # 0. Permission denials (highest priority - Issue #101)
     # When Claude Code is denied permission to run commands, halt immediately
-    # to allow user to update .ralphrc ALLOWED_TOOLS configuration
+    # to allow user to update .ralphrc ALLOWED_TOOLS configuration.
+    # Exception (Issue #243): if every denial is a Bash compound command whose
+    # base is already covered by ALLOWED_TOOLS, the denial is a Claude CLI
+    # limitation rather than a real permission gap — log an advisory and continue.
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
-        if [[ "$has_permission_denials" == "true" ]]; then
+        local has_compound_limitation=$(jq -r '.analysis.has_compound_command_limitation // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+
+        if [[ "$has_compound_limitation" == "true" ]]; then
+            local compound_count=$(jq -r '.analysis.compound_command_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
+            local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
+            log_status "WARN" "⚠️  Claude CLI denied $compound_count compound command(s) but the base command is already in ALLOWED_TOOLS: $denied_cmds"
+            log_status "WARN" "This is a Claude CLI matching limitation (pipes/redirects bypass Bash(cmd *) patterns). Loop continues."
+            # Fall through — do not halt
+        elif [[ "$has_permission_denials" == "true" ]]; then
             local denied_count=$(jq -r '.analysis.permission_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
             local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
             log_status "WARN" "🚫 Permission denied for $denied_count command(s): $denied_cmds"

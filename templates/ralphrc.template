@@ -40,6 +40,10 @@ CLAUDE_OUTPUT_FORMAT="json"
 # NOTE: Default uses specific git subcommands for safety. To allow ALL git commands: Bash(git *)
 # Dangerous commands excluded by default: git clean, git rm, git reset (can delete .ralph/)
 # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
+# Compound commands (with pipes |, redirects 2>&1, ; or && chains) may not match
+# `Bash(cmd *)` patterns due to a Claude CLI limitation (Issue #243). Ralph detects
+# this case automatically and continues the loop with a warning instead of halting,
+# but you can also restructure commands or use Bash(*) to bypass the issue.
 ALLOWED_TOOLS="Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)"
 
 # =============================================================================
