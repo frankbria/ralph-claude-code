@@ -611,6 +611,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_metrics_tracking.bats` | 4 | Metrics tracking: track_metrics() JSON Lines format, per-loop append, ralph-stats output, print_metrics_summary (Issue #21) |
 | `test_notifications.bats` | 5 | Desktop notifications: send_notification() cross-platform (macOS/Linux/bell), disabled by default, --notify flag (Issue #22) |
 | `test_backup_rollback.bats` | 6 | Backup/rollback: create_backup() branch naming, disabled by default, graceful git-less handling, commit message, --backup flag, rollback_to_backup() checkout (Issue #23) |
+| `test_backward_compat.bats` | 9 | Integration-level backward compatibility: old flat-structure migration message (PROMPT.md + legacy @-prefixed markers via shared `is_legacy_flat_structure`), generic dirs not misflagged, .ralphrc with missing/legacy fields, missing optional state files (status.json, circuit breaker state), bare-CLI defaults, old-style prompt paths (Issue #41) |
 
 ### Running Tests
 ```bash
