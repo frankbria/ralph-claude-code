@@ -275,7 +275,12 @@ PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Initialize directories
-mkdir -p "$LOG_DIR" "$DOCS_DIR"
+# Skip when an un-migrated flat-structure project is detected (root PROMPT.md and
+# no .ralph/). Creating .ralph/ here would mask the old layout and turn main()'s
+# migration gate into dead code (Issue #41); main() surfaces the migration message.
+if ! { [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; }; then
+    mkdir -p "$LOG_DIR" "$DOCS_DIR"
+fi
 
 # Check if tmux is available
 check_tmux_available() {
@@ -481,7 +486,11 @@ log_status() {
     # Write to stderr so log messages don't interfere with function return values
     # 2>/dev/null suppresses "Input/output error" when tmux pty is broken (Issue #188)
     echo -e "${color}[$timestamp] [$level] $message${NC}" >&2 2>/dev/null
-    echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log" 2>/dev/null
+    # Only append to the log file when its directory exists. Redirection-open
+    # failures are emitted by the shell before `2>/dev/null` takes effect, so a
+    # missing $LOG_DIR (e.g. the pre-migration flat-structure exit) would leak a
+    # "No such file or directory" line without this guard (Issue #41).
+    [[ -d "$LOG_DIR" ]] && echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log" 2>/dev/null
 }
 
 # Update status JSON for external monitoring
@@ -2153,6 +2162,22 @@ loop_count=0
 
 # Main loop
 main() {
+    # Check for an un-migrated old flat structure (root PROMPT.md, no .ralph/)
+    # BEFORE anything else — including Claude CLI validation — so the migration
+    # guidance fires regardless of whether the CLI is installed (Issue #41).
+    if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
+        log_status "ERROR" "This project uses the old flat structure."
+        echo ""
+        echo "Ralph v0.10.0+ uses a .ralph/ subfolder to keep your project root clean."
+        echo ""
+        echo "To upgrade your project, run:"
+        echo "  ralph-migrate"
+        echo ""
+        echo "This will move Ralph-specific files to .ralph/ while preserving src/ at root."
+        echo "A backup will be created before migration."
+        exit 1
+    fi
+
     # Load project-specific configuration from .ralphrc
     if load_ralphrc; then
         if [[ "$RALPHRC_LOADED" == "true" ]]; then
@@ -2190,20 +2215,6 @@ main() {
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
-
-    # Check if project uses old flat structure and needs migration
-    if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
-        log_status "ERROR" "This project uses the old flat structure."
-        echo ""
-        echo "Ralph v0.10.0+ uses a .ralph/ subfolder to keep your project root clean."
-        echo ""
-        echo "To upgrade your project, run:"
-        echo "  ralph-migrate"
-        echo ""
-        echo "This will move Ralph-specific files to .ralph/ while preserving src/ at root."
-        echo "A backup will be created before migration."
-        exit 1
-    fi
 
     # Check if this is a Ralph project directory
     if [[ ! -f "$PROMPT_FILE" ]]; then
