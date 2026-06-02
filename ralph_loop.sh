@@ -274,12 +274,23 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
-# Initialize directories
-# Skip when an un-migrated flat-structure project is detected (root PROMPT.md and
-# no .ralph/). Creating .ralph/ here would mask the old layout and turn main()'s
-# migration gate into dead code (Issue #41); main() surfaces the migration message.
-# Condition is the De Morgan inverse of the flat-structure check in main().
-if [[ ! -f "PROMPT.md" ]] || [[ -d ".ralph" ]]; then
+# Detect an un-migrated pre-v0.10 flat-structure project: no .ralph/ subfolder
+# yet, but an unambiguous Ralph control file still sits at the project root.
+# Only Ralph-specific markers are used — PROMPT.md and the legacy @-prefixed
+# fix_plan/AGENT files. Generic names (fix_plan.md, AGENT.md, logs/, specs/) are
+# deliberately excluded so a modern or non-Ralph project that merely contains one
+# of those is never halted by mistake. The migrator (migrate_to_ralph_folder.sh)
+# keeps broader, advisory semantics suited to its manual context (Issue #41).
+# Shared by the directory-init guard below and main()'s migration gate so the two
+# checks cannot diverge.
+is_legacy_flat_structure() {
+    [[ -d ".ralph" ]] && return 1
+    [[ -f "PROMPT.md" ]] || [[ -f "@fix_plan.md" ]] || [[ -f "@AGENT.md" ]]
+}
+
+# Initialize directories. Skip for an un-migrated flat structure so main() can
+# surface the migration message instead of masking the old layout (Issue #41).
+if ! is_legacy_flat_structure; then
     mkdir -p "$LOG_DIR" "$DOCS_DIR"
 fi
 
@@ -2163,10 +2174,11 @@ loop_count=0
 
 # Main loop
 main() {
-    # Check for an un-migrated old flat structure (root PROMPT.md, no .ralph/)
-    # BEFORE anything else — including Claude CLI validation — so the migration
-    # guidance fires regardless of whether the CLI is installed (Issue #41).
-    if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
+    # Check for an un-migrated old flat structure BEFORE anything else — including
+    # Claude CLI validation — so the migration guidance fires regardless of whether
+    # the CLI is installed. Uses the shared is_legacy_flat_structure helper so this
+    # gate stays in lock-step with the directory-init guard (Issue #41).
+    if is_legacy_flat_structure; then
         log_status "ERROR" "This project uses the old flat structure."
         echo ""
         echo "Ralph v0.10.0+ uses a .ralph/ subfolder to keep your project root clean."

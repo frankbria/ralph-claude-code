@@ -70,6 +70,34 @@ teardown() {
     [[ "$err" != *"No such file or directory"* ]]
 }
 
+@test "legacy @-prefixed control file (no .ralph/) also triggers migration message" {
+    # Pre-v0.10 projects used @-prefixed control files (e.g. @fix_plan.md). One at
+    # the root with no .ralph/ must also be recognised as a flat structure needing
+    # migration — the detection is not limited to PROMPT.md.
+    echo "- [ ] legacy task" > @fix_plan.md
+
+    run bash "$RALPH_SCRIPT"
+
+    assert_failure
+    [[ "$output" == *"old flat structure"* ]]
+    [[ "$output" == *"ralph-migrate"* ]]
+    assert_file_not_exists ".ralph"
+}
+
+@test "modern non-Ralph project with a root logs/ dir is NOT flagged as legacy" {
+    # Generic directory names must not trigger the migration halt: a project that
+    # merely has a root logs/ folder (and no Ralph control files) is not a legacy
+    # Ralph layout and must not be told to run ralph-migrate.
+    source "$RALPH_SCRIPT"
+    # Sourcing initialises .ralph/ via the directory-init guard; clear it so we
+    # evaluate the marker logic in a true "no .ralph/" state.
+    rm -rf .ralph
+    mkdir -p logs
+
+    run is_legacy_flat_structure
+    assert_failure
+}
+
 @test ".ralphrc missing optional fields still loads with safe defaults" {
     # A user-authored .ralphrc that only sets a couple of values must not break;
     # everything it omits falls back to the documented defaults.
