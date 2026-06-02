@@ -274,15 +274,10 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
-# Detect an un-migrated pre-v0.10 flat-structure project: no .ralph/ subfolder
-# yet, but an unambiguous Ralph control file still sits at the project root.
-# Only Ralph-specific markers are used — PROMPT.md and the legacy @-prefixed
-# fix_plan/AGENT files. Generic names (fix_plan.md, AGENT.md, logs/, specs/) are
-# deliberately excluded so a modern or non-Ralph project that merely contains one
-# of those is never halted by mistake. The migrator (migrate_to_ralph_folder.sh)
-# keeps broader, advisory semantics suited to its manual context (Issue #41).
-# Shared by the directory-init guard below and main()'s migration gate so the two
-# checks cannot diverge.
+# Un-migrated pre-v0.10 flat structure: no .ralph/ yet, but an unambiguous Ralph
+# control file (PROMPT.md or legacy @fix_plan.md/@AGENT.md) sits at the root.
+# Generic names (logs/, AGENT.md, ...) are excluded to avoid false-positive halts
+# on non-Ralph projects. Shared by the init guard and main()'s gate (Issue #41).
 is_legacy_flat_structure() {
     [[ -d ".ralph" ]] && return 1
     [[ -f "PROMPT.md" ]] || [[ -f "@fix_plan.md" ]] || [[ -f "@AGENT.md" ]]
