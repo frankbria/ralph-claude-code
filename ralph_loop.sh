@@ -278,7 +278,8 @@ NC='\033[0m' # No Color
 # Skip when an un-migrated flat-structure project is detected (root PROMPT.md and
 # no .ralph/). Creating .ralph/ here would mask the old layout and turn main()'s
 # migration gate into dead code (Issue #41); main() surfaces the migration message.
-if ! { [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; }; then
+# Condition is the De Morgan inverse of the flat-structure check in main().
+if [[ ! -f "PROMPT.md" ]] || [[ -d ".ralph" ]]; then
     mkdir -p "$LOG_DIR" "$DOCS_DIR"
 fi
 

@@ -61,6 +61,13 @@ teardown() {
 
     # The migration gate must not have silently initialised the new structure.
     assert_file_not_exists ".ralph"
+
+    # Regression guard: the migration exit path runs without $LOG_DIR, so
+    # log_status must not leak a shell redirection error to stderr (Issue #41).
+    local err
+    # `|| true`: the script exits 1 (migration gate); we only care about stderr.
+    err=$(bash "$RALPH_SCRIPT" 2>&1 >/dev/null) || true
+    [[ "$err" != *"No such file or directory"* ]]
 }
 
 @test ".ralphrc missing optional fields still loads with safe defaults" {
