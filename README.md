@@ -3,7 +3,7 @@
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-0.11.5-blue)
-![Tests](https://img.shields.io/badge/tests-556%20passing-green)
+![Tests](https://img.shields.io/badge/tests-784%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -33,6 +33,11 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Interactive project enablement with `ralph-enable` wizard**
 - **`.ralphrc` configuration file for project settings**
 - **Live streaming output with `--live` flag for real-time Claude Code visibility**
+- **Log rotation: `ralph.log` rotates at 10MB, keeping 4 archived files**
+- **Dry-run mode (`--dry-run`) to simulate loops without API calls**
+- **Metrics tracking with `ralph-stats` analytics command (JSON Lines per-loop metrics)**
+- **Desktop notifications (`--notify`) for key loop events (macOS/Linux/terminal-bell)**
+- **Automatic git backup branches (`--backup`) with `--rollback` restore**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
@@ -125,7 +130,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Expanding test coverage
 - [Automated badge updates](#138)
 
-**Timeline to v1.0**: ~4 weeks | [Full roadmap](IMPLEMENTATION_PLAN.md) | **Contributions welcome!**
+**Timeline to v1.0**: final polish underway | [Full roadmap](IMPLEMENTATION_PLAN.md) | **Contributions welcome!**
 
 ## Features
 
@@ -790,7 +795,7 @@ npm test && npm run test:e2e  # All 784 tests must pass
 ### Priority Contribution Areas
 
 1. **Test Implementation** - Help expand test coverage
-2. **Feature Development** - Log rotation, dry-run mode, metrics
+2. **Feature Development** - Pick up an [open issue](https://github.com/frankbria/ralph-claude-code/issues)
 3. **Documentation** - Tutorials, troubleshooting guides, examples
 4. **Real-World Testing** - Use Ralph, report bugs, share feedback
 
@@ -829,22 +834,28 @@ ralph-migrate             # Migrate existing project to .ralph/ structure
 ralph [OPTIONS]
   -h, --help              Show help message
   -c, --calls NUM         Set max calls per hour (default: 100)
-  -p, --prompt FILE       Set prompt file (default: PROMPT.md)
+  -p, --prompt FILE       Set prompt file (default: .ralph/PROMPT.md)
   -s, --status            Show current status and exit
   -m, --monitor           Start with tmux session and live monitor
   -v, --verbose           Show detailed progress updates during execution
   -l, --live              Enable live streaming output (real-time Claude Code visibility)
   -t, --timeout MIN       Set Claude Code execution timeout in minutes (1-120, default: 15)
+  --dry-run               Simulate loop execution without making actual Claude API calls
+  -n, --notify            Enable desktop notifications for key events
+  -b, --backup            Enable automatic git backup branch before each loop (requires git)
+  --rollback [BRANCH]     Roll back to a backup branch (lists available branches if none given)
+  --show-tool-args        Show tool arguments (commands, file paths) in live streaming output
   --output-format FORMAT  Set output format: json (default) or text
-  --allowed-tools TOOLS   Set allowed Claude tools (default: Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest))
+  --allowed-tools TOOLS   Set allowed Claude tools (default: granular git subcommands + npm/pytest)
   --no-continue           Disable session continuity (start fresh each loop)
+  --session-expiry HOURS  Set session expiration time in hours (default: 24)
   --reset-circuit         Reset the circuit breaker
   --circuit-status        Show circuit breaker status
   --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
   --reset-session         Reset session state manually
-  -b, --backup            Enable automatic git backup branch before each loop (requires git)
-  --rollback [BRANCH]     Roll back to a backup branch (lists available branches if none given)
 ```
+
+> **Full reference**: every flag is documented in depth, with examples and `.ralphrc` patterns, in [docs/CLI_OPTIONS.md](docs/CLI_OPTIONS.md).
 
 ### Project Commands (Per Project)
 ```bash
@@ -859,6 +870,10 @@ ralph --timeout 30           # Set 30-minute execution timeout
 ralph --calls 50             # Limit to 50 API calls per hour
 ralph --reset-session        # Reset session state manually
 ralph --live                 # Enable live streaming output
+ralph --dry-run              # Simulate a loop without API calls
+ralph --notify               # Desktop notifications for key events
+ralph --backup               # Git backup branch before each loop
+ralph-stats                  # Metrics summary from .ralph/logs/metrics.jsonl
 ralph-monitor                # Manual monitoring dashboard
 ```
 
@@ -882,8 +897,9 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- **556 comprehensive tests** (100% pass rate)
+- **784 comprehensive tests** (100% pass rate)
 - **Live streaming output mode** for real-time Claude Code visibility
+- **Log rotation, dry-run mode, metrics (`ralph-stats`), desktop notifications, and git backup/rollback**
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
@@ -895,32 +911,25 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Session expiration with configurable timeout
 - Dedicated uninstall script
 
-**Test Coverage Breakdown:**
-- Unit Tests: 477 (CLI parsing, JSON, exit detection, rate limiting + token budgets, session continuity, enable wizard, live streaming, circuit breaker recovery, file protection, integrity checks)
-- Integration Tests: 136 (loop execution, edge cases, installation, project setup, PRD import)
-- Test Files: 18
+**Test Coverage:**
+- **784 tests across 34 test files** — unit, integration, and end-to-end (100% pass rate)
+- See [TESTING.md](TESTING.md) for the per-suite breakdown and how to run each category
 
-### Path to v1.0.0 (~4 weeks)
+### Path to v1.0.0
 
-**Enhanced Testing**
-- Installation and setup workflow tests
-- tmux integration tests
-- Monitor dashboard tests
+**Completed milestones**: installation/setup workflow tests, tmux integration tests, monitor dashboard tests, end-to-end full-loop tests, log rotation, dry-run mode, metrics (`ralph-stats`), desktop notifications, and git backup/rollback.
 
-**Core Features**
-- Log rotation functionality
-- Dry-run mode
-
-**Advanced Features & Polish**
-- End-to-end tests
-- Final documentation and release prep
+**Remaining**
+- Final documentation sweep and release prep
+- Supply-chain hardening for CI workflows ([#275](https://github.com/frankbria/ralph-claude-code/issues/275))
+- Real-world feedback from the [open issues](https://github.com/frankbria/ralph-claude-code/issues) backlog
 
 See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed progress tracking.
 
 ### How to Contribute
 Ralph is seeking contributors! See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete guide. Priority areas:
 1. **Test Implementation** - Help expand test coverage ([see plan](IMPLEMENTATION_PLAN.md))
-2. **Feature Development** - Log rotation, dry-run mode, metrics
+2. **Feature Development** - Pick up an [open issue](https://github.com/frankbria/ralph-claude-code/issues)
 3. **Documentation** - Usage examples, tutorials, troubleshooting guides
 4. **Bug Reports** - Real-world usage feedback and edge cases
 
