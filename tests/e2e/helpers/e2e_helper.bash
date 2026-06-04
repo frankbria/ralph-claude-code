@@ -21,6 +21,18 @@
 
 RALPH_SCRIPT="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
+# Cross-platform GNU timeout: Linux ships `timeout`; macOS gets `gtimeout`
+# from Homebrew coreutils (same GNU binary, so --foreground/-k work on both).
+# Mirrors the detection in lib/timeout_utils.sh.
+if command -v timeout >/dev/null 2>&1; then
+    E2E_TIMEOUT_CMD="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    E2E_TIMEOUT_CMD="gtimeout"
+else
+    echo "FATAL: E2E tests require GNU timeout (brew install coreutils on macOS)" >&2
+    exit 1
+fi
+
 # Create a complete temp Ralph project + mock claude CLI, and cd into it.
 # Sets: E2E_DIR, MOCK_DIR, PROJECT_DIR
 setup_e2e_project() {
@@ -197,12 +209,15 @@ queue_effect() {
 
 # Standard "productive work" effect: create + stage a src file (git progress
 # for the circuit breaker) and check off the first open fix_plan item.
+# Uses awk (not GNU `sed -i '0,...'`) so the effect runs on BSD/macOS too.
 queue_productive_effect() {
     local n=$1
     queue_effect "$n" << EOF
 echo "work from loop $n" > "src/work_${n}.txt"
 git add "src/work_${n}.txt"
-sed -i '0,/^- \[ \]/s//- [x]/' .ralph/fix_plan.md
+awk 'done != 1 && /^- \[ \]/ { sub(/^- \[ \]/, "- [x]"); done = 1 } { print }' \
+    .ralph/fix_plan.md > .ralph/fix_plan.md.tmp \
+    && mv .ralph/fix_plan.md.tmp .ralph/fix_plan.md
 EOF
 }
 
@@ -228,7 +243,7 @@ e2e_fix_plan() {
 # a plain `timeout` would deliver TERM and then wait forever.
 # Usage: run_ralph [args...]   — use with bats `run`
 run_ralph() {
-    timeout --foreground -k 5 120 bash "$RALPH_SCRIPT" "$@" < /dev/null
+    "$E2E_TIMEOUT_CMD" --foreground -k 5 120 bash "$RALPH_SCRIPT" "$@" < /dev/null
 }
 
 # Number of times the mock claude was invoked.

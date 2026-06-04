@@ -253,7 +253,7 @@ Please try again later when your limit resets.
 EOF
 
     # Feed "2" (exit) to the interactive limit prompt
-    run bash -c "printf '2' | timeout --foreground -k 5 120 bash '$RALPH_SCRIPT'"
+    run bash -c "printf '2' | '$E2E_TIMEOUT_CMD' --foreground -k 5 120 bash '$RALPH_SCRIPT'"
 
     assert_success
     assert_equal "$(mock_call_count)" "1"
