@@ -51,6 +51,7 @@ The system uses a modular architecture with reusable components in the `lib/` di
    - Automatic session persistence to `.ralph/.claude_session_id` file with 24-hour expiration
    - Session lifecycle: `get_session_id()`, `reset_session()`, `log_session_transition()`, `init_session_tracking()`
    - Session history tracked in `.ralph/.ralph_session_history` (last 50 transitions)
+   - Session lifecycle state tracked in `.ralph/.ralph_session` (JSON: `session_id`, `created_at`, `last_used`, `reset_at`, `reset_reason`) — written by `reset_session()` and `init_session_tracking()` in ralph_loop.sh
    - Session auto-reset on: circuit breaker open, manual interrupt, project completion
    - Detects test-only loops, stuck error patterns, and question-only loops
    - Two-stage error filtering to eliminate false positives
