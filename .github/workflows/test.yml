@@ -42,12 +42,13 @@ jobs:
       run: npm run test:integration || true
 
     - name: Run E2E tests
-      run: npm run test:e2e || true
+      run: npm run test:e2e
 
     - name: Generate test report
       run: |
         echo "## Test Results" >> $GITHUB_STEP_SUMMARY
         echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
+        echo "✅ E2E tests passed" >> $GITHUB_STEP_SUMMARY
 
   coverage:
     runs-on: ubuntu-latest

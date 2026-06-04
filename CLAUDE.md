@@ -193,6 +193,7 @@ npm test
 # Run specific test suites
 npm run test:unit
 npm run test:integration
+npm run test:e2e
 
 # Run individual test files
 bats tests/unit/test_cli_parsing.bats
@@ -325,6 +326,8 @@ Ralph uses GitHub Actions for continuous integration:
    - Executes unit, integration, and E2E tests
    - Coverage reporting with kcov (informational only)
    - Uploads coverage artifacts
+
+   - Unit and E2E suites are blocking; the integration suite is currently advisory (`|| true`)
 
 2. **claude.yml** - Claude Code GitHub Actions integration
    - Automated code review capabilities
@@ -612,6 +615,7 @@ Ralph uses a multi-layered strategy to prevent Claude from accidentally deleting
 | `test_notifications.bats` | 5 | Desktop notifications: send_notification() cross-platform (macOS/Linux/bell), disabled by default, --notify flag (Issue #22) |
 | `test_backup_rollback.bats` | 6 | Backup/rollback: create_backup() branch naming, disabled by default, graceful git-less handling, commit message, --backup flag, rollback_to_backup() checkout (Issue #23) |
 | `test_backward_compat.bats` | 9 | Integration-level backward compatibility: old flat-structure migration message (PROMPT.md + legacy @-prefixed markers via shared `is_legacy_flat_structure`), generic dirs not misflagged, .ralphrc with missing/legacy fields, missing optional state files (status.json, circuit breaker state), bare-CLI defaults, old-style prompt paths (Issue #41) |
+| `test_full_loop.bats` (e2e) | 13 | True E2E: runs ralph_loop.sh as a subprocess with an executable mock `claude` CLI on disk (`tests/e2e/helpers/e2e_helper.bash`). Covers startup validation failures, plan_complete with zero API calls, multi-loop fix_plan progression, completion-signal exit, test saturation, circuit-breaker halt, stale exit-signal reset (#194), session continuity via `--resume` argv, hourly counter reset, CLI flags in a real run, API-limit exit, and signal-interrupt cleanup (Issue #17). Mock must take >1s per call — ralph's early-failure detection treats sub-second exits as startup failures |
 
 ### Running Tests
 ```bash
