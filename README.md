@@ -18,7 +18,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 **Version**: v0.11.5 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 566 tests, 100% pass rate
+**Test Coverage**: 784 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -646,8 +646,11 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (566 tests)
+# Run unit + integration tests (771 tests)
 npm test
+
+# Run end-to-end tests (13 tests; full ralph_loop.sh subprocess runs)
+npm run test:e2e
 
 # Run specific test suites
 bats tests/unit/test_rate_limiting.bats
@@ -672,10 +675,11 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **566 tests** across 18 test files
-- **100% pass rate** (556/556 passing)
-- Comprehensive unit and integration tests
+- **784 tests** across 34 test files
+- **100% pass rate** (784/784 passing)
+- Comprehensive unit, integration, and end-to-end tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
+- True E2E suite running ralph_loop.sh as a subprocess against a mock Claude CLI (`tests/e2e/`)
 
 > **Note on Coverage**: Bash code coverage measurement with kcov has fundamental limitations when tracing subprocess executions. Test pass rate (100%) is the quality gate. See [bats-core#15](https://github.com/bats-core/bats-core/issues/15) for details.
 
@@ -780,7 +784,7 @@ cd ralph-claude-code
 
 # Install dependencies and run tests
 npm install
-npm test  # All 566 tests must pass
+npm test && npm run test:e2e  # All 784 tests must pass
 ```
 
 ### Priority Contribution Areas

@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# Least-privilege token: this workflow only reads the repo (tests + coverage
+# artifact upload need no write scopes)
+permissions:
+  contents: read
+
 env:
   # Coverage threshold - configurable, not hardcoded
   # Set to 0 to disable threshold enforcement
@@ -42,12 +47,16 @@ jobs:
       run: npm run test:integration || true
 
     - name: Run E2E tests
-      run: npm run test:e2e || true
+      run: npm run test:e2e
+      timeout-minutes: 15
 
     - name: Generate test report
       run: |
-        echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
+        {
+          echo "## Test Results"
+          echo "✅ Unit tests passed"
+          echo "✅ E2E tests passed"
+        } >> "$GITHUB_STEP_SUMMARY"
 
   coverage:
     runs-on: ubuntu-latest

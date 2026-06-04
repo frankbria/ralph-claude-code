@@ -110,7 +110,10 @@ tests/
 │   ├── test_project_setup.bats     # Project setup (setup.sh) (36 tests)
 │   └── test_prd_import.bats        # PRD import workflow (33 tests)
 │
-├── e2e/                            # End-to-end tests (planned)
+├── e2e/                            # End-to-end tests
+│   ├── test_full_loop.bats         # Full ralph_loop.sh subprocess runs (13 tests)
+│   └── helpers/
+│       └── e2e_helper.bash         # Mock claude CLI + temp project harness
 │
 └── helpers/                        # Shared test utilities
     ├── test_helper.bash            # Assertions and setup functions
@@ -130,7 +133,7 @@ tests/
 
 - **Test files**: `test_<component_name>.bats`
 - **Test functions**: Descriptive sentences: `@test "can_make_call returns success when under limit"`
-- **Location**: Place tests in `unit/` or `integration/` based on scope
+- **Location**: Place tests in `unit/`, `integration/`, or `e2e/` based on scope
 
 ---
 
@@ -629,7 +632,7 @@ test:
     - run: npm install && sudo apt-get install -y jq
     - run: npm run test:unit          # Must pass
     - run: npm run test:integration   # Allowed to fail (|| true)
-    - run: npm run test:e2e          # Allowed to fail (|| true)
+    - run: npm run test:e2e          # Must pass
 ```
 
 #### 2. Coverage Job (Informational)
