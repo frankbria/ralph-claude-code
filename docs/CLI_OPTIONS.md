@@ -153,6 +153,73 @@ ralph --reset-session
 
 ---
 
+### `--dry-run`
+Simulate loop execution without making actual Claude API calls. Ralph runs the full loop scaffolding (rate-limit checks, exit detection, integrity validation) but skips the Claude invocation and does not increment the API call counter.
+
+| Default | Environment variable |
+|---------|----------------------|
+| `false` | `DRY_RUN` |
+
+```bash
+ralph --dry-run               # Verify configuration before burning API calls
+ralph --dry-run --verbose     # Watch what each loop iteration would do
+```
+
+> Useful for validating a new `.ralphrc` or prompt setup, and for demos.
+
+---
+
+### `-n, --notify`
+Enable desktop notifications for key loop events (loop completion, errors, circuit breaker trips, API limits, project completion). Cross-platform: `osascript` on macOS, `notify-send` on Linux, terminal bell fallback.
+
+| Default | `.ralphrc` key |
+|---------|----------------|
+| `false` | `ENABLE_NOTIFICATIONS` |
+
+```bash
+ralph --notify --monitor      # Get pinged when the loop needs attention
+```
+
+---
+
+### `-b, --backup`
+Create an automatic git backup branch before each loop iteration, named `ralph-backup-loop-{N}-{timestamp}`. Commits the current state with `--allow-empty` so a restore point exists even with no staged changes. Requires the project to be a git repository (no-op otherwise).
+
+| Default | `.ralphrc` key |
+|---------|----------------|
+| `false` | `ENABLE_BACKUP` |
+
+```bash
+ralph --backup                # Snapshot before every loop
+```
+
+---
+
+### `--rollback [BRANCH]`
+Roll back to a backup branch created by `--backup`. With no argument, lists available `ralph-backup-loop-*` branches (newest first) and exits; with a branch name, checks it out.
+
+```bash
+ralph --rollback                                   # List available backups
+ralph --rollback ralph-backup-loop-3-1775155286    # Restore a specific backup
+```
+
+---
+
+### `--show-tool-args`
+Show tool arguments (commands, file paths, search patterns) in live streaming output. Off by default so raw commands and paths aren't logged.
+
+| Default | `.ralphrc` key |
+|---------|----------------|
+| `false` | `LIVE_SHOW_TOOL_ARGS` |
+
+```bash
+ralph --live --show-tool-args    # Full visibility into each tool call
+```
+
+> Only meaningful together with `-l, --live`.
+
+---
+
 ## Modern CLI Flags
 
 ### `--output-format FORMAT`
