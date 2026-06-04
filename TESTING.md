@@ -133,7 +133,7 @@ tests/
 
 - **Test files**: `test_<component_name>.bats`
 - **Test functions**: Descriptive sentences: `@test "can_make_call returns success when under limit"`
-- **Location**: Place tests in `unit/` or `integration/` based on scope
+- **Location**: Place tests in `unit/`, `integration/`, or `e2e/` based on scope
 
 ---
 

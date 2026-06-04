@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# Least-privilege token: this workflow only reads the repo (tests + coverage
+# artifact upload need no write scopes)
+permissions:
+  contents: read
+
 env:
   # Coverage threshold - configurable, not hardcoded
   # Set to 0 to disable threshold enforcement
@@ -47,9 +52,11 @@ jobs:
 
     - name: Generate test report
       run: |
-        echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
-        echo "✅ E2E tests passed" >> $GITHUB_STEP_SUMMARY
+        {
+          echo "## Test Results"
+          echo "✅ Unit tests passed"
+          echo "✅ E2E tests passed"
+        } >> "$GITHUB_STEP_SUMMARY"
 
   coverage:
     runs-on: ubuntu-latest

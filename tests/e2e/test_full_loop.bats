@@ -83,7 +83,9 @@ teardown() {
     # Graceful exit resets the session (which clears .response_analysis)
     assert_equal "$(jq -r '.reset_reason' .ralph/.ralph_session)" "project_complete"
     assert_equal "$(cat .ralph/.call_count)" "2"
-    [[ $(ls .ralph/logs/claude_output_*.log 2>/dev/null | wc -l) -ge 2 ]]
+    local output_log_count
+    output_log_count=$(ls .ralph/logs/claude_output_*.log 2>/dev/null | wc -l)
+    [[ $output_log_count -ge 2 ]] || fail "Expected >= 2 output logs, found $output_log_count"
 }
 
 @test "E2E: multi-loop run progresses through fix_plan to plan_complete" {
@@ -112,8 +114,10 @@ teardown() {
 }
 
 @test "E2E: three test-only loops exit with test_saturation" {
-    # work_type TEST_ONLY at top level marks the loop test-only; productive
-    # effects keep the circuit breaker from opening first.
+    # The analyzer reads work_type from the TOP LEVEL of the JSON only
+    # (parse_json_response: `.work_type // "UNKNOWN"`); the WORK_TYPE line
+    # inside the RALPH_STATUS block is not parsed. Staged file effects keep
+    # the circuit breaker from opening before saturation triggers.
     local i
     for i in 1 2 3; do
         queue_response "$i" "IN_PROGRESS" "false" "Ran the test suite again." \
@@ -138,6 +142,10 @@ EOF
 
 @test "E2E: three no-progress loops open the circuit breaker and halt" {
     # Default mock response is a no-progress analysis loop; queue nothing.
+    # "No progress" is determined from actual git state (staged/unstaged/
+    # committed changes since loop start), NOT from the FILES_MODIFIED line
+    # in RALPH_STATUS — the default response creates no files, so the
+    # circuit breaker sees three loops without progress and opens.
 
     run run_ralph
 
@@ -289,6 +297,11 @@ EOF
     # children — exactly what a terminal Ctrl-C does to the foreground process
     # group. The mock claude keeps sleeping, which holds the loop in its
     # monitor phase and keeps the interrupted status stable for assertion.
+    # Up to 20s ceiling (100 x 0.2s): the trap fires once ralph's current
+    # monitor `sleep 10` is interrupted, so the normal case completes in
+    # well under 1s. If this loop exhausts in CI, the assertions below fail
+    # with status still "running" — that symptom means the signal never
+    # reached ralph or the trap did not run.
     kill -TERM "$ralph_pid"
     local i
     for i in $(seq 1 100); do

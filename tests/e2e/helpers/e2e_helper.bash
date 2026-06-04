@@ -21,14 +21,12 @@
 
 RALPH_SCRIPT="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-# Cross-platform GNU timeout: Linux ships `timeout`; macOS gets `gtimeout`
-# from Homebrew coreutils (same GNU binary, so --foreground/-k work on both).
-# Mirrors the detection in lib/timeout_utils.sh.
-if command -v timeout >/dev/null 2>&1; then
-    E2E_TIMEOUT_CMD="timeout"
-elif command -v gtimeout >/dev/null 2>&1; then
-    E2E_TIMEOUT_CMD="gtimeout"
-else
+# Cross-platform GNU timeout via the shared detection in lib/timeout_utils.sh
+# (Linux: `timeout`; macOS: `gtimeout` from Homebrew coreutils). The harness
+# invokes the binary directly rather than through portable_timeout() because
+# it needs the --foreground/-k flags, which that wrapper does not pass through.
+source "${BATS_TEST_DIRNAME}/../../lib/timeout_utils.sh"
+if ! E2E_TIMEOUT_CMD="$(detect_timeout_command)"; then
     echo "FATAL: E2E tests require GNU timeout (brew install coreutils on macOS)" >&2
     exit 1
 fi
@@ -79,6 +77,9 @@ EOF
     export ENABLE_BACKUP=false
     export CLAUDE_TIMEOUT_MINUTES=1
     export CLAUDE_USE_CONTINUE=false         # tests opt in to session continuity
+    # Hermeticity: a developer's exported model/effort overrides would
+    # otherwise leak extra flags into the mock's argv
+    unset CLAUDE_MODEL CLAUDE_EFFORT
 }
 
 teardown_e2e_project() {
