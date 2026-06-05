@@ -1255,6 +1255,21 @@ MOCK_GH_EOF
     [[ ! -f "add-user-login/.ralph_conversion_prompt.md" ]]
 }
 
+@test "ralph-import --github-issue includes comments when --include-comments is set" {
+    create_mock_gh_with_issue
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 42 --include-comments
+
+    assert_success
+    local prd
+    prd=$(ls add-user-login/*issue-42.md 2>/dev/null | head -1)
+    [[ -n "$prd" ]]
+    # The opt-in flag wires through to the PRD: comments appear as Discussion
+    grep -q '^## Discussion' "$prd"
+    grep -q 'alice' "$prd"
+    grep -q 'start with the form' "$prd"
+}
+
 @test "ralph-import --github-issue fails with guidance when gh is unauthenticated" {
     # gh exists but auth fails — error must guide the user to authenticate
     cat > "$MOCK_BIN_DIR/gh" << 'MOCK_GH_EOF'
