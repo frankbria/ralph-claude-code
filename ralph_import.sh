@@ -754,6 +754,10 @@ main_github() {
         exit 1
     fi
 
+    # Preflight local tooling before any (billed) Claude plan-generation
+    # call — a missing ralph-setup must fail fast, not after plan approval
+    check_dependencies
+
     # Resolve search/label queries to an issue number
     local issue_number="$GITHUB_ISSUE"
     if [[ -z "$issue_number" ]]; then

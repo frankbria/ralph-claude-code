@@ -1428,6 +1428,26 @@ MOCK_CLAUDE_EOF
     [[ -f "add-user-login/.ralph/specs/implementation-plan.md" ]]
 }
 
+@test "github import preflights dependencies before generating a plan" {
+    # Missing ralph-setup must fail BEFORE the (billed) plan-generation
+    # Claude call, not after it (codex P2)
+    create_mock_gh_vague_issue
+    create_mock_claude_recording
+    remove_ralph_setup_mock
+
+    local ORIGINAL_PATH="$PATH"
+    export PATH="$MOCK_BIN_DIR:/usr/bin:/bin"
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 7
+
+    export PATH="$ORIGINAL_PATH"
+
+    assert_failure
+    [[ "$output" == *"Ralph not installed"* ]] || [[ "$output" == *"ralph-setup"* ]]
+    # Claude was never invoked — no wasted plan-generation call
+    [[ ! -f "$TEST_DIR/claude_stdin_1" ]]
+}
+
 @test "github import passes --plan-model to the plan generation call" {
     create_mock_gh_vague_issue
     create_mock_claude_recording
