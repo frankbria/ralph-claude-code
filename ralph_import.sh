@@ -282,6 +282,7 @@ parse_import_args() {
     PLAN_MODEL=""
     COMPLETENESS_THRESHOLD=60
     PLAN_AUTO_APPROVE=""
+    local plan_flags_used=""
     POSITIONAL=()
 
     while [[ $# -gt 0 ]]; do
@@ -337,6 +338,7 @@ parse_import_args() {
                     return 1
                 fi
                 PLAN_GENERATION="force"
+                plan_flags_used="--generate-plan"
                 shift
                 ;;
             --no-generate-plan)
@@ -345,6 +347,7 @@ parse_import_args() {
                     return 1
                 fi
                 PLAN_GENERATION="skip"
+                plan_flags_used="--no-generate-plan"
                 shift
                 ;;
             --plan-model)
@@ -353,6 +356,7 @@ parse_import_args() {
                     return 1
                 fi
                 PLAN_MODEL="$2"
+                plan_flags_used="--plan-model"
                 shift 2
                 ;;
             --completeness-threshold)
@@ -365,10 +369,12 @@ parse_import_args() {
                     return 1
                 fi
                 COMPLETENESS_THRESHOLD="$2"
+                plan_flags_used="--completeness-threshold"
                 shift 2
                 ;;
             --auto-approve)
                 PLAN_AUTO_APPROVE="true"
+                plan_flags_used="--auto-approve"
                 shift
                 ;;
             *)
@@ -386,6 +392,13 @@ parse_import_args() {
     [[ -n "$GITHUB_LABEL" ]] && selector_count=$((selector_count + 1))
     if [[ $selector_count -gt 1 ]]; then
         log "ERROR" "Use only one of --github-issue, --github-search, or --github-label"
+        return 1
+    fi
+
+    # Plan generation only applies to GitHub imports; rejecting (rather than
+    # silently ignoring) the flags on file imports avoids misleading users
+    if [[ "$IMPORT_MODE" != "github" && -n "$plan_flags_used" ]]; then
+        log "ERROR" "$plan_flags_used requires a GitHub import (use --github-issue, --github-search, or --github-label)"
         return 1
     fi
 
@@ -565,7 +578,8 @@ github_project_name() {
 # Calls Claude Code with the issue PRD and the completeness analysis to
 # produce an implementation plan. Uses the same modern-CLI/JSON pattern as
 # convert_prd(), with a text fallback for older CLI versions. No tools are
-# allowed — the response text IS the plan.
+# granted (unlike convert_prd, no --allowedTools) — the response text IS
+# the plan; nothing should be written to disk by the CLI.
 #
 # Parameters:
 #   $1 (prd_file)      - Formatted issue PRD (input, treated as data)
@@ -625,13 +639,15 @@ PLANEOF
 
     log "INFO" "Generating implementation plan${PLAN_MODEL:+ (model: $PLAN_MODEL)}..."
 
-    # Build CLI args; --print is required for piped input
-    local claude_args=("--print" "--strict-mcp-config")
+    # Build CLI args; --print is required for piped input. Modern-only flags
+    # (--strict-mcp-config, --output-format) stay off the legacy path, which
+    # must remain plain `--print` like convert_prd()'s old-CLI branch
+    local claude_args=("--print")
     local use_modern_cli=true
     if ! check_claude_version 2>/dev/null; then
         use_modern_cli=false
     else
-        claude_args+=("--output-format" "$CLAUDE_OUTPUT_FORMAT")
+        claude_args+=("--strict-mcp-config" "--output-format" "$CLAUDE_OUTPUT_FORMAT")
     fi
     if [[ -n "$PLAN_MODEL" ]]; then
         claude_args+=("--model" "$PLAN_MODEL")
@@ -772,7 +788,8 @@ main_github() {
         log "ERROR" "Issue completeness assessment failed"
         exit 1
     fi
-    log_issue_analysis "$analysis_file"
+    # Display-only; must not abort the import under set -e if jq chokes
+    log_issue_analysis "$analysis_file" || true
 
     local recommendation
     recommendation=$(jq -r '.recommendation' "$analysis_file")

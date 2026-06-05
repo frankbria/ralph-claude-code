@@ -471,6 +471,24 @@ EOF
     [[ "$PLAN_AUTO_APPROVE" == "true" ]]
 }
 
+@test "parse_import_args rejects plan flags without a GitHub selector" {
+    # Plan generation only exists for GitHub imports; silently ignoring the
+    # flags on file imports would mislead users
+    run parse_import_args my-prd.md --generate-plan
+    assert_failure
+    [[ "$output" == *"GitHub import"* ]]
+
+    run parse_import_args my-prd.md --plan-model opus
+    assert_failure
+    [[ "$output" == *"GitHub import"* ]]
+
+    run parse_import_args my-prd.md --completeness-threshold 70
+    assert_failure
+
+    run parse_import_args my-prd.md --auto-approve
+    assert_failure
+}
+
 # -----------------------------------------------------------------------------
 # generate_implementation_plan / approve_generated_plan (Issue #70)
 # -----------------------------------------------------------------------------
@@ -577,9 +595,10 @@ MOCKEOF
 
 @test "generate_implementation_plan accepts plain-text output (older CLI)" {
     mkdir -p "$TEST_DIR/mock_bin"
-    cat > "$TEST_DIR/mock_bin/claude" << 'MOCKEOF'
+    cat > "$TEST_DIR/mock_bin/claude" << MOCKEOF
 #!/bin/bash
-[[ "$1" == "--version" ]] && { echo "Claude Code CLI version 1.0.0"; exit 0; }
+[[ "\$1" == "--version" ]] && { echo "Claude Code CLI version 1.0.0"; exit 0; }
+printf '%s\n' "\$*" >> "$TEST_DIR/claude_args"
 cat > /dev/null
 echo "## Plain Text Plan"
 MOCKEOF
@@ -592,6 +611,11 @@ MOCKEOF
     assert_success
 
     grep -q "Plain Text Plan" "plan.md"
+
+    # Legacy path must not pass modern-only flags (codex P1): old CLIs
+    # reject --strict-mcp-config / --output-format
+    ! grep -q -- "--strict-mcp-config" "$TEST_DIR/claude_args"
+    ! grep -q -- "--output-format" "$TEST_DIR/claude_args"
 }
 
 @test "generate_implementation_plan fails on an empty plan" {
