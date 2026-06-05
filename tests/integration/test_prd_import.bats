@@ -1455,5 +1455,8 @@ MOCK_CLAUDE_EOF
     run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 7 --plan-model opus
 
     assert_success
-    grep -q -- "--model opus" "$TEST_DIR/claude_args.log"
+    # Call-specific assertions: --model goes to the plan-generation call
+    # (line 1) only — the conversion call (line 2) must not inherit it
+    sed -n '1p' "$TEST_DIR/claude_args.log" | grep -q -- "--model opus"
+    ! sed -n '2p' "$TEST_DIR/claude_args.log" | grep -q -- "--model"
 }
