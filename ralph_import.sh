@@ -249,6 +249,10 @@ GITHUB_SEARCH=""            # Search query from --github-search
 GITHUB_LABEL=""             # Label from --github-label
 GITHUB_REPO=""              # owner/repo override from --repo
 GITHUB_INCLUDE_COMMENTS=""  # "true" when --include-comments is passed
+PLAN_GENERATION="auto"      # "auto" (score decides) | "force" | "skip" (Issue #70)
+PLAN_MODEL=""               # Model alias for plan generation (--plan-model)
+COMPLETENESS_THRESHOLD=60   # Score below which a plan is generated
+PLAN_AUTO_APPROVE=""        # "true" when --auto-approve is passed
 declare -a POSITIONAL=()
 
 # parse_import_args - Parse command-line arguments into mode + positional args
@@ -267,6 +271,10 @@ parse_import_args() {
     GITHUB_LABEL=""
     GITHUB_REPO=""
     GITHUB_INCLUDE_COMMENTS=""
+    PLAN_GENERATION="auto"
+    PLAN_MODEL=""
+    COMPLETENESS_THRESHOLD=60
+    PLAN_AUTO_APPROVE=""
     POSITIONAL=()
 
     while [[ $# -gt 0 ]]; do
@@ -314,6 +322,46 @@ parse_import_args() {
                 ;;
             --include-comments)
                 GITHUB_INCLUDE_COMMENTS="true"
+                shift
+                ;;
+            --generate-plan)
+                if [[ "$PLAN_GENERATION" == "skip" ]]; then
+                    log "ERROR" "--generate-plan and --no-generate-plan are mutually exclusive"
+                    return 1
+                fi
+                PLAN_GENERATION="force"
+                shift
+                ;;
+            --no-generate-plan)
+                if [[ "$PLAN_GENERATION" == "force" ]]; then
+                    log "ERROR" "--generate-plan and --no-generate-plan are mutually exclusive"
+                    return 1
+                fi
+                PLAN_GENERATION="skip"
+                shift
+                ;;
+            --plan-model)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--plan-model requires a value (e.g. opus, sonnet, haiku)"
+                    return 1
+                fi
+                PLAN_MODEL="$2"
+                shift 2
+                ;;
+            --completeness-threshold)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--completeness-threshold requires a value (0-100)"
+                    return 1
+                fi
+                if ! [[ "$2" =~ ^[0-9]+$ ]] || [[ "$2" -gt 100 ]]; then
+                    log "ERROR" "--completeness-threshold must be a number 0-100, got: $2"
+                    return 1
+                fi
+                COMPLETENESS_THRESHOLD="$2"
+                shift 2
+                ;;
+            --auto-approve)
+                PLAN_AUTO_APPROVE="true"
                 shift
                 ;;
             *)

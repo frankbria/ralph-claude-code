@@ -404,3 +404,69 @@ EOF
     parse_import_args --github-issue 42 --include-comments
     [[ "$GITHUB_INCLUDE_COMMENTS" == "true" ]]
 }
+
+# -----------------------------------------------------------------------------
+# parse_import_args - plan generation flags (Issue #70)
+# -----------------------------------------------------------------------------
+
+@test "parse_import_args defaults plan generation to auto with threshold 60" {
+    parse_import_args --github-issue 42
+    [[ "$PLAN_GENERATION" == "auto" ]]
+    [[ -z "$PLAN_MODEL" ]]
+    [[ "$COMPLETENESS_THRESHOLD" == "60" ]]
+    [[ -z "$PLAN_AUTO_APPROVE" ]]
+}
+
+@test "parse_import_args captures --generate-plan and --no-generate-plan" {
+    parse_import_args --github-issue 42 --generate-plan
+    [[ "$PLAN_GENERATION" == "force" ]]
+
+    parse_import_args --github-issue 42 --no-generate-plan
+    [[ "$PLAN_GENERATION" == "skip" ]]
+}
+
+@test "parse_import_args rejects --generate-plan with --no-generate-plan" {
+    run parse_import_args --github-issue 42 --generate-plan --no-generate-plan
+    assert_failure
+    [[ "$output" == *"--generate-plan"* && "$output" == *"--no-generate-plan"* ]]
+}
+
+@test "parse_import_args captures --plan-model" {
+    parse_import_args --github-issue 42 --plan-model opus
+    [[ "$PLAN_MODEL" == "opus" ]]
+}
+
+@test "parse_import_args rejects --plan-model without a value" {
+    run parse_import_args --github-issue 42 --plan-model
+    assert_failure
+    [[ "$output" == *"--plan-model"* && "$output" == *"requires"* ]]
+
+    # Flag-shaped value must not be swallowed
+    run parse_import_args --github-issue 42 --plan-model --auto-approve
+    assert_failure
+    [[ "$output" == *"--plan-model"* && "$output" == *"requires"* ]]
+}
+
+@test "parse_import_args captures --completeness-threshold" {
+    parse_import_args --github-issue 42 --completeness-threshold 75
+    [[ "$COMPLETENESS_THRESHOLD" == "75" ]]
+}
+
+@test "parse_import_args rejects invalid --completeness-threshold values" {
+    run parse_import_args --github-issue 42 --completeness-threshold
+    assert_failure
+    [[ "$output" == *"--completeness-threshold"* && "$output" == *"requires"* ]]
+
+    run parse_import_args --github-issue 42 --completeness-threshold abc
+    assert_failure
+    [[ "$output" == *"0-100"* ]]
+
+    run parse_import_args --github-issue 42 --completeness-threshold 101
+    assert_failure
+    [[ "$output" == *"0-100"* ]]
+}
+
+@test "parse_import_args captures --auto-approve" {
+    parse_import_args --github-issue 42 --auto-approve
+    [[ "$PLAN_AUTO_APPROVE" == "true" ]]
+}
