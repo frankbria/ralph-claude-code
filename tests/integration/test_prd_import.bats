@@ -1247,7 +1247,8 @@ MOCK_GH_EOF
     [[ -n "$prd" ]]
     grep -q '^# Add User Login' "$prd"
     grep -q 'Build login form' "$prd"
-    grep -q '## Discussion' "$prd"
+    # Comments are excluded by default (untrusted input; opt in via --include-comments)
+    ! grep -q '## Discussion' "$prd"
 
     # No temp conversion artifacts left behind in the project
     [[ ! -f "add-user-login/.ralph_conversion_output.json" ]]

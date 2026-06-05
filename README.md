@@ -415,9 +415,14 @@ ralph-import --github-issue 42 --repo myorg/myrepo
 
 # Override the auto-generated project name (slug of the issue title)
 ralph-import --github-issue 42 my-project
+
+# Also import issue comments (e.g. when a plan was posted as a comment)
+ralph-import --github-issue 42 --include-comments
 ```
 
-The issue title becomes the project name (slugified, e.g. `Add User Login` → `add-user-login`), the issue body becomes the PRD content, and non-empty comments are included under a "Discussion" section — implementation plans posted as comments are imported too.
+The issue title becomes the project name (slugified, e.g. `Add User Login` → `add-user-login`) and the issue body becomes the PRD content. Use exactly one selector (`--github-issue`, `--github-search`, or `--github-label`) per import.
+
+> **Security note**: issue comments are **excluded by default** — on public repositories anyone can comment, and comment text flows into the AI conversion prompt. Pass `--include-comments` only when you trust the discussion (e.g. plans posted by maintainers).
 
 ### Troubleshooting
 - **"GitHub CLI (gh) is not installed"** — install it from https://cli.github.com
