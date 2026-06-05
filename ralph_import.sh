@@ -845,6 +845,20 @@ GitHub import options (use exactly one of the three selectors):
     --include-comments        Also import issue comments (excluded by default:
                               comments are untrusted input on public repos)
 
+Plan generation options (GitHub imports only):
+    Issues are scored 0-100 for implementation detail (acceptance criteria,
+    checklists, code examples, structure, length). Below the threshold, an
+    implementation plan is generated with Claude Code before conversion.
+
+    --generate-plan               Always generate a plan, regardless of score
+    --no-generate-plan            Never generate a plan (fail if score is below
+                                  the threshold)
+    --plan-model <model>          Model for plan generation (e.g. opus, sonnet,
+                                  haiku; default: CLI default)
+    --completeness-threshold <N>  Score below which a plan is generated
+                                  (0-100, default: 60)
+    --auto-approve                Accept the generated plan without prompting
+
 Examples:
     $0 my-app-prd.md
     $0 requirements.txt my-awesome-app
@@ -854,6 +868,7 @@ Examples:
     $0 --github-search "fix login timeout"
     $0 --github-label "sprint-1" my-sprint-app
     $0 --github-issue 42 --repo myorg/myrepo
+    $0 --github-issue 42 --generate-plan --plan-model opus --auto-approve
 
 GitHub import prerequisites:
     - GitHub CLI (gh) installed: https://cli.github.com

@@ -17,6 +17,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **ralph_import.sh** — converts PRD/spec documents to Ralph format; uses `--output-format json` with automatic text fallback for older CLI versions
   - GitHub issue import (Issue #69): `--github-issue <N>` | `--github-search <query>` | `--github-label <label>` (one selector), plus `--repo <owner/repo>`, `--include-comments`
   - Fetches via `gh` into a markdown PRD, then the normal conversion pipeline. Comments off by default (prompt-injection surface); source content is treated as data, not instructions
+  - Completeness assessment + plan generation (Issue #70): issues are scored 0–100 via `lib/issue_analyzer.sh`; below `--completeness-threshold` (default 60) an implementation plan is generated via Claude CLI (`--plan-model` passthrough) and appended to the PRD before conversion, plus saved to `.ralph/specs/implementation-plan.md`. Flags: `--generate-plan` (force), `--no-generate-plan` (fail if below threshold), `--auto-approve` (skip the approval prompt; non-TTY sessions auto-accept)
 - **ralph_enable.sh** — interactive wizard enabling Ralph in existing projects (environment detection, task source selection, generates `.ralphrc`)
 - **ralph_enable_ci.sh** — non-interactive version for CI/automation; `--json` output mode; exit codes: 0 (success), 1 (error), 2 (already enabled)
 
@@ -29,6 +30,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **enable_core.sh** — shared enable logic: idempotency checks (`is_ralph_enabled()`), safe file operations, project/git/task-source detection, template generation (`generate_prompt_md()`, `generate_ralphrc()`, etc.)
 - **wizard_utils.sh** — interactive prompt utilities (confirm, select, print helpers); POSIX-compatible (`tr` instead of `${,,}`) for bash 3.x support
 - **task_sources.sh** — task import from beads, GitHub Issues, and PRD documents (checkbox and numbered list formats); normalization and prioritization
+- **issue_analyzer.sh** — `assess_issue_completeness()`: deterministic 0–100 heuristic scoring of issue PRDs (acceptance criteria +25, checklists/code blocks/sections/keywords/length +15 each); JSON output with `confidence_score`, `completeness_level`, `missing_elements`, `recommendation`; `log_issue_analysis()` for summaries
 - **file_protection.sh** — `validate_ralph_integrity()` checks `RALPH_REQUIRED_PATHS` exist; runs every loop iteration; `get_integrity_report()` for recovery instructions
 - **log_utils.sh** — `rotate_logs()` rotates `$LOG_DIR/ralph.log` at 10MB, keeping 4 archives (`.log.1`–`.log.4`); GNU `stat -c%s` with BSD `stat -f%z` fallback
 
