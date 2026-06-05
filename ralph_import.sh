@@ -285,7 +285,9 @@ parse_import_args() {
                 shift 2
                 ;;
             --github-search)
-                if [[ -z "${2:-}" ]]; then
+                # Also reject flag-shaped values so a missing value doesn't
+                # swallow the next flag (e.g. --github-search --github-label x)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
                     log "ERROR" "--github-search requires a value (search query)"
                     return 1
                 fi
@@ -294,7 +296,7 @@ parse_import_args() {
                 shift 2
                 ;;
             --github-label)
-                if [[ -z "${2:-}" ]]; then
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
                     log "ERROR" "--github-label requires a value (label name)"
                     return 1
                 fi
@@ -303,7 +305,7 @@ parse_import_args() {
                 shift 2
                 ;;
             --repo)
-                if [[ -z "${2:-}" ]]; then
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
                     log "ERROR" "--repo requires a value (owner/repo)"
                     return 1
                 fi

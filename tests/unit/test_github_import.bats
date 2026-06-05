@@ -372,6 +372,21 @@ EOF
     [[ "${POSITIONAL[1]}" == "my-project" ]]
 }
 
+@test "parse_import_args rejects flag-shaped values for value-taking flags" {
+    # A missing value followed by another flag must not be swallowed as the value
+    run parse_import_args --github-search --github-label sprint-1
+    assert_failure
+    [[ "$output" == *"--github-search"* && "$output" == *"requires"* ]]
+
+    run parse_import_args --github-label --repo o/r
+    assert_failure
+    [[ "$output" == *"--github-label"* && "$output" == *"requires"* ]]
+
+    run parse_import_args --github-issue 42 --repo --include-comments
+    assert_failure
+    [[ "$output" == *"--repo"* && "$output" == *"requires"* ]]
+}
+
 @test "parse_import_args rejects conflicting issue selectors" {
     run parse_import_args --github-search "login" --github-label "bug"
     assert_failure
