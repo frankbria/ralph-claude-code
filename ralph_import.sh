@@ -238,21 +238,324 @@ check_claude_version() {
     return 0
 }
 
+# =============================================================================
+# GITHUB ISSUE IMPORT (Issue #69)
+# =============================================================================
+
+# Globals set by parse_import_args
+IMPORT_MODE="file"   # "file" (default) or "github"
+GITHUB_ISSUE=""      # Issue number from --github-issue
+GITHUB_SEARCH=""     # Search query from --github-search
+GITHUB_LABEL=""      # Label from --github-label
+GITHUB_REPO=""       # owner/repo override from --repo
+declare -a POSITIONAL=()
+
+# parse_import_args - Parse command-line arguments into mode + positional args
+#
+# Recognizes GitHub import flags (--github-issue, --github-search,
+# --github-label, --repo); everything else is collected into POSITIONAL,
+# preserving the original `ralph-import <source-file> [project-name]` form.
+#
+# Returns:
+#   0 on success, 1 on invalid/missing flag values (with ERROR logged)
+#
+parse_import_args() {
+    IMPORT_MODE="file"
+    GITHUB_ISSUE=""
+    GITHUB_SEARCH=""
+    GITHUB_LABEL=""
+    GITHUB_REPO=""
+    POSITIONAL=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --github-issue)
+                if [[ -z "${2:-}" ]]; then
+                    log "ERROR" "--github-issue requires a value (issue number)"
+                    return 1
+                fi
+                if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    log "ERROR" "--github-issue requires an issue number, got: $2"
+                    return 1
+                fi
+                IMPORT_MODE="github"
+                GITHUB_ISSUE="$2"
+                shift 2
+                ;;
+            --github-search)
+                if [[ -z "${2:-}" ]]; then
+                    log "ERROR" "--github-search requires a value (search query)"
+                    return 1
+                fi
+                IMPORT_MODE="github"
+                GITHUB_SEARCH="$2"
+                shift 2
+                ;;
+            --github-label)
+                if [[ -z "${2:-}" ]]; then
+                    log "ERROR" "--github-label requires a value (label name)"
+                    return 1
+                fi
+                IMPORT_MODE="github"
+                GITHUB_LABEL="$2"
+                shift 2
+                ;;
+            --repo)
+                if [[ -z "${2:-}" ]]; then
+                    log "ERROR" "--repo requires a value (owner/repo)"
+                    return 1
+                fi
+                GITHUB_REPO="$2"
+                shift 2
+                ;;
+            *)
+                POSITIONAL+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+# check_github_cli - Verify GitHub CLI is installed and authenticated
+#
+# Returns:
+#   0 if gh is installed and authenticated
+#   1 otherwise (with an actionable ERROR logged)
+#
+check_github_cli() {
+    if ! command -v gh &>/dev/null; then
+        log "ERROR" "GitHub CLI (gh) is not installed. Install it from https://cli.github.com (e.g. 'brew install gh' or 'sudo apt install gh')"
+        return 1
+    fi
+
+    if ! gh auth status &>/dev/null; then
+        log "ERROR" "GitHub CLI is not authenticated. Run: gh auth login"
+        return 1
+    fi
+
+    return 0
+}
+
+# resolve_github_issue_number - Find an issue number by search query or label
+#
+# Parameters:
+#   $1 (mode)  - "search" or "label"
+#   $2 (query) - Search string or label name
+#   $3 (repo)  - Optional owner/repo (empty = repo of current directory)
+#
+# Returns:
+#   Echoes the first matching open issue's number; returns 1 if none match
+#
+resolve_github_issue_number() {
+    local mode=$1
+    local query=$2
+    local repo="${3:-}"
+
+    local gh_args=("issue" "list" "--state" "open" "--limit" "1" "--json" "number")
+    case "$mode" in
+        search) gh_args+=("--search" "$query") ;;
+        label)  gh_args+=("--label" "$query") ;;
+        *)
+            log "ERROR" "Unknown GitHub lookup mode: $mode"
+            return 1
+            ;;
+    esac
+    if [[ -n "$repo" ]]; then
+        gh_args+=("--repo" "$repo")
+    fi
+
+    local json_output
+    if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
+        log "ERROR" "GitHub issue lookup failed (${mode}: ${query})"
+        return 1
+    fi
+
+    local number
+    number=$(echo "$json_output" | jq -r '.[0].number // empty' 2>/dev/null)
+    if [[ -z "$number" ]]; then
+        log "ERROR" "No issues found matching ${mode}: \"${query}\". Try refining your ${mode} criteria."
+        return 1
+    fi
+
+    echo "$number"
+}
+
+# fetch_github_issue - Fetch a single issue as JSON via the GitHub CLI
+#
+# Parameters:
+#   $1 (issue_number) - Issue number to fetch
+#   $2 (repo)         - Optional owner/repo (empty = repo of current directory)
+#
+# Returns:
+#   Echoes issue JSON (number,title,body,labels,comments,url); 1 on failure
+#
+fetch_github_issue() {
+    local issue_number=$1
+    local repo="${2:-}"
+
+    local gh_args=("issue" "view" "$issue_number" "--json" "number,title,body,labels,comments,url")
+    if [[ -n "$repo" ]]; then
+        gh_args+=("--repo" "$repo")
+    fi
+
+    local json_output
+    if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
+        log "ERROR" "Could not fetch issue #${issue_number}${repo:+ from $repo} (not found or no access)"
+        return 1
+    fi
+
+    echo "$json_output"
+}
+
+# format_issue_as_prd - Render issue JSON as a markdown PRD document
+#
+# Parameters:
+#   $1 (json_file)   - File containing issue JSON from fetch_github_issue
+#   $2 (output_file) - Destination markdown file
+#
+# Output structure: H1 title, metadata blockquote (number/labels/URL), issue
+# body, then non-empty comments under "## Discussion" (plans often live in
+# issue comments, so they are part of the imported requirements).
+#
+format_issue_as_prd() {
+    local json_file=$1
+    local output_file=$2
+
+    local number title body url labels
+    number=$(jq -r '.number' "$json_file")
+    title=$(jq -r '.title // ""' "$json_file")
+    body=$(jq -r '.body // ""' "$json_file")
+    url=$(jq -r '.url // ""' "$json_file")
+    labels=$(jq -r '[.labels[]?.name] | join(", ")' "$json_file")
+
+    if [[ -z "$body" ]]; then
+        log "WARN" "Issue #${number} has an empty body; the PRD will contain the title and discussion only"
+    fi
+
+    {
+        echo "# ${title:-Issue #$number}"
+        echo ""
+        echo "> GitHub issue #${number}${labels:+ | Labels: $labels}${url:+ | $url}"
+        echo ""
+        if [[ -n "$body" ]]; then
+            echo "$body"
+            echo ""
+        fi
+        local comment_count
+        comment_count=$(jq -r '[.comments[]? | select(.body != null and .body != "")] | length' "$json_file")
+        if [[ "$comment_count" -gt 0 ]]; then
+            echo "## Discussion"
+            echo ""
+            jq -r '.comments[]? | select(.body != null and .body != "") | "**\(.author.login // "unknown")**:\n\n\(.body)\n"' "$json_file"
+        fi
+    } > "$output_file"
+}
+
+# github_project_name - Derive a project directory name from an issue
+#
+# Slugifies the issue title (lowercase, non-alphanumerics collapsed to
+# hyphens); falls back to "issue-<N>" for untitled issues.
+# Uses only POSIX-safe sed patterns (no \+) for BSD/macOS compatibility.
+#
+github_project_name() {
+    local json_file=$1
+
+    local number title slug
+    number=$(jq -r '.number' "$json_file")
+    title=$(jq -r '.title // ""' "$json_file")
+
+    slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/--*/-/g' -e 's/^-*//' -e 's/-*$//')
+
+    if [[ -z "$slug" ]]; then
+        echo "issue-${number}"
+    else
+        echo "$slug"
+    fi
+}
+
+# main_github - GitHub import entry point: fetch issue, format PRD, convert
+#
+# Parameters:
+#   $1 (project_name) - Optional project name (default: slug of issue title)
+#
+main_github() {
+    local project_name="${1:-}"
+
+    check_github_cli || exit 1
+
+    if ! command -v jq &>/dev/null; then
+        log "ERROR" "jq is required for GitHub issue import. Install it (brew install jq | sudo apt-get install jq)"
+        exit 1
+    fi
+
+    # Resolve search/label queries to an issue number
+    local issue_number="$GITHUB_ISSUE"
+    if [[ -z "$issue_number" ]]; then
+        if [[ -n "$GITHUB_SEARCH" ]]; then
+            issue_number=$(resolve_github_issue_number "search" "$GITHUB_SEARCH" "$GITHUB_REPO") || exit 1
+        elif [[ -n "$GITHUB_LABEL" ]]; then
+            issue_number=$(resolve_github_issue_number "label" "$GITHUB_LABEL" "$GITHUB_REPO") || exit 1
+        fi
+    fi
+
+    log "INFO" "Importing GitHub issue #${issue_number}${GITHUB_REPO:+ from $GITHUB_REPO}"
+
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    # shellcheck disable=SC2064  # expand tmp_dir now: it is local to this function
+    trap "rm -rf '$tmp_dir'" EXIT
+
+    local json_file="$tmp_dir/issue.json"
+    fetch_github_issue "$issue_number" "$GITHUB_REPO" > "$json_file" || exit 1
+
+    if [[ -z "$project_name" ]]; then
+        project_name=$(github_project_name "$json_file")
+    fi
+
+    # Render the issue as a markdown PRD and reuse the existing file pipeline
+    local prd_file="$tmp_dir/${project_name}-issue-${issue_number}.md"
+    format_issue_as_prd "$json_file" "$prd_file"
+
+    main "$prd_file" "$project_name"
+}
+
 show_help() {
     cat << HELPEOF
 Ralph Import - Convert PRDs to Ralph Format
 
 Usage: $0 <source-file> [project-name]
+       $0 --github-issue <N> [project-name]
+       $0 --github-search <query> [project-name]
+       $0 --github-label <label> [project-name]
 
 Arguments:
     source-file     Path to your PRD/specification file (any format)
-    project-name    Name for the new Ralph project (optional, defaults to filename)
+    project-name    Name for the new Ralph project (optional, defaults to
+                    filename, or to a slug of the issue title for GitHub imports)
+
+GitHub import options:
+    --github-issue <N>        Import a specific issue by number
+    --github-search <query>   Import the first open issue matching a search
+    --github-label <label>    Import the first open issue with a label
+    --repo <owner/repo>       Repository to fetch from (default: current repo)
 
 Examples:
     $0 my-app-prd.md
     $0 requirements.txt my-awesome-app
     $0 project-spec.json
     $0 design-doc.docx webapp
+    $0 --github-issue 42
+    $0 --github-search "fix login timeout"
+    $0 --github-label "sprint-1" my-sprint-app
+    $0 --github-issue 42 --repo myorg/myrepo
+
+GitHub import prerequisites:
+    - GitHub CLI (gh) installed: https://cli.github.com
+      (brew install gh | sudo apt install gh)
+    - Authenticated: gh auth login
+    - jq installed (for issue JSON parsing)
 
 Supported formats:
     - Markdown (.md)
@@ -636,8 +939,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             show_help
             exit 0
             ;;
-        *)
-            main "$@"
-            ;;
     esac
+
+    if ! parse_import_args "$@"; then
+        exit 1
+    fi
+
+    if [[ "$IMPORT_MODE" == "github" ]]; then
+        main_github "${POSITIONAL[0]:-}"
+    else
+        main "${POSITIONAL[@]}"
+    fi
 fi

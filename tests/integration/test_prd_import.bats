@@ -1198,3 +1198,75 @@ DETAILED_ERROR_EOF
     # Error message should be shown
     [[ "$output" == *"ERROR"* ]] || [[ "$output" == *"failed"* ]]
 }
+
+# =============================================================================
+# GITHUB ISSUE IMPORT (Issue #69)
+# =============================================================================
+#
+# Full-flow tests for `ralph-import --github-issue <N>`: a mock `gh` binary in
+# MOCK_BIN_DIR serves issue JSON, the existing mock claude/ralph-setup handle
+# the conversion pipeline. Acceptance criteria from issue #69.
+
+# Helper: mock gh that is authenticated and serves a fixed issue
+create_mock_gh_with_issue() {
+    cat > "$MOCK_BIN_DIR/gh" << 'MOCK_GH_EOF'
+#!/bin/bash
+case "$1" in
+    auth)
+        exit 0
+        ;;
+    issue)
+        cat << 'JSON'
+{"number":42,"title":"Add User Login","body":"## Summary\n\nUsers need to log in.\n\n- [ ] Build login form\n- [ ] Add session handling","labels":[{"name":"enhancement"}],"comments":[{"author":{"login":"alice"},"body":"Plan: start with the form."}],"url":"https://github.com/test/repo/issues/42"}
+JSON
+        ;;
+esac
+exit 0
+MOCK_GH_EOF
+    chmod +x "$MOCK_BIN_DIR/gh"
+}
+
+@test "ralph-import --github-issue fetches issue and runs conversion pipeline" {
+    create_mock_gh_with_issue
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 42
+
+    assert_success
+    [[ "$output" == *"Importing GitHub issue #42"* ]]
+
+    # Project dir derived from slugified issue title
+    [[ -d "add-user-login" ]]
+
+    # Conversion pipeline produced the Ralph files (via mock claude)
+    [[ -f "add-user-login/.ralph/PROMPT.md" ]]
+    [[ -f "add-user-login/.ralph/fix_plan.md" ]]
+
+    # The formatted issue PRD was copied into the project and keeps issue content
+    local prd
+    prd=$(ls add-user-login/*issue-42.md 2>/dev/null | head -1)
+    [[ -n "$prd" ]]
+    grep -q '^# Add User Login' "$prd"
+    grep -q 'Build login form' "$prd"
+    grep -q '## Discussion' "$prd"
+
+    # No temp conversion artifacts left behind in the project
+    [[ ! -f "add-user-login/.ralph_conversion_output.json" ]]
+    [[ ! -f "add-user-login/.ralph_conversion_prompt.md" ]]
+}
+
+@test "ralph-import --github-issue fails with guidance when gh is unauthenticated" {
+    # gh exists but auth fails — error must guide the user to authenticate
+    cat > "$MOCK_BIN_DIR/gh" << 'MOCK_GH_EOF'
+#!/bin/bash
+[[ "$1" == "auth" ]] && exit 1
+exit 0
+MOCK_GH_EOF
+    chmod +x "$MOCK_BIN_DIR/gh"
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 42
+
+    assert_failure
+    [[ "$output" == *"gh auth login"* ]]
+    # No project directory should have been created
+    [[ ! -d "add-user-login" ]] && [[ ! -d "issue-42" ]]
+}

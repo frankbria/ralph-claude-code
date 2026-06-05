@@ -389,6 +389,42 @@ Ralph-import creates a complete project with:
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
+## Importing from GitHub Issues
+
+Ralph can also import a development plan directly from a GitHub issue. The issue body and discussion comments are converted into the same Ralph format as a local PRD.
+
+### Prerequisites
+- GitHub CLI (`gh`) installed: `brew install gh` or `sudo apt install gh` (see https://cli.github.com)
+- Authenticated: `gh auth login`
+- `jq` installed (used to parse issue JSON)
+
+### Usage Examples
+
+```bash
+# Import a specific issue by number
+ralph-import --github-issue 42
+
+# Import the first open issue matching a search
+ralph-import --github-search "fix login timeout"
+
+# Import the first open issue with a label
+ralph-import --github-label "sprint-1"
+
+# Fetch from a specific repository (default: repo of the current directory)
+ralph-import --github-issue 42 --repo myorg/myrepo
+
+# Override the auto-generated project name (slug of the issue title)
+ralph-import --github-issue 42 my-project
+```
+
+The issue title becomes the project name (slugified, e.g. `Add User Login` → `add-user-login`), the issue body becomes the PRD content, and non-empty comments are included under a "Discussion" section — implementation plans posted as comments are imported too.
+
+### Troubleshooting
+- **"GitHub CLI (gh) is not installed"** — install it from https://cli.github.com
+- **"GitHub CLI is not authenticated"** — run `gh auth login`
+- **"Could not fetch issue #N"** — check the issue number, your repo access, and the `--repo` value
+- **"No issues found matching..."** — refine your `--github-search` / `--github-label` criteria (only open issues are matched)
+
 ## Configuration
 
 ### Project Configuration (.ralphrc)
