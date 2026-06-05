@@ -14,7 +14,8 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **ralph_monitor.sh** — live monitoring dashboard for tracking loop status
 - **setup.sh** — project initialization for new Ralph projects
 - **create_files.sh** — bootstrap script that creates the entire Ralph system
-- **ralph_import.sh** — converts PRD/spec documents to Ralph format; uses `--output-format json` with automatic text fallback for older CLI versions. Also imports single GitHub issues (`--github-issue <N>`, `--github-search <query>`, `--github-label <label>` — exactly one selector — plus optional `--repo <owner/repo>` and `--include-comments`): fetches via `gh`, formats the issue as a markdown PRD, and reuses the same conversion pipeline. Comments are excluded by default (prompt-injection surface on public repos); the conversion prompt instructs Claude to treat source content as data, not instructions (Issue #69)
+- **ralph_import.sh** — converts PRD/spec documents to Ralph format; uses `--output-format json` with automatic text fallback for older CLI versions
+  - GitHub issue import (Issue #69): `--github-issue <N>`, `--github-search <query>`, `--github-label <label>` (exactly one selector), optional `--repo <owner/repo>` and `--include-comments`. Fetches via `gh`, formats the issue as a markdown PRD, reuses the same conversion pipeline. Comments excluded by default (prompt-injection surface); the conversion prompt treats source content as data, not instructions
 - **ralph_enable.sh** — interactive wizard enabling Ralph in existing projects (environment detection, task source selection, generates `.ralphrc`)
 - **ralph_enable_ci.sh** — non-interactive version for CI/automation; `--json` output mode; exit codes: 0 (success), 1 (error), 2 (already enabled)
 

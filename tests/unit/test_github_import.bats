@@ -334,6 +334,11 @@ EOF
     run parse_import_args --github-issue abc
     assert_failure
     [[ "$output" == *"number"* ]]
+
+    # 0 is never a valid GitHub issue number (issues start at 1)
+    run parse_import_args --github-issue 0
+    assert_failure
+    [[ "$output" == *"number"* ]]
 }
 
 @test "parse_import_args captures --repo and search/label queries" {

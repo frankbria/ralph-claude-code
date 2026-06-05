@@ -276,7 +276,7 @@ parse_import_args() {
                     log "ERROR" "--github-issue requires a value (issue number)"
                     return 1
                 fi
-                if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
                     log "ERROR" "--github-issue requires an issue number, got: $2"
                     return 1
                 fi
