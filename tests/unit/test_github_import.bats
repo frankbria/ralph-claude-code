@@ -302,6 +302,20 @@ EOF
     [[ "$GITHUB_LABEL" == "sprint-1" ]]
 }
 
+@test "parse_import_args rejects --github-search, --github-label, --repo without values" {
+    run parse_import_args --github-search
+    assert_failure
+    [[ "$output" == *"--github-search"* && "$output" == *"requires"* ]]
+
+    run parse_import_args --github-label
+    assert_failure
+    [[ "$output" == *"--github-label"* && "$output" == *"requires"* ]]
+
+    run parse_import_args --github-issue 42 --repo
+    assert_failure
+    [[ "$output" == *"--repo"* && "$output" == *"requires"* ]]
+}
+
 @test "parse_import_args keeps positional file arguments unchanged" {
     parse_import_args my-prd.md my-project
     [[ "$IMPORT_MODE" == "file" ]]
