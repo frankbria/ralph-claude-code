@@ -42,6 +42,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
+- **GitHub issue import: `ralph-import --github-issue/--github-search/--github-label`**
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
 
@@ -388,6 +389,47 @@ Ralph-import creates a complete project with:
 - **Standard Ralph structure** - All necessary directories and template files in `.ralph/`
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
+
+## Importing from GitHub Issues
+
+Ralph can also import a development plan directly from a GitHub issue. The issue body and discussion comments are converted into the same Ralph format as a local PRD.
+
+### Prerequisites
+- GitHub CLI (`gh`) installed: `brew install gh` or `sudo apt install gh` (see https://cli.github.com)
+- Authenticated: `gh auth login`
+- `jq` installed (used to parse issue JSON)
+
+### Usage Examples
+
+```bash
+# Import a specific issue by number
+ralph-import --github-issue 42
+
+# Import the first open issue matching a search
+ralph-import --github-search "fix login timeout"
+
+# Import the first open issue with a label
+ralph-import --github-label "sprint-1"
+
+# Fetch from a specific repository (default: repo of the current directory)
+ralph-import --github-issue 42 --repo myorg/myrepo
+
+# Override the auto-generated project name (slug of the issue title)
+ralph-import --github-issue 42 my-project
+
+# Also import issue comments (e.g. when a plan was posted as a comment)
+ralph-import --github-issue 42 --include-comments
+```
+
+The issue title becomes the project name (slugified, e.g. `Add User Login` → `add-user-login`) and the issue body becomes the PRD content. Use exactly one selector (`--github-issue`, `--github-search`, or `--github-label`) per import.
+
+> **Security note**: issue comments are **excluded by default** — on public repositories anyone can comment, and comment text flows into the AI conversion prompt. Pass `--include-comments` only when you trust the discussion (e.g. plans posted by maintainers).
+
+### Troubleshooting
+- **"GitHub CLI (gh) is not installed"** — install it from https://cli.github.com
+- **"GitHub CLI is not authenticated"** — run `gh auth login`
+- **"Could not fetch issue #N"** — check the issue number, your repo access, and the `--repo` value
+- **"No issues found matching..."** — refine your `--github-search` / `--github-label` criteria (only open issues are matched)
 
 ## Configuration
 

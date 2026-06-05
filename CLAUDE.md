@@ -15,6 +15,8 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **setup.sh** — project initialization for new Ralph projects
 - **create_files.sh** — bootstrap script that creates the entire Ralph system
 - **ralph_import.sh** — converts PRD/spec documents to Ralph format; uses `--output-format json` with automatic text fallback for older CLI versions
+  - GitHub issue import (Issue #69): `--github-issue <N>` | `--github-search <query>` | `--github-label <label>` (one selector), plus `--repo <owner/repo>`, `--include-comments`
+  - Fetches via `gh` into a markdown PRD, then the normal conversion pipeline. Comments off by default (prompt-injection surface); source content is treated as data, not instructions
 - **ralph_enable.sh** — interactive wizard enabling Ralph in existing projects (environment detection, task source selection, generates `.ralphrc`)
 - **ralph_enable_ci.sh** — non-interactive version for CI/automation; `--json` output mode; exit codes: 0 (success), 1 (error), 2 (already enabled)
 
