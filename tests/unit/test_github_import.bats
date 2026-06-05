@@ -49,8 +49,9 @@ EOF
 
 # Authenticated gh that serves an issue-view fixture and an issue-list fixture
 _mock_gh_ok() {
-    local view_json="${1:-{\}}"
-    local list_json="${2:-[]}"
+    # Assignment context: no word splitting, so the quoted default is safe
+    local view_json=${1:-"{}"}
+    local list_json=${2:-"[]"}
     _mock_gh "    auth) exit 0 ;;
     issue)
         case \"\$2\" in
