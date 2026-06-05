@@ -192,6 +192,37 @@ run_with_path() {
 }
 
 # -----------------------------------------------------------------------------
+# stdout/stderr separation
+#
+# These functions return data on stdout and are called inside $(...) capture
+# or `> file` redirects, so their error messages MUST go to stderr — otherwise
+# lookup/fetch failures are swallowed silently (codex review round 2).
+# -----------------------------------------------------------------------------
+
+@test "resolve_github_issue_number writes errors to stderr, not stdout" {
+    _mock_gh_ok '{}' '[]'
+
+    local out err
+    out=$(resolve_github_issue_number "search" "nope" "" 2>/dev/null) || true
+    [[ -z "$out" ]]
+
+    err=$(resolve_github_issue_number "search" "nope" "" 2>&1 >/dev/null) || true
+    [[ "$err" == *"No issues"* ]]
+}
+
+@test "fetch_github_issue writes errors to stderr, not stdout" {
+    _mock_gh "    auth) exit 0 ;;
+    issue) exit 1 ;;"
+
+    local out err
+    out=$(fetch_github_issue 9999 "" 2>/dev/null) || true
+    [[ -z "$out" ]]
+
+    err=$(fetch_github_issue 9999 "" 2>&1 >/dev/null) || true
+    [[ "$err" == *"9999"* ]]
+}
+
+# -----------------------------------------------------------------------------
 # format_issue_as_prd
 # -----------------------------------------------------------------------------
 

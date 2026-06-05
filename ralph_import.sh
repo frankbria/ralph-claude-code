@@ -375,7 +375,9 @@ resolve_github_issue_number() {
         search) gh_args+=("--search" "$query") ;;
         label)  gh_args+=("--label" "$query") ;;
         *)
-            log "ERROR" "Unknown GitHub lookup mode: $mode"
+            # Errors go to stderr: this function's stdout is data and is
+            # captured with $(...) by callers — stdout errors would be silent
+            log "ERROR" "Unknown GitHub lookup mode: $mode" >&2
             return 1
             ;;
     esac
@@ -385,14 +387,14 @@ resolve_github_issue_number() {
 
     local json_output
     if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
-        log "ERROR" "GitHub issue lookup failed (${mode}: ${query})"
+        log "ERROR" "GitHub issue lookup failed (${mode}: ${query})" >&2
         return 1
     fi
 
     local number
     number=$(echo "$json_output" | jq -r '.[0].number // empty' 2>/dev/null)
     if [[ -z "$number" ]]; then
-        log "ERROR" "No issues found matching ${mode}: \"${query}\". Try refining your ${mode} criteria."
+        log "ERROR" "No issues found matching ${mode}: \"${query}\". Try refining your ${mode} criteria." >&2
         return 1
     fi
 
@@ -419,7 +421,9 @@ fetch_github_issue() {
 
     local json_output
     if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
-        log "ERROR" "Could not fetch issue #${issue_number}${repo:+ from $repo} (not found or no access)"
+        # stderr: callers redirect this function's stdout into the issue JSON
+        # file, so an stdout error would be invisible (and corrupt the file)
+        log "ERROR" "Could not fetch issue #${issue_number}${repo:+ from $repo} (not found or no access)" >&2
         return 1
     fi
 
