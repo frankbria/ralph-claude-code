@@ -629,13 +629,15 @@ main() {
     echo "Project created in: $(pwd)"
 }
 
-# Handle command line arguments
-case "${1:-}" in
-    -h|--help|"")
-        show_help
-        exit 0
-        ;;
-    *)
-        main "$@"
-        ;;
-esac
+# Handle command line arguments (guarded so the script can be sourced in tests)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-}" in
+        -h|--help|"")
+            show_help
+            exit 0
+            ;;
+        *)
+            main "$@"
+            ;;
+    esac
+fi
