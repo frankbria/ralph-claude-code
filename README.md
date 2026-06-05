@@ -42,6 +42,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
+- **GitHub issue import: `ralph-import --github-issue/--github-search/--github-label`**
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
 
