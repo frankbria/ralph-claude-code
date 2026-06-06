@@ -132,13 +132,14 @@ echo "✅ Project $PROJECT_NAME created!"
 echo "Next steps:"
 echo "  1. Edit .ralph/PROMPT.md with your project requirements"
 echo "  2. Update .ralph/specs/ with your project specifications"
-# Pick hints by how THIS script was invoked, not by PATH probing: a source
-# checkout may coexist with a (possibly stale) global install, and the
-# next steps must point at the copy the user actually ran (#279).
-# Installed flow: ralph-setup execs $RALPH_HOME/setup.sh -> global commands.
+# Pick hints by how THIS script was invoked — location only, no PATH
+# probing: a source checkout may coexist with a (possibly stale) global
+# install, and the next steps must point at the copy the user ran (#279).
+# Installed flow: ralph-setup execs $RALPH_HOME/setup.sh -> global commands
+# (even if PATH is misconfigured, relative paths never work from there).
 # Checkout flow: script lives in the repo -> relative script paths.
 RALPH_HOME="${RALPH_HOME:-$HOME/.ralph}"
-if [[ "$SETUP_SCRIPT_DIR" == "$RALPH_HOME" ]] && command -v ralph &>/dev/null; then
+if [[ "$SETUP_SCRIPT_DIR" == "$RALPH_HOME" ]]; then
     echo "  3. Start autonomous development: ralph --monitor   (or plain 'ralph')"
     echo "  4. Manual monitoring (optional): ralph-monitor"
 else

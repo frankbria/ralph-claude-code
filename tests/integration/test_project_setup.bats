@@ -439,15 +439,14 @@ teardown() {
 }
 
 @test "setup.sh next steps recommend installed commands in the installed flow (Issue #279)" {
-    # Installed flow = setup.sh executed from $RALPH_HOME with `ralph` on
-    # PATH. Simulate it: copy setup.sh into a fake RALPH_HOME with a stub
-    # ralph binary — independent of whether the machine has Ralph installed
-    mkdir -p fake_ralph_home mock_bin
+    # Installed flow = setup.sh executed from $RALPH_HOME. Location alone
+    # decides — PATH is deliberately NOT consulted (CodeRabbit major): the
+    # restricted PATH below has no `ralph`, yet hints must still name the
+    # installed commands, because relative paths never work from $RALPH_HOME
+    mkdir -p fake_ralph_home
     cp "$SETUP_SCRIPT" fake_ralph_home/setup.sh
-    printf '#!/bin/bash\nexit 0\n' > mock_bin/ralph
-    chmod +x mock_bin/ralph
 
-    RALPH_HOME="$TEST_DIR/fake_ralph_home" PATH="$TEST_DIR/mock_bin:$PATH" \
+    RALPH_HOME="$TEST_DIR/fake_ralph_home" PATH="/usr/bin:/bin" \
         run bash fake_ralph_home/setup.sh test-project
 
     assert_success
