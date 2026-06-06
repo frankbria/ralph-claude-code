@@ -13,19 +13,39 @@ load '../helpers/test_helper'
 WORKFLOWS_DIR="$BATS_TEST_DIRNAME/../../.github/workflows"
 HARDENED_WORKFLOWS=(test.yml claude.yml claude-code-review.yml)
 
-@test "every checkout step disables credential persistence" {
+# Count checkout steps lacking persist-credentials: false WITHIN their own
+# step block (from the checkout `uses:` line to the next `- ` list item).
+# Per-block matching — a stray persist-credentials elsewhere in the file
+# cannot mask an unhardened checkout. Also prints total checkout count.
+unhardened_checkouts() {
+    awk '
+        /uses:[[:space:]]*actions\/checkout@/ {
+            if (inblock && !found) bad++
+            inblock = 1; found = 0; total++; next
+        }
+        inblock && /^[[:space:]]*-[[:space:]]/ {       # next step begins
+            if (!found) bad++
+            inblock = 0
+        }
+        inblock && /persist-credentials:[[:space:]]*false/ { found = 1 }
+        END {
+            if (inblock && !found) bad++
+            print total, bad+0
+        }
+    ' "$1"
+}
+
+@test "every checkout step disables credential persistence in its own block" {
     local violations=""
     for wf in "${HARDENED_WORKFLOWS[@]}"; do
         local file="$WORKFLOWS_DIR/$wf"
         [ -f "$file" ] || { violations+="$wf: missing file"$'\n'; continue; }
-        local checkouts persists
-        # grep -c exits 1 on zero matches but still prints "0" — keep the count
-        checkouts=$(grep -cE 'uses:[[:space:]]*actions/checkout@' "$file" || true)
-        persists=$(grep -cE 'persist-credentials:[[:space:]]*false' "$file" || true)
-        if [ "$checkouts" -eq 0 ]; then
+        local total bad
+        read -r total bad < <(unhardened_checkouts "$file")
+        if [ "$total" -eq 0 ]; then
             violations+="$wf: no checkout steps found (guard expects at least one)"$'\n'
-        elif [ "$persists" -ne "$checkouts" ]; then
-            violations+="$wf: $checkouts checkout step(s) but only $persists persist-credentials: false"$'\n'
+        elif [ "$bad" -ne 0 ]; then
+            violations+="$wf: $bad of $total checkout step(s) missing persist-credentials: false"$'\n'
         fi
     done
     if [ -n "$violations" ]; then
