@@ -438,8 +438,14 @@ teardown() {
     [[ "$output" == *".ralph/PROMPT.md"* ]]
 }
 
-@test "setup.sh next steps recommend installed ralph commands (Issue #279)" {
-    run bash "$SETUP_SCRIPT" test-project
+@test "setup.sh next steps recommend installed commands when ralph is on PATH (Issue #279)" {
+    # Deterministic: provide a stub `ralph` so the test doesn't depend on
+    # whether the machine has Ralph globally installed
+    mkdir -p mock_bin
+    printf '#!/bin/bash\nexit 0\n' > mock_bin/ralph
+    chmod +x mock_bin/ralph
+
+    PATH="$TEST_DIR/mock_bin:$PATH" run bash "$SETUP_SCRIPT" test-project
 
     assert_success
     # Hints must name the installed commands, matching install.sh quick
@@ -450,6 +456,17 @@ teardown() {
     # projects created by the installed ralph-setup
     [[ "$output" != *"../ralph_loop.sh"* ]]
     [[ "$output" != *"../ralph_monitor.sh"* ]]
+}
+
+@test "setup.sh next steps fall back to repo-relative paths without global install (Issue #279)" {
+    # Repo-local flow: setup.sh run from a source checkout where `ralph`
+    # is not on PATH — relative hints are the ones that actually work
+    PATH="/usr/bin:/bin" run bash "$SETUP_SCRIPT" test-project-local
+
+    assert_success
+    [[ "$output" == *"../ralph_loop.sh"* ]]
+    [[ "$output" == *"../ralph_monitor.sh"* ]]
+    [[ "$output" != *"ralph --monitor"* ]]
 }
 
 # =============================================================================

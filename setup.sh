@@ -128,5 +128,13 @@ echo "✅ Project $PROJECT_NAME created!"
 echo "Next steps:"
 echo "  1. Edit .ralph/PROMPT.md with your project requirements"
 echo "  2. Update .ralph/specs/ with your project specifications"
-echo "  3. Start autonomous development: ralph --monitor   (or plain 'ralph')"
-echo "  4. Manual monitoring (optional): ralph-monitor"
+# Global install: recommend the installed commands (matches install.sh's
+# quick start). Repo-local run (source checkout, no `ralph` on PATH): the
+# relative script paths are the ones that actually work (codex P2, #279)
+if command -v ralph &>/dev/null; then
+    echo "  3. Start autonomous development: ralph --monitor   (or plain 'ralph')"
+    echo "  4. Manual monitoring (optional): ralph-monitor"
+else
+    echo "  3. Run: ../ralph_loop.sh"
+    echo "  4. Monitor: ../ralph_monitor.sh"
+fi
