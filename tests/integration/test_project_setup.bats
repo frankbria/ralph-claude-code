@@ -438,30 +438,36 @@ teardown() {
     [[ "$output" == *".ralph/PROMPT.md"* ]]
 }
 
-@test "setup.sh next steps recommend installed commands when ralph is on PATH (Issue #279)" {
-    # Deterministic: provide a stub `ralph` so the test doesn't depend on
-    # whether the machine has Ralph globally installed
-    mkdir -p mock_bin
+@test "setup.sh next steps recommend installed commands in the installed flow (Issue #279)" {
+    # Installed flow = setup.sh executed from $RALPH_HOME with `ralph` on
+    # PATH. Simulate it: copy setup.sh into a fake RALPH_HOME with a stub
+    # ralph binary — independent of whether the machine has Ralph installed
+    mkdir -p fake_ralph_home mock_bin
+    cp "$SETUP_SCRIPT" fake_ralph_home/setup.sh
     printf '#!/bin/bash\nexit 0\n' > mock_bin/ralph
     chmod +x mock_bin/ralph
 
-    PATH="$TEST_DIR/mock_bin:$PATH" run bash "$SETUP_SCRIPT" test-project
+    RALPH_HOME="$TEST_DIR/fake_ralph_home" PATH="$TEST_DIR/mock_bin:$PATH" \
+        run bash fake_ralph_home/setup.sh test-project
 
     assert_success
     # Hints must name the installed commands, matching install.sh quick
     # start and ralph_import.sh next steps
     [[ "$output" == *"ralph --monitor"* ]]
     [[ "$output" == *"ralph-monitor"* ]]
-    # ...not pre-global-install relative paths, which don't exist next to
-    # projects created by the installed ralph-setup
     [[ "$output" != *"../ralph_loop.sh"* ]]
     [[ "$output" != *"../ralph_monitor.sh"* ]]
 }
 
-@test "setup.sh next steps fall back to repo-relative paths without global install (Issue #279)" {
-    # Repo-local flow: setup.sh run from a source checkout where `ralph`
-    # is not on PATH — relative hints are the ones that actually work
-    PATH="/usr/bin:/bin" run bash "$SETUP_SCRIPT" test-project-local
+@test "setup.sh next steps keep repo-relative paths for source-checkout runs (Issue #279)" {
+    # Checkout flow: the script runs from the repo (not $RALPH_HOME), so
+    # relative hints point at the copy the user actually ran — even when a
+    # (possibly stale) global ralph exists on PATH (codex P2)
+    mkdir -p mock_bin
+    printf '#!/bin/bash\nexit 0\n' > mock_bin/ralph
+    chmod +x mock_bin/ralph
+
+    PATH="$TEST_DIR/mock_bin:$PATH" run bash "$SETUP_SCRIPT" test-project-local
 
     assert_success
     [[ "$output" == *"../ralph_loop.sh"* ]]

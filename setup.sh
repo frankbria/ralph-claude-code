@@ -6,6 +6,10 @@ set -e
 
 PROJECT_NAME=${1:-"my-project"}
 
+# Resolve where this script lives BEFORE any cd (used for the next-steps
+# hints: installed flow runs from $RALPH_HOME, checkout flow from the repo)
+SETUP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "🚀 Setting up Ralph project: $PROJECT_NAME"
 
 # Create project directory
@@ -128,10 +132,13 @@ echo "✅ Project $PROJECT_NAME created!"
 echo "Next steps:"
 echo "  1. Edit .ralph/PROMPT.md with your project requirements"
 echo "  2. Update .ralph/specs/ with your project specifications"
-# Global install: recommend the installed commands (matches install.sh's
-# quick start). Repo-local run (source checkout, no `ralph` on PATH): the
-# relative script paths are the ones that actually work (codex P2, #279)
-if command -v ralph &>/dev/null; then
+# Pick hints by how THIS script was invoked, not by PATH probing: a source
+# checkout may coexist with a (possibly stale) global install, and the
+# next steps must point at the copy the user actually ran (#279).
+# Installed flow: ralph-setup execs $RALPH_HOME/setup.sh -> global commands.
+# Checkout flow: script lives in the repo -> relative script paths.
+RALPH_HOME="${RALPH_HOME:-$HOME/.ralph}"
+if [[ "$SETUP_SCRIPT_DIR" == "$RALPH_HOME" ]] && command -v ralph &>/dev/null; then
     echo "  3. Start autonomous development: ralph --monitor   (or plain 'ralph')"
     echo "  4. Manual monitoring (optional): ralph-monitor"
 else
