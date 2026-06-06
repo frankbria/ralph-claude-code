@@ -404,3 +404,277 @@ EOF
     parse_import_args --github-issue 42 --include-comments
     [[ "$GITHUB_INCLUDE_COMMENTS" == "true" ]]
 }
+
+# -----------------------------------------------------------------------------
+# parse_import_args - plan generation flags (Issue #70)
+# -----------------------------------------------------------------------------
+
+@test "parse_import_args defaults plan generation to auto with threshold 60" {
+    parse_import_args --github-issue 42
+    [[ "$PLAN_GENERATION" == "auto" ]]
+    [[ -z "$PLAN_MODEL" ]]
+    [[ "$COMPLETENESS_THRESHOLD" == "60" ]]
+    [[ -z "$PLAN_AUTO_APPROVE" ]]
+}
+
+@test "parse_import_args captures --generate-plan and --no-generate-plan" {
+    parse_import_args --github-issue 42 --generate-plan
+    [[ "$PLAN_GENERATION" == "force" ]]
+
+    parse_import_args --github-issue 42 --no-generate-plan
+    [[ "$PLAN_GENERATION" == "skip" ]]
+}
+
+@test "parse_import_args rejects --generate-plan with --no-generate-plan" {
+    run parse_import_args --github-issue 42 --generate-plan --no-generate-plan
+    assert_failure
+    [[ "$output" == *"--generate-plan"* && "$output" == *"--no-generate-plan"* ]]
+}
+
+@test "parse_import_args captures --plan-model" {
+    parse_import_args --github-issue 42 --plan-model opus
+    [[ "$PLAN_MODEL" == "opus" ]]
+}
+
+@test "parse_import_args rejects --plan-model without a value" {
+    run parse_import_args --github-issue 42 --plan-model
+    assert_failure
+    [[ "$output" == *"--plan-model"* && "$output" == *"requires"* ]]
+
+    # Flag-shaped value must not be swallowed
+    run parse_import_args --github-issue 42 --plan-model --auto-approve
+    assert_failure
+    [[ "$output" == *"--plan-model"* && "$output" == *"requires"* ]]
+}
+
+@test "parse_import_args captures --completeness-threshold" {
+    parse_import_args --github-issue 42 --completeness-threshold 75
+    [[ "$COMPLETENESS_THRESHOLD" == "75" ]]
+}
+
+@test "parse_import_args rejects invalid --completeness-threshold values" {
+    run parse_import_args --github-issue 42 --completeness-threshold
+    assert_failure
+    [[ "$output" == *"--completeness-threshold"* && "$output" == *"requires"* ]]
+
+    run parse_import_args --github-issue 42 --completeness-threshold abc
+    assert_failure
+    [[ "$output" == *"0-100"* ]]
+
+    run parse_import_args --github-issue 42 --completeness-threshold 101
+    assert_failure
+    [[ "$output" == *"0-100"* ]]
+}
+
+@test "parse_import_args captures --auto-approve" {
+    parse_import_args --github-issue 42 --auto-approve
+    [[ "$PLAN_AUTO_APPROVE" == "true" ]]
+}
+
+@test "parse_import_args rejects plan flags without a GitHub selector" {
+    # Plan generation only exists for GitHub imports; silently ignoring the
+    # flags on file imports would mislead users
+    run parse_import_args my-prd.md --generate-plan
+    assert_failure
+    [[ "$output" == *"GitHub import"* ]]
+
+    run parse_import_args my-prd.md --plan-model opus
+    assert_failure
+    [[ "$output" == *"GitHub import"* ]]
+
+    run parse_import_args my-prd.md --completeness-threshold 70
+    assert_failure
+
+    run parse_import_args my-prd.md --auto-approve
+    assert_failure
+}
+
+# -----------------------------------------------------------------------------
+# generate_implementation_plan / approve_generated_plan (Issue #70)
+# -----------------------------------------------------------------------------
+
+# Mock claude that records args + stdin and emits a JSON result
+_mock_claude_plan() {
+    # ${1-...}: default only when unset, so an explicit "" tests empty plans
+    local result_text="${1-## Generated Plan}"
+    mkdir -p "$TEST_DIR/mock_bin"
+    cat > "$TEST_DIR/mock_bin/claude" << MOCKEOF
+#!/bin/bash
+if [[ "\$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+printf '%s\n' "\$*" >> "$TEST_DIR/claude_args"
+cat > "$TEST_DIR/claude_stdin"
+printf '{"result": "$result_text", "session_id": "test-session"}\n'
+MOCKEOF
+    chmod +x "$TEST_DIR/mock_bin/claude"
+    export PATH="$TEST_DIR/mock_bin:$PATH"
+    export CLAUDE_CODE_CMD="claude"
+}
+
+# Fixture: a vague PRD plus its analysis JSON
+_plan_gen_fixtures() {
+    cat > "issue_prd.md" << 'PRD'
+# Make the app faster
+
+The app feels slow sometimes. Can we speed it up?
+PRD
+    cat > "analysis.json" << 'JSON'
+{
+    "confidence_score": 15,
+    "completeness_level": "low",
+    "missing_elements": ["acceptance_criteria", "task_checklist"],
+    "recommendation": "generate_plan"
+}
+JSON
+}
+
+@test "generate_implementation_plan writes the plan from claude JSON result" {
+    _mock_claude_plan "## Generated Plan: caching layer"
+    _plan_gen_fixtures
+
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_success
+
+    [[ -f "plan.md" ]]
+    grep -q "Generated Plan: caching layer" "plan.md"
+}
+
+@test "generate_implementation_plan passes --model when PLAN_MODEL is set" {
+    _mock_claude_plan
+    _plan_gen_fixtures
+
+    PLAN_MODEL="opus"
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_success
+
+    grep -q -- "--model opus" "$TEST_DIR/claude_args"
+}
+
+@test "generate_implementation_plan omits --model by default" {
+    _mock_claude_plan
+    _plan_gen_fixtures
+
+    PLAN_MODEL=""
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_success
+
+    ! grep -q -- "--model" "$TEST_DIR/claude_args"
+}
+
+@test "generate_implementation_plan sends missing elements and issue content to claude" {
+    _mock_claude_plan
+    _plan_gen_fixtures
+
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_success
+
+    grep -q "acceptance_criteria" "$TEST_DIR/claude_stdin"
+    grep -q "The app feels slow sometimes" "$TEST_DIR/claude_stdin"
+    # Prompt-injection guard: issue content marked as data, not instructions
+    grep -qi "do not" "$TEST_DIR/claude_stdin"
+}
+
+@test "generate_implementation_plan fails when claude exits nonzero" {
+    mkdir -p "$TEST_DIR/mock_bin"
+    cat > "$TEST_DIR/mock_bin/claude" << 'MOCKEOF'
+#!/bin/bash
+[[ "$1" == "--version" ]] && { echo "Claude Code CLI version 2.0.80"; exit 0; }
+cat > /dev/null
+exit 1
+MOCKEOF
+    chmod +x "$TEST_DIR/mock_bin/claude"
+    export PATH="$TEST_DIR/mock_bin:$PATH"
+    export CLAUDE_CODE_CMD="claude"
+    _plan_gen_fixtures
+
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_failure
+}
+
+@test "generate_implementation_plan accepts plain-text output (older CLI)" {
+    mkdir -p "$TEST_DIR/mock_bin"
+    cat > "$TEST_DIR/mock_bin/claude" << MOCKEOF
+#!/bin/bash
+[[ "\$1" == "--version" ]] && { echo "Claude Code CLI version 1.0.0"; exit 0; }
+printf '%s\n' "\$*" >> "$TEST_DIR/claude_args"
+cat > /dev/null
+echo "## Plain Text Plan"
+MOCKEOF
+    chmod +x "$TEST_DIR/mock_bin/claude"
+    export PATH="$TEST_DIR/mock_bin:$PATH"
+    export CLAUDE_CODE_CMD="claude"
+    _plan_gen_fixtures
+
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_success
+
+    grep -q "Plain Text Plan" "plan.md"
+
+    # Legacy path must not pass modern-only flags (codex P1): old CLIs
+    # reject --strict-mcp-config / --output-format
+    ! grep -q -- "--strict-mcp-config" "$TEST_DIR/claude_args"
+    ! grep -q -- "--output-format" "$TEST_DIR/claude_args"
+}
+
+@test "generate_implementation_plan fails on an empty plan" {
+    _mock_claude_plan ""
+    _plan_gen_fixtures
+
+    run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
+    assert_failure
+}
+
+@test "approve_generated_plan auto-approves with --auto-approve" {
+    echo "## Plan" > plan.md
+
+    PLAN_AUTO_APPROVE="true"
+    run approve_generated_plan "plan.md"
+    assert_success
+    [[ "$output" == *"Auto-approving"* ]]
+}
+
+@test "approve_generated_plan auto-accepts with a warning on non-interactive stdin" {
+    echo "## Plan" > plan.md
+
+    PLAN_AUTO_APPROVE=""
+    # bats runs without a TTY on stdin, exercising the non-interactive path
+    run approve_generated_plan "plan.md"
+    assert_success
+    [[ "$output" == *"WARN"* ]]
+    [[ "$output" == *"--auto-approve"* ]]
+}
+
+@test "approve_generated_plan shows a plan summary" {
+    printf '## Plan\n- [ ] Task A\n- [ ] Task B\n' > plan.md
+
+    PLAN_AUTO_APPROVE="true"
+    run approve_generated_plan "plan.md"
+    assert_success
+    [[ "$output" == *"Task A"* ]]
+}
+
+# -----------------------------------------------------------------------------
+# detect_response_format (regression, found via #70)
+# -----------------------------------------------------------------------------
+
+@test "detect_response_format detects compact single-line JSON" {
+    # The real Claude CLI emits compact JSON; only pretty-printed JSON
+    # (first line "{") was detected before this regression test
+    printf '{"result": "ok", "session_id": "abc"}\n' > compact.json
+
+    run detect_response_format "compact.json"
+    assert_success
+    [[ "$output" == "json" ]]
+}
+
+@test "detect_response_format detects pretty-printed JSON and plain text" {
+    printf '{\n  "result": "ok"\n}\n' > pretty.json
+    run detect_response_format "pretty.json"
+    [[ "$output" == "json" ]]
+
+    echo "Just some text output" > plain.txt
+    run detect_response_format "plain.txt"
+    [[ "$output" == "text" ]]
+}

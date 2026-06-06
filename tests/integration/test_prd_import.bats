@@ -1286,3 +1286,177 @@ MOCK_GH_EOF
     # No project directory should have been created
     [[ ! -d "add-user-login" ]] && [[ ! -d "issue-42" ]]
 }
+
+# =============================================================================
+# ISSUE COMPLETENESS ASSESSMENT + PLAN GENERATION (Issue #70)
+# =============================================================================
+#
+# Full-flow tests for completeness scoring and plan generation during
+# `ralph-import --github-issue`. A recording mock claude distinguishes the
+# plan-generation call (prompt contains "Implementation Plan Generation
+# Task") from the conversion call, capturing stdin per call for assertions.
+
+# Helper: mock gh serving a vague issue (scores well below the 60 threshold)
+create_mock_gh_vague_issue() {
+    cat > "$MOCK_BIN_DIR/gh" << 'MOCK_GH_EOF'
+#!/bin/bash
+case "$1" in
+    auth)
+        exit 0
+        ;;
+    issue)
+        cat << 'JSON'
+{"number":7,"title":"Make the app faster","body":"The app feels slow sometimes. Can we speed it up?","labels":[],"comments":[],"url":"https://github.com/test/repo/issues/7"}
+JSON
+        ;;
+esac
+exit 0
+MOCK_GH_EOF
+    chmod +x "$MOCK_BIN_DIR/gh"
+}
+
+# Helper: mock gh serving a detailed issue (acceptance criteria + checklist +
+# technical sections + guidance keywords = score 70, above the 60 threshold)
+create_mock_gh_detailed_issue() {
+    cat > "$MOCK_BIN_DIR/gh" << 'MOCK_GH_EOF'
+#!/bin/bash
+case "$1" in
+    auth)
+        exit 0
+        ;;
+    issue)
+        cat << 'JSON'
+{"number":42,"title":"Add User Login","body":"## Summary\n\nImplement session-based login.\n\n## Technical Approach\n\nUse the existing middleware architecture and API patterns.\n\n## Acceptance Criteria\n\n- [ ] Users can log in\n- [ ] Invalid credentials return 401","labels":[{"name":"enhancement"}],"comments":[],"url":"https://github.com/test/repo/issues/42"}
+JSON
+        ;;
+esac
+exit 0
+MOCK_GH_EOF
+    chmod +x "$MOCK_BIN_DIR/gh"
+}
+
+# Helper: recording mock claude — captures args and per-call stdin, answers
+# the plan call with a JSON plan and the conversion call by creating files
+create_mock_claude_recording() {
+    cat > "$MOCK_BIN_DIR/claude" << MOCK_CLAUDE_EOF
+#!/bin/bash
+if [[ "\$1" == "--version" ]]; then
+    echo "Claude Code CLI version 2.0.80"
+    exit 0
+fi
+
+call_num=\$(ls "$TEST_DIR"/claude_stdin_* 2>/dev/null | wc -l)
+call_num=\$((call_num + 1))
+printf '%s\n' "\$*" >> "$TEST_DIR/claude_args.log"
+cat > "$TEST_DIR/claude_stdin_\$call_num"
+
+if grep -q "Implementation Plan Generation Task" "$TEST_DIR/claude_stdin_\$call_num"; then
+    # Plan-generation call: respond with the plan as a JSON result
+    printf '{"result": "## Generated Plan\\n\\n- [ ] Mock task one\\n- [ ] Mock task two"}\n'
+else
+    # Conversion call: create the expected Ralph files
+    mkdir -p .ralph/specs
+    echo "# Ralph Development Instructions" > .ralph/PROMPT.md
+    echo "# Ralph Fix Plan" > .ralph/fix_plan.md
+    echo "# Technical Specifications" > .ralph/specs/requirements.md
+    echo "Mock conversion done"
+fi
+exit 0
+MOCK_CLAUDE_EOF
+    chmod +x "$MOCK_BIN_DIR/claude"
+}
+
+@test "github import generates an implementation plan for a low-detail issue" {
+    create_mock_gh_vague_issue
+    create_mock_claude_recording
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 7
+
+    assert_success
+    [[ "$output" == *"Completeness"* ]]
+
+    # Two claude calls: plan generation first, then conversion
+    [[ -f "$TEST_DIR/claude_stdin_2" ]]
+    grep -q "Implementation Plan Generation Task" "$TEST_DIR/claude_stdin_1"
+
+    # The generated plan flowed into the conversion prompt via the PRD
+    grep -q "Implementation Plan (generated)" "$TEST_DIR/claude_stdin_2"
+    grep -q "Mock task one" "$TEST_DIR/claude_stdin_2"
+
+    # The raw plan is preserved in the project specs
+    [[ -f "make-the-app-faster/.ralph/specs/implementation-plan.md" ]]
+    grep -q "Mock task one" "make-the-app-faster/.ralph/specs/implementation-plan.md"
+}
+
+@test "github import skips plan generation for a detailed issue" {
+    create_mock_gh_detailed_issue
+    create_mock_claude_recording
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 42
+
+    assert_success
+
+    # Only the conversion call happened
+    [[ -f "$TEST_DIR/claude_stdin_1" ]]
+    [[ ! -f "$TEST_DIR/claude_stdin_2" ]]
+    ! grep -q "Implementation Plan Generation Task" "$TEST_DIR/claude_stdin_1"
+
+    # No generated plan artifact
+    [[ ! -f "add-user-login/.ralph/specs/implementation-plan.md" ]]
+}
+
+@test "github import with --no-generate-plan fails on a low-detail issue" {
+    create_mock_gh_vague_issue
+    create_mock_claude_recording
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 7 --no-generate-plan
+
+    assert_failure
+    [[ "$output" == *"lacks implementation detail"* ]]
+    # Claude was never invoked (no plan call, no conversion)
+    [[ ! -f "$TEST_DIR/claude_stdin_1" ]]
+}
+
+@test "github import with --generate-plan forces a plan for a detailed issue" {
+    create_mock_gh_detailed_issue
+    create_mock_claude_recording
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 42 --generate-plan
+
+    assert_success
+    grep -q "Implementation Plan Generation Task" "$TEST_DIR/claude_stdin_1"
+    [[ -f "add-user-login/.ralph/specs/implementation-plan.md" ]]
+}
+
+@test "github import preflights dependencies before generating a plan" {
+    # Missing ralph-setup must fail BEFORE the (billed) plan-generation
+    # Claude call, not after it (codex P2)
+    create_mock_gh_vague_issue
+    create_mock_claude_recording
+    remove_ralph_setup_mock
+
+    local ORIGINAL_PATH="$PATH"
+    export PATH="$MOCK_BIN_DIR:/usr/bin:/bin"
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 7
+
+    export PATH="$ORIGINAL_PATH"
+
+    assert_failure
+    [[ "$output" == *"Ralph not installed"* ]] || [[ "$output" == *"ralph-setup"* ]]
+    # Claude was never invoked — no wasted plan-generation call
+    [[ ! -f "$TEST_DIR/claude_stdin_1" ]]
+}
+
+@test "github import passes --plan-model to the plan generation call" {
+    create_mock_gh_vague_issue
+    create_mock_claude_recording
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-issue 7 --plan-model opus
+
+    assert_success
+    # Call-specific assertions: --model goes to the plan-generation call
+    # (line 1) only — the conversion call (line 2) must not inherit it
+    sed -n '1p' "$TEST_DIR/claude_args.log" | grep -q -- "--model opus"
+    ! sed -n '2p' "$TEST_DIR/claude_args.log" | grep -q -- "--model"
+}
