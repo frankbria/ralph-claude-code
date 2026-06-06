@@ -438,6 +438,42 @@ teardown() {
     [[ "$output" == *".ralph/PROMPT.md"* ]]
 }
 
+@test "setup.sh next steps recommend installed commands in the installed flow (Issue #279)" {
+    # Installed flow = setup.sh executed from $RALPH_HOME. Location alone
+    # decides — PATH is deliberately NOT consulted (CodeRabbit major): the
+    # restricted PATH below has no `ralph`, yet hints must still name the
+    # installed commands, because relative paths never work from $RALPH_HOME
+    mkdir -p fake_ralph_home
+    cp "$SETUP_SCRIPT" fake_ralph_home/setup.sh
+
+    RALPH_HOME="$TEST_DIR/fake_ralph_home" PATH="/usr/bin:/bin" \
+        run bash fake_ralph_home/setup.sh test-project
+
+    assert_success
+    # Hints must name the installed commands, matching install.sh quick
+    # start and ralph_import.sh next steps
+    [[ "$output" == *"ralph --monitor"* ]]
+    [[ "$output" == *"ralph-monitor"* ]]
+    [[ "$output" != *"../ralph_loop.sh"* ]]
+    [[ "$output" != *"../ralph_monitor.sh"* ]]
+}
+
+@test "setup.sh next steps keep repo-relative paths for source-checkout runs (Issue #279)" {
+    # Checkout flow: the script runs from the repo (not $RALPH_HOME), so
+    # relative hints point at the copy the user actually ran — even when a
+    # (possibly stale) global ralph exists on PATH (codex P2)
+    mkdir -p mock_bin
+    printf '#!/bin/bash\nexit 0\n' > mock_bin/ralph
+    chmod +x mock_bin/ralph
+
+    PATH="$TEST_DIR/mock_bin:$PATH" run bash "$SETUP_SCRIPT" test-project-local
+
+    assert_success
+    [[ "$output" == *"../ralph_loop.sh"* ]]
+    [[ "$output" == *"../ralph_monitor.sh"* ]]
+    [[ "$output" != *"ralph --monitor"* ]]
+}
+
 # =============================================================================
 # Test: Error Handling
 # =============================================================================
