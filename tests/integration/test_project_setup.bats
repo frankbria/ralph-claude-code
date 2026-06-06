@@ -438,6 +438,20 @@ teardown() {
     [[ "$output" == *".ralph/PROMPT.md"* ]]
 }
 
+@test "setup.sh next steps recommend installed ralph commands (Issue #279)" {
+    run bash "$SETUP_SCRIPT" test-project
+
+    assert_success
+    # Hints must name the installed commands, matching install.sh quick
+    # start and ralph_import.sh next steps
+    [[ "$output" == *"ralph --monitor"* ]]
+    [[ "$output" == *"ralph-monitor"* ]]
+    # ...not pre-global-install relative paths, which don't exist next to
+    # projects created by the installed ralph-setup
+    [[ "$output" != *"../ralph_loop.sh"* ]]
+    [[ "$output" != *"../ralph_monitor.sh"* ]]
+}
+
 # =============================================================================
 # Test: Error Handling
 # =============================================================================
