@@ -243,6 +243,7 @@ GitHub Actions (`.github/workflows/`):
 - **test.yml** — unit, integration, E2E on push to `main`/`develop` and PRs to `main`; unit and E2E suites are blocking, integration is currently advisory (`|| true`); kcov coverage uploaded as informational artifact
 - **claude.yml** / **claude-code-review.yml** — Claude Code GitHub Actions integration and automated PR review
 - **Supply-chain hardening (Issue #275)**: all external actions in the hand-maintained workflows are pinned to full commit SHAs with `# vX.Y.Z` tag comments; `.github/dependabot.yml` (github-actions ecosystem, weekly, grouped) keeps pins updated; `tests/unit/test_workflow_sha_pinning.bats` is the regression guard. When adding an action, pin its SHA (resolve via `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`, dereference annotated tags) — the guard fails on mutable tags
+- **Credential hygiene (Issue #282)**: every `actions/checkout` step sets `persist-credentials: false` (guard: `tests/unit/test_workflow_credential_hygiene.bats`). Safe even for the claude workflows — claude-code-action strips checkout's auth header (`configureGitAuth`) and uses its own GitHub App token for git operations
 
 ## Ralph-Managed Project Structure
 

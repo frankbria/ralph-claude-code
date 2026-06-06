@@ -34,6 +34,9 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 1
+          # claude-code-action strips checkout's auth header (configureGitAuth)
+          # and uses its own GitHub App token for git operations (#282)
+          persist-credentials: false
 
       - name: Run Claude Code
         id: claude

@@ -53,6 +53,9 @@ jobs:
           # Checkout the PR head commit (pull_request_target defaults to base branch)
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
+          # Review is read-only; gh commands use GH_TOKEN, not git credentials.
+          # Especially important under pull_request_target with PR-head code (#282)
+          persist-credentials: false
 
       - name: Run Claude Code Review
         # Only review substantial changes (5+ files OR 20+ lines changed)
