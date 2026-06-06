@@ -27,7 +27,9 @@ unhardened_checkouts() {
             if (!found) bad++
             inblock = 0
         }
-        inblock && /persist-credentials:[[:space:]]*false/ { found = 1 }
+        # Anchored to the actual key line (optional trailing inline comment) —
+        # a commented-out "# persist-credentials: false" must not count
+        inblock && /^[[:space:]]*persist-credentials:[[:space:]]*false([[:space:]]*(#.*)?)?$/ { found = 1 }
         END {
             if (inblock && !found) bad++
             print total, bad+0
