@@ -239,11 +239,45 @@ e2e_fix_plan() {
     } > .ralph/fix_plan.md
 }
 
+# Record the hour a ralph run started (Issue #285). File-based so the marker
+# survives the subshell that bats `run` executes run_ralph in. Tests that
+# invoke ralph_loop.sh directly (not via run_ralph) must call this themselves.
+e2e_mark_run_start() {
+    date +%Y%m%d%H > "$E2E_DIR/.run_start_hour"
+}
+
+# True if the clock crossed an hour boundary since e2e_mark_run_start.
+# init_call_tracking runs at the top of every loop iteration and zeroes
+# .ralph/.call_count when the hour changes (the designed hourly rate-limit
+# reset), so raw counter values are only assertable when this is false.
+e2e_hour_rolled_over() {
+    local start_hour=""
+    if [[ -f "$E2E_DIR/.run_start_hour" ]]; then
+        start_hour=$(cat "$E2E_DIR/.run_start_hour")
+    fi
+    [[ -n "$start_hour" && "$start_hour" != "$(date +%Y%m%d%H)" ]]
+}
+
+# Assert the raw .ralph/.call_count value — unless the run crossed an hour
+# boundary, in which case the hourly reset legitimately zeroed it (Issue #285)
+# and the check is skipped. mock_call_count remains the unconditional proof of
+# how many times the CLI was invoked.
+# Usage: assert_call_count EXPECTED
+assert_call_count() {
+    local expected=$1
+    if e2e_hour_rolled_over; then
+        echo "# raw .call_count assertion skipped: run crossed an hour boundary (Issue #285)"
+        return 0
+    fi
+    assert_equal "$(cat .ralph/.call_count)" "$expected"
+}
+
 # Run ralph_loop.sh as a subprocess under a hard timeout (never hang CI).
 # -k is required: ralph traps SIGTERM (cleanup handler) without exiting, so
 # a plain `timeout` would deliver TERM and then wait forever.
 # Usage: run_ralph [args...]   — use with bats `run`
 run_ralph() {
+    e2e_mark_run_start
     "$E2E_TIMEOUT_CMD" --foreground -k 5 120 bash "$RALPH_SCRIPT" "$@" < /dev/null
 }
 
