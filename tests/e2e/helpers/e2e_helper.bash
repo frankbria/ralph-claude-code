@@ -273,6 +273,8 @@ e2e_hour_rolled_over() {
     if [[ -f "$E2E_DIR/.run_end_hour" ]]; then
         end_hour=$(cat "$E2E_DIR/.run_end_hour")
     else
+        # Only reachable when the caller omitted e2e_mark_run_end (run_ralph
+        # always records it) — degrades to assertion-time comparison.
         end_hour=$(date +%Y%m%d%H)
     fi
     [[ -n "$start_hour" && "$start_hour" != "$end_hour" ]]
