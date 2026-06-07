@@ -1460,3 +1460,137 @@ MOCK_CLAUDE_EOF
     sed -n '1p' "$TEST_DIR/claude_args.log" | grep -q -- "--model opus"
     ! sed -n '2p' "$TEST_DIR/claude_args.log" | grep -q -- "--model"
 }
+
+# =============================================================================
+# GITHUB ISSUE FILTERING AND SELECTION (Issue #71)
+# =============================================================================
+#
+# Full-flow tests for the metadata filter flags. The mock gh records every
+# invocation to gh_args.log and serves a three-issue list fixture, so tests
+# can assert both which filters reached gh and which issue was imported.
+# --completeness-threshold 0 keeps plan generation (#70) out of these flows.
+
+# Helper: mock gh serving a three-issue list (newest-first, like real gh)
+# plus per-number issue views. Records args to $TEST_DIR/gh_args.log.
+create_mock_gh_with_issue_list() {
+    cat > "$MOCK_BIN_DIR/gh" << MOCK_GH_EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$TEST_DIR/gh_args.log"
+case "\$1" in
+    auth) exit 0 ;;
+    issue)
+        case "\$2" in
+            list)
+                cat << 'JSON'
+[{"number":30,"title":"New bug report","labels":[{"name":"bug"},{"name":"wontfix"}],"assignees":[],"milestone":null,"url":"u30"},
+ {"number":25,"title":"[P0] Critical crash","labels":[{"name":"bug"},{"name":"priority: P0"}],"assignees":[{"login":"alice"}],"milestone":{"title":"v1.0"},"url":"u25"},
+ {"number":10,"title":"Old bug","labels":[{"name":"bug"}],"assignees":[],"milestone":null,"url":"u10"}]
+JSON
+                ;;
+            view)
+                num="\$3"
+                case "\$num" in
+                    10) title="Old bug" ;;
+                    25) title="[P0] Critical crash" ;;
+                    30) title="New bug report" ;;
+                    *)  title="Issue \$num" ;;
+                esac
+                printf '{"number":%s,"title":"%s","body":"Reproduce, fix, and add a regression test for issue %s.","labels":[{"name":"bug"}],"comments":[],"url":"https://github.com/t/r/issues/%s"}\n' "\$num" "\$title" "\$num" "\$num"
+                ;;
+        esac
+        ;;
+esac
+exit 0
+MOCK_GH_EOF
+    chmod +x "$MOCK_BIN_DIR/gh"
+}
+
+@test "ralph-import --github-label imports the oldest matching issue" {
+    create_mock_gh_with_issue_list
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-label bug --completeness-threshold 0
+
+    assert_success
+    # Oldest match (#10) wins under the default first strategy — the list
+    # fixture is newest-first, proving the oldest-first sort is applied
+    [[ "$output" == *"Importing GitHub issue #10"* ]]
+    [[ -d "old-bug" ]]
+    [[ -f "old-bug/.ralph/PROMPT.md" ]]
+
+    grep -q "issue list" "$TEST_DIR/gh_args.log"
+    grep -q -- "--label bug" "$TEST_DIR/gh_args.log"
+    grep -q -- "--limit 500" "$TEST_DIR/gh_args.log"
+    grep -q "issue view 10" "$TEST_DIR/gh_args.log"
+}
+
+@test "ralph-import passes combined metadata filters through to gh" {
+    create_mock_gh_with_issue_list
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-label bug --github-assignee @me \
+        --github-milestone v1.0 --github-state all --completeness-threshold 0
+
+    assert_success
+    local list_line
+    list_line=$(grep "issue list" "$TEST_DIR/gh_args.log")
+    [[ "$list_line" == *"--label bug"* ]]
+    [[ "$list_line" == *"--assignee @me"* ]]
+    [[ "$list_line" == *"--milestone v1.0"* ]]
+    [[ "$list_line" == *"--state all"* ]]
+}
+
+@test "ralph-import --select priority imports the highest-priority match" {
+    create_mock_gh_with_issue_list
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-label bug --select priority \
+        --completeness-threshold 0
+
+    assert_success
+    # #25 carries "priority: P0" (this repo's label format) and beats the
+    # older but unprioritized #10
+    [[ "$output" == *"Importing GitHub issue #25"* ]]
+    [[ -d "p0-critical-crash" ]]
+    grep -q "issue view 25" "$TEST_DIR/gh_args.log"
+}
+
+@test "ralph-import --github-title filters titles with wildcards" {
+    create_mock_gh_with_issue_list
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-label bug --github-title "New*" \
+        --completeness-threshold 0
+
+    assert_success
+    [[ "$output" == *"Importing GitHub issue #30"* ]]
+    [[ -d "new-bug-report" ]]
+}
+
+@test "ralph-import fails with a clear error when filters match nothing" {
+    create_mock_gh_with_issue_list
+
+    # Title matches only #30, which --exclude-label then removes
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-label bug --github-title "New*" \
+        --exclude-label wontfix --completeness-threshold 0
+
+    assert_failure
+    [[ "$output" == *"No issues match"* ]]
+    # Nothing was imported
+    [[ ! -d "new-bug-report" ]]
+    ! grep -q "issue view" "$TEST_DIR/gh_args.log"
+}
+
+@test "ralph-import --dry-run previews matches without importing" {
+    create_mock_gh_with_issue_list
+
+    run bash "$PROJECT_ROOT/ralph_import.sh" --github-label bug --dry-run
+
+    assert_success
+    # Preview table with all three matches, oldest selected
+    [[ "$output" == *"NUMBER"* && "$output" == *"TITLE"* ]]
+    [[ "$output" == *"#10"* && "$output" == *"#25"* && "$output" == *"#30"* ]]
+    [[ "$output" == *"3 issue(s) match"* ]]
+    [[ "$output" == *"Would select: #10"* ]]
+    [[ "$output" == *"nothing was imported"* ]]
+
+    # No project was created and no issue was fetched for conversion
+    [[ ! -d "old-bug" && ! -d "p0-critical-crash" && ! -d "new-bug-report" ]]
+    ! grep -q "issue view" "$TEST_DIR/gh_args.log"
+}

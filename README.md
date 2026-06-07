@@ -42,7 +42,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
 - PRD import functionality
-- **GitHub issue import: `ralph-import --github-issue/--github-search/--github-label`**
+- **GitHub issue import: `ralph-import --github-issue` plus metadata filters (labels, title, assignee, milestone, state) with first/interactive/priority selection and `--dry-run` preview**
 - **CI/CD pipeline with GitHub Actions**
 - **Dedicated uninstall script for clean removal**
 
@@ -405,10 +405,10 @@ Ralph can also import a development plan directly from a GitHub issue. The issue
 # Import a specific issue by number
 ralph-import --github-issue 42
 
-# Import the first open issue matching a search
+# Import the oldest open issue matching a search
 ralph-import --github-search "fix login timeout"
 
-# Import the first open issue with a label
+# Import the oldest open issue with a label
 ralph-import --github-label "sprint-1"
 
 # Fetch from a specific repository (default: repo of the current directory)
@@ -421,7 +421,44 @@ ralph-import --github-issue 42 my-project
 ralph-import --github-issue 42 --include-comments
 ```
 
-The issue title becomes the project name (slugified, e.g. `Add User Login` → `add-user-login`) and the issue body becomes the PRD content. Use exactly one selector (`--github-issue`, `--github-search`, or `--github-label`) per import.
+The issue title becomes the project name (slugified, e.g. `Add User Login` → `add-user-login`) and the issue body becomes the PRD content. `--github-issue` addresses an exact issue and cannot be combined with the filter flags below.
+
+### Filtering and Selecting Issues by Metadata
+
+Instead of an exact issue number, issues can be queried by metadata. Filter flags are freely combinable; matches are sorted oldest-first.
+
+```bash
+# Issues carrying ALL listed labels (comma = AND)
+ralph-import --github-label "bug,P0"
+
+# High-priority bugs assigned to me
+ralph-import --github-label "bug,P0" --github-assignee @me
+
+# Unassigned issues with a label, skipping anything marked wontfix
+ralph-import --github-label "good-first-issue" --github-assignee none --exclude-label wontfix
+
+# Title pattern: * matches anything, everything else is literal (case-insensitive)
+ralph-import --github-title "[P0]*"
+
+# Milestone, including closed issues
+ralph-import --github-milestone "v1.0" --github-state all
+```
+
+When several issues match, `--select` picks the winner:
+
+```bash
+ralph-import --github-label bug --select first        # oldest issue (default)
+ralph-import --github-label bug --select interactive  # numbered menu to choose from
+ralph-import --github-label bug --select priority     # highest-priority label
+```
+
+The `priority` strategy understands both bare `P0`–`P9` labels and the `priority: P0` form; ties go to the oldest issue, and issues without priority labels fall back to the oldest match. Non-interactive sessions using `--select interactive` fall back to the oldest match with a warning instead of blocking.
+
+`--dry-run` previews the matches and what would be selected without importing anything:
+
+```bash
+ralph-import --github-label bug --dry-run
+```
 
 > **Security note**: issue comments are **excluded by default** — on public repositories anyone can comment, and comment text flows into the AI conversion prompt. Pass `--include-comments` only when you trust the discussion (e.g. plans posted by maintainers).
 
@@ -449,7 +486,7 @@ Generated plans are shown for approval before conversion. Non-interactive sessio
 - **"GitHub CLI (gh) is not installed"** — install it from https://cli.github.com
 - **"GitHub CLI is not authenticated"** — run `gh auth login`
 - **"Could not fetch issue #N"** — check the issue number, your repo access, and the `--repo` value
-- **"No issues found matching..."** — refine your `--github-search` / `--github-label` criteria (only open issues are matched)
+- **"No issues match the specified filters"** — relax or remove some filters; only open issues are matched unless `--github-state closed|all` is given. `--dry-run` shows what a filter set matches.
 
 ## Configuration
 
