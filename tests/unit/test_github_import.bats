@@ -806,6 +806,26 @@ CANDIDATES_TWO='[{"number":30,"title":"Fix other thing","labels":[{"name":"bug"}
     echo "$out" | jq empty
 }
 
+@test "resolve_github_issue_candidates refuses client-side filters on capped results" {
+    # Client-side filters over a truncated set could select the wrong issue
+    # or report zero matches when one exists (codex P2, round 2) — that is
+    # an error, not a warning
+    local capped
+    capped=$(jq -n '[range(500) | {number: (. + 1), title: "t", labels: [], assignees: [], milestone: null, url: "u"}]')
+    _mock_gh_ok '{}' "$capped"
+
+    parse_import_args --github-label bug --github-title "t*"
+    run resolve_github_issue_candidates ""
+    assert_failure
+    [[ "$output" == *"capped"* ]]
+    [[ "$output" == *"--github-title"* ]]
+
+    parse_import_args --github-label bug --exclude-label wontfix
+    run resolve_github_issue_candidates ""
+    assert_failure
+    [[ "$output" == *"capped"* ]]
+}
+
 @test "resolve_github_issue_candidates passes --repo through" {
     _mock_gh_ok '{}' "$CANDIDATES_TWO"
 

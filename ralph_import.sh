@@ -596,10 +596,17 @@ resolve_github_issue_candidates() {
     fi
 
     # A full result set means truncation: older matches were likely dropped
-    # and "first/oldest" selection would be computed over the wrong window
+    # and "first/oldest" selection would be computed over the wrong window.
+    # With client-side filters in play the truncation is worse than
+    # imprecise — the result can be wrong or spuriously empty — so refuse
+    # rather than warn (codex P2, round 2)
     local raw_count
     raw_count=$(echo "$json_output" | jq 'length')
     if [[ "$raw_count" -ge "$query_limit" ]]; then
+        if [[ -n "$GITHUB_TITLE" || -n "$GITHUB_EXCLUDE_LABEL" ]]; then
+            log "ERROR" "Query results were capped at ${query_limit} issues, so client-side filters (--github-title, --exclude-label) would run over an incomplete set and could pick the wrong issue. Narrow the server-side filters (--github-label, --github-search, --github-milestone, --github-assignee, --github-state) and retry." >&2
+            return 1
+        fi
         log "WARN" "Query results were capped at ${query_limit} issues (newest-first): the oldest matches may be missing. Narrow the filters for reliable selection." >&2
     fi
 
