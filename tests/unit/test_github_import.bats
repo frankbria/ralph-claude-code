@@ -687,8 +687,10 @@ MOCKEOF
     run parse_import_args --github-issue 42 --exclude-label wontfix
     assert_failure
 
+    # state is a filter, so it hits the filter-combination rejection
     run parse_import_args --github-issue 42 --github-state closed
     assert_failure
+    [[ "$output" == *"cannot be combined"* ]]
 }
 
 @test "parse_import_args rejects modifiers without a primary filter" {
@@ -702,9 +704,17 @@ MOCKEOF
 
     run parse_import_args --exclude-label wontfix
     assert_failure
+}
 
-    run parse_import_args --github-state closed
-    assert_failure
+@test "parse_import_args treats --github-state as a standalone primary filter" {
+    # State genuinely narrows the candidate set (codex P2): "the oldest
+    # closed issue" is a coherent query on its own
+    parse_import_args --github-state closed
+    [[ "$IMPORT_MODE" == "github" ]]
+    [[ "$GITHUB_STATE" == "closed" ]]
+
+    parse_import_args --github-state all --dry-run
+    [[ "$GITHUB_DRY_RUN" == "true" ]]
 }
 
 @test "parse_import_args validates --github-state values" {
@@ -760,7 +770,7 @@ MOCKEOF
 # Two-issue fixture used across candidate tests: #30 is newest, #12 oldest
 CANDIDATES_TWO='[{"number":30,"title":"Fix other thing","labels":[{"name":"bug"},{"name":"wontfix"}],"assignees":[],"milestone":null,"url":"u30"},{"number":12,"title":"[P0] Fix login","labels":[{"name":"bug"},{"name":"P0"}],"assignees":[{"login":"alice"}],"milestone":{"title":"v1.0"},"url":"u12"}]'
 
-@test "resolve_github_issue_candidates queries gh with state, limit 100 and label" {
+@test "resolve_github_issue_candidates queries gh with state, limit 500 and label" {
     _mock_gh_ok '{}' "$CANDIDATES_TWO"
 
     parse_import_args --github-label bug
@@ -771,10 +781,29 @@ CANDIDATES_TWO='[{"number":30,"title":"Fix other thing","labels":[{"name":"bug"}
     args=$(cat "$TEST_DIR/gh_args")
     [[ "$args" == *"issue list"* ]]
     [[ "$args" == *"--state open"* ]]
-    [[ "$args" == *"--limit 100"* ]]
+    [[ "$args" == *"--limit 500"* ]]
     [[ "$args" == *"--label bug"* ]]
     [[ "$args" == *"--json"* ]]
     [[ "$args" != *"--repo"* ]]
+}
+
+@test "resolve_github_issue_candidates warns when results hit the query cap" {
+    # gh returns newest-first pages: a capped result set means the true
+    # oldest matches may be missing entirely (codex P2) — never stay silent
+    local capped
+    capped=$(jq -n '[range(500) | {number: (. + 1), title: "t", labels: [], assignees: [], milestone: null, url: "u"}]')
+    _mock_gh_ok '{}' "$capped"
+
+    parse_import_args --github-label bug
+    run resolve_github_issue_candidates ""
+    assert_success
+    [[ "$output" == *"WARN"* ]]
+    [[ "$output" == *"capped"* ]]
+
+    # The warning goes to stderr, not into the data stream
+    local out
+    out=$(resolve_github_issue_candidates "" 2>/dev/null)
+    echo "$out" | jq empty
 }
 
 @test "resolve_github_issue_candidates passes --repo through" {

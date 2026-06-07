@@ -300,6 +300,7 @@ parse_import_args() {
     GITHUB_DRY_RUN=""
     local plan_flags_used=""
     local modifier_flag_used=""
+    local github_state_set=""
     POSITIONAL=()
 
     while [[ $# -gt 0 ]]; do
@@ -397,8 +398,11 @@ parse_import_args() {
                         return 1
                         ;;
                 esac
+                # A primary filter, not a modifier: "the oldest closed issue"
+                # is a coherent query on its own (codex P2)
+                IMPORT_MODE="github"
                 GITHUB_STATE="$2"
-                modifier_flag_used="--github-state"
+                github_state_set="true"
                 shift 2
                 ;;
             --select)
@@ -483,10 +487,11 @@ parse_import_args() {
     [[ -n "$GITHUB_TITLE" ]] && filter_count=$((filter_count + 1))
     [[ -n "$GITHUB_ASSIGNEE" ]] && filter_count=$((filter_count + 1))
     [[ -n "$GITHUB_MILESTONE" ]] && filter_count=$((filter_count + 1))
+    [[ -n "$github_state_set" ]] && filter_count=$((filter_count + 1))
 
     if [[ -n "$GITHUB_ISSUE" ]]; then
         if [[ $filter_count -gt 0 ]]; then
-            log "ERROR" "--github-issue selects an exact issue and cannot be combined with filter flags (--github-search, --github-label, --github-title, --github-assignee, --github-milestone)"
+            log "ERROR" "--github-issue selects an exact issue and cannot be combined with filter flags (--github-search, --github-label, --github-title, --github-assignee, --github-milestone, --github-state)"
             return 1
         fi
         if [[ -n "$modifier_flag_used" ]]; then
@@ -498,7 +503,7 @@ parse_import_args() {
     # Modifiers refine a filter query; without a filter there is nothing
     # for them to act on
     if [[ -n "$modifier_flag_used" && $filter_count -eq 0 ]]; then
-        log "ERROR" "$modifier_flag_used requires at least one filter (--github-search, --github-label, --github-title, --github-assignee, or --github-milestone)"
+        log "ERROR" "$modifier_flag_used requires at least one filter (--github-search, --github-label, --github-title, --github-assignee, --github-milestone, or --github-state)"
         return 1
     fi
 
@@ -554,7 +559,11 @@ check_github_cli() {
 resolve_github_issue_candidates() {
     local repo="${1:-}"
 
-    local gh_args=("issue" "list" "--state" "${GITHUB_STATE:-open}" "--limit" "100"
+    # gh paginates internally up to --limit; gh returns newest-first, so a
+    # capped result set may be missing the true oldest matches entirely —
+    # the cap-hit warning below keeps that failure mode visible (codex P2)
+    local query_limit=500
+    local gh_args=("issue" "list" "--state" "${GITHUB_STATE:-open}" "--limit" "$query_limit"
                    "--json" "number,title,labels,assignees,milestone,url")
 
     # Comma-separated labels become repeated --label flags (gh ANDs them)
@@ -584,6 +593,14 @@ resolve_github_issue_candidates() {
     if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
         log "ERROR" "GitHub issue query failed. Check the filters, repository access, and gh authentication." >&2
         return 1
+    fi
+
+    # A full result set means truncation: older matches were likely dropped
+    # and "first/oldest" selection would be computed over the wrong window
+    local raw_count
+    raw_count=$(echo "$json_output" | jq 'length')
+    if [[ "$raw_count" -ge "$query_limit" ]]; then
+        log "WARN" "Query results were capped at ${query_limit} issues (newest-first): the oldest matches may be missing. Narrow the filters for reliable selection." >&2
     fi
 
     # Client-side: drop issues carrying an excluded label (case-insensitive,

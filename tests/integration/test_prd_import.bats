@@ -1519,7 +1519,7 @@ MOCK_GH_EOF
 
     grep -q "issue list" "$TEST_DIR/gh_args.log"
     grep -q -- "--label bug" "$TEST_DIR/gh_args.log"
-    grep -q -- "--limit 100" "$TEST_DIR/gh_args.log"
+    grep -q -- "--limit 500" "$TEST_DIR/gh_args.log"
     grep -q "issue view 10" "$TEST_DIR/gh_args.log"
 }
 
