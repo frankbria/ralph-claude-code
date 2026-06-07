@@ -26,14 +26,21 @@ RALPH_SCRIPT="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 # invokes the binary directly rather than through portable_timeout() because
 # it needs the --foreground/-k flags, which that wrapper does not pass through.
 source "${BATS_TEST_DIRNAME}/../../lib/timeout_utils.sh"
+# Soft-fail at load: unit tests of the assertion helpers (test_e2e_helper.bats)
+# don't need a timeout binary, so missing coreutils must not abort the whole
+# suite at source time. setup_e2e_project enforces the hard requirement.
 if ! E2E_TIMEOUT_CMD="$(detect_timeout_command)"; then
-    echo "FATAL: E2E tests require GNU timeout (brew install coreutils on macOS)" >&2
-    exit 1
+    E2E_TIMEOUT_CMD=""
 fi
 
 # Create a complete temp Ralph project + mock claude CLI, and cd into it.
 # Sets: E2E_DIR, MOCK_DIR, PROJECT_DIR
 setup_e2e_project() {
+    if [[ -z "$E2E_TIMEOUT_CMD" ]]; then
+        echo "FATAL: E2E tests require GNU timeout (brew install coreutils on macOS)" >&2
+        return 1
+    fi
+
     E2E_DIR="$(mktemp -d)"
     MOCK_DIR="$E2E_DIR/mock"
     PROJECT_DIR="$E2E_DIR/project"
@@ -239,12 +246,64 @@ e2e_fix_plan() {
     } > .ralph/fix_plan.md
 }
 
+# Record the hour a ralph run started / ended (Issue #285). File-based so the
+# markers survive the subshell that bats `run` executes run_ralph in. Tests
+# that invoke ralph_loop.sh directly (not via run_ralph) must call both
+# themselves — e2e_mark_run_end as soon as the run is over, BEFORE asserting,
+# so a boundary crossed while waiting to assert doesn't suppress the check.
+e2e_mark_run_start() {
+    date +%Y%m%d%H > "$E2E_DIR/.run_start_hour"
+}
+
+e2e_mark_run_end() {
+    date +%Y%m%d%H > "$E2E_DIR/.run_end_hour"
+}
+
+# True if the clock crossed an hour boundary DURING the run (start marker vs
+# end marker; falls back to the current hour when no end was recorded).
+# init_call_tracking runs at the top of every loop iteration and zeroes
+# .ralph/.call_count when the hour changes (the designed hourly rate-limit
+# reset), so raw counter values are only assertable when this is false.
+e2e_hour_rolled_over() {
+    local start_hour=""
+    if [[ -f "$E2E_DIR/.run_start_hour" ]]; then
+        start_hour=$(cat "$E2E_DIR/.run_start_hour")
+    fi
+    local end_hour
+    if [[ -f "$E2E_DIR/.run_end_hour" ]]; then
+        end_hour=$(cat "$E2E_DIR/.run_end_hour")
+    else
+        # Only reachable when the caller omitted e2e_mark_run_end (run_ralph
+        # always records it) — degrades to assertion-time comparison.
+        end_hour=$(date +%Y%m%d%H)
+    fi
+    [[ -n "$start_hour" && "$start_hour" != "$end_hour" ]]
+}
+
+# Assert the raw .ralph/.call_count value — unless the run crossed an hour
+# boundary, in which case the hourly reset legitimately zeroed it (Issue #285)
+# and the check is skipped. mock_call_count remains the unconditional proof of
+# how many times the CLI was invoked.
+# Usage: assert_call_count EXPECTED
+assert_call_count() {
+    local expected=$1
+    if e2e_hour_rolled_over; then
+        echo "# raw .call_count assertion skipped: run crossed an hour boundary (Issue #285)"
+        return 0
+    fi
+    assert_equal "$(cat .ralph/.call_count)" "$expected"
+}
+
 # Run ralph_loop.sh as a subprocess under a hard timeout (never hang CI).
 # -k is required: ralph traps SIGTERM (cleanup handler) without exiting, so
 # a plain `timeout` would deliver TERM and then wait forever.
 # Usage: run_ralph [args...]   — use with bats `run`
 run_ralph() {
-    "$E2E_TIMEOUT_CMD" --foreground -k 5 120 bash "$RALPH_SCRIPT" "$@" < /dev/null
+    e2e_mark_run_start
+    local rc=0
+    "$E2E_TIMEOUT_CMD" --foreground -k 5 120 bash "$RALPH_SCRIPT" "$@" < /dev/null || rc=$?
+    e2e_mark_run_end
+    return $rc
 }
 
 # Number of times the mock claude was invoked.

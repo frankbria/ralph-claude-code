@@ -234,7 +234,7 @@ Multi-layered defense against Claude deleting Ralph's own config:
 Tests use bats, organized under `tests/unit/`, `tests/integration/`, and `tests/e2e/` (helpers in `tests/helpers/`). Run via `npm test` (all), `npm run test:unit` / `test:integration` / `test:e2e`, or `bats <file>` for one file. `npm test` reports the current count.
 
 - File naming maps to subject: e.g. `test_circuit_breaker_recovery.bats`, `test_cli_modern.bats`, `test_exit_detection.bats`, `test_enable_core.bats` — add tests to the file matching the component you changed
-- `tests/e2e/test_full_loop.bats` runs ralph_loop.sh as a real subprocess with an executable mock `claude` CLI (`tests/e2e/helpers/e2e_helper.bash`). The mock must take >1s per call — ralph's early-failure detection treats sub-second exits as startup failures
+- `tests/e2e/test_full_loop.bats` runs ralph_loop.sh as a real subprocess with an executable mock `claude` CLI (`tests/e2e/helpers/e2e_helper.bash`). The mock must take >1s per call — ralph's early-failure detection treats sub-second exits as startup failures. Raw `.ralph/.call_count` assertions go through `assert_call_count`, which skips only when the run itself crossed an hour boundary (the hourly rate-limit reset legitimately zeroes the counter — Issue #285); `mock_call_count` stays the unconditional invocation proof
 - **Test pass rate (100%) is the quality gate.** Coverage measurement with kcov is informational only (`COVERAGE_THRESHOLD=0`): kcov cannot instrument subprocesses spawned by bats (see [bats-core#15](https://github.com/bats-core/bats-core/issues/15))
 
 ## CI/CD Pipeline

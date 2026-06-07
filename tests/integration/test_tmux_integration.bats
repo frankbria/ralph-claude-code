@@ -344,7 +344,7 @@ assert_tmux_called_with() {
     run setup_tmux_session
     [ "$status" -eq 0 ]
     # pane 1 receives 'tail -f' for the live log file
-    assert_tmux_called_with "tmux send-keys -t .+\.1 tail -f"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+\.1 tail -f"
 }
 
 # ==============================================================================
@@ -355,7 +355,7 @@ assert_tmux_called_with() {
     run setup_tmux_session
     [ "$status" -eq 0 ]
     # pane 2 receives either ralph-monitor or ralph_monitor.sh
-    assert_tmux_called_with "tmux send-keys -t .+\.2 .*(ralph-monitor|ralph_monitor\.sh)"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+\.2 .*(ralph-monitor|ralph_monitor\.sh)"
 }
 
 # ==============================================================================
@@ -367,11 +367,11 @@ assert_tmux_called_with() {
     [ "$status" -eq 0 ]
 
     # pane 0 receives the ralph command
-    assert_tmux_called_with "tmux send-keys -t .+\.0 .*(ralph|ralph_loop\.sh)"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+\.0 .*(ralph|ralph_loop\.sh)"
 
     # --monitor must NOT appear in the left-pane command (would cause infinite recursion)
     local pane0_line
-    pane0_line=$(grep -E "tmux send-keys -t .+\.0" "$TMUX_CALL_LOG" | head -1)
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" != *"--monitor"* ]]
 }
 
@@ -384,7 +384,7 @@ assert_tmux_called_with() {
     [ "$status" -eq 0 ]
 
     local pane0_line
-    pane0_line=$(grep -E "tmux send-keys -t .+\.0" "$TMUX_CALL_LOG" | head -1)
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--live"* ]]
 }
 
@@ -422,7 +422,7 @@ assert_tmux_called_with() {
     [ "$status" -eq 0 ]
 
     local pane0_line
-    pane0_line=$(grep -E "tmux send-keys -t .+\.0" "$TMUX_CALL_LOG" | head -1)
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--calls 50"* ]]
 }
 
@@ -437,7 +437,7 @@ assert_tmux_called_with() {
     [ "$status" -eq 0 ]
 
     local pane0_line
-    pane0_line=$(grep -E "tmux send-keys -t .+\.0" "$TMUX_CALL_LOG" | head -1)
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--prompt"* ]]
 }
 
@@ -485,11 +485,11 @@ assert_tmux_called_with() {
 
     # With pane-base-index=1, the 3 panes are .1 (loop), .2 (output), .3 (status)
     # Ralph loop command must target pane .1 (NOT .0 which doesn't exist)
-    assert_tmux_called_with "tmux send-keys -t .+\.1 .*(ralph|ralph_loop\.sh).*--live"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+\.1 .*(ralph|ralph_loop\.sh).*--live"
     # live.log tail must target pane .2 (Claude Output)
-    assert_tmux_called_with "tmux send-keys -t .+\.2 tail -f"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+\.2 tail -f"
     # monitor must target pane .3 (Status)
-    assert_tmux_called_with "tmux send-keys -t .+\.3 .*(ralph-monitor|ralph_monitor\.sh)"
+    assert_tmux_called_with "tmux send-keys -t [^ ]+\.3 .*(ralph-monitor|ralph_monitor\.sh)"
     # No send-keys to .0 — that pane does not exist in this config
     run grep -E '^tmux send-keys -t [^ ]+\.0 ' "$TMUX_CALL_LOG"
     [ "$status" -ne 0 ]

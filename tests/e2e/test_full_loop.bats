@@ -82,7 +82,7 @@ teardown() {
     [[ "$output" == *"Analyzing Claude Code response"* ]]
     # Graceful exit resets the session (which clears .response_analysis)
     assert_equal "$(jq -r '.reset_reason' .ralph/.ralph_session)" "project_complete"
-    assert_equal "$(cat .ralph/.call_count)" "2"
+    assert_call_count 2
     local output_log_count
     output_log_count=$(ls .ralph/logs/claude_output_*.log 2>/dev/null | wc -l)
     [[ $output_log_count -ge 2 ]] || fail "Expected >= 2 output logs, found $output_log_count"
@@ -103,7 +103,7 @@ teardown() {
     assert_equal "$(status_field exit_reason)" "plan_complete"
     # Loop counter advanced past the three working iterations
     assert_equal "$(status_field loop_count)" "4"
-    assert_equal "$(cat .ralph/.call_count)" "3"
+    assert_call_count 3
     # Each loop produced its own output log
     [[ $(ls .ralph/logs/claude_output_*.log | wc -l) -eq 3 ]]
     # All work landed
@@ -224,9 +224,11 @@ EOF
     run run_ralph
 
     assert_success
-    # Counter was reset for the new hour, then incremented once — not 100
-    assert_equal "$(cat .ralph/.call_count)" "1"
-    assert_equal "$(cat .ralph/.last_reset)" "$(date +%Y%m%d%H)"
+    # Counter was reset for the new hour, then incremented once — not 100.
+    # Raw values are only assertable when the run itself didn't cross an
+    # hour boundary (Issue #285).
+    assert_call_count 1
+    e2e_hour_rolled_over || assert_equal "$(cat .ralph/.last_reset)" "$(date +%Y%m%d%H)"
     assert_equal "$(status_field exit_reason)" "plan_complete"
 }
 
@@ -281,6 +283,9 @@ EOF
     # Mock sleeps long enough for us to interrupt mid-execution
     echo "60" > "$MOCK_DIR/responses/1.sleep"
 
+    # Direct invocation (not run_ralph), so record the start hour ourselves
+    # for the conditional call-count assertion below (Issue #285)
+    e2e_mark_run_start
     bash "$RALPH_SCRIPT" > "$E2E_DIR/ralph_run.log" 2>&1 < /dev/null &
     local ralph_pid=$!
 
@@ -311,12 +316,16 @@ EOF
         fi
         sleep 0.2
     done
+    # The run is effectively over once cleanup() has written its status; mark
+    # the end now so an hour boundary crossed during the assertions below
+    # cannot suppress the call-count check (Issue #285)
+    e2e_mark_run_end
 
     # cleanup() writes last_action="interrupted", status="stopped"
     assert_equal "$(status_field last_action)" "interrupted"
     assert_equal "$(status_field status)" "stopped"
     # Call counter preserved across interruption
-    assert_equal "$(cat .ralph/.call_count)" "1"
+    assert_call_count 1
 
     kill -KILL "$ralph_pid" 2>/dev/null || true
     wait "$ralph_pid" 2>/dev/null || true
