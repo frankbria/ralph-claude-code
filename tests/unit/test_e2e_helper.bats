@@ -28,16 +28,33 @@ teardown() {
 # e2e_mark_run_start / e2e_mark_run_end / e2e_hour_rolled_over
 # =============================================================================
 
-@test "e2e_mark_run_start records the current hour" {
-    e2e_mark_run_start
+# Assert a marker file holds the current hour. The hour is sampled before and
+# after the marker was written, and either value is accepted, so these tests
+# cannot themselves flake at the top of the hour.
+assert_marker_is_current_hour() {
+    local file=$1 before=$2 after=$3
+    local marker
+    marker=$(cat "$file")
+    [[ "$marker" == "$before" || "$marker" == "$after" ]] \
+        || fail "Marker '$marker' is neither '$before' nor '$after'"
+}
 
-    assert_equal "$(cat "$E2E_DIR/.run_start_hour")" "$(date +%Y%m%d%H)"
+@test "e2e_mark_run_start records the current hour" {
+    local before after
+    before=$(date +%Y%m%d%H)
+    e2e_mark_run_start
+    after=$(date +%Y%m%d%H)
+
+    assert_marker_is_current_hour "$E2E_DIR/.run_start_hour" "$before" "$after"
 }
 
 @test "e2e_mark_run_end records the current hour" {
+    local before after
+    before=$(date +%Y%m%d%H)
     e2e_mark_run_end
+    after=$(date +%Y%m%d%H)
 
-    assert_equal "$(cat "$E2E_DIR/.run_end_hour")" "$(date +%Y%m%d%H)"
+    assert_marker_is_current_hour "$E2E_DIR/.run_end_hour" "$before" "$after"
 }
 
 @test "e2e_hour_rolled_over is false when the hour has not changed" {
@@ -146,9 +163,12 @@ teardown() {
     echo 'exit 7' > "$RALPH_SCRIPT"
     rm -f "$E2E_DIR/.run_start_hour" "$E2E_DIR/.run_end_hour"
 
+    local before after
+    before=$(date +%Y%m%d%H)
     run run_ralph
+    after=$(date +%Y%m%d%H)
 
     [ "$status" -eq 7 ]
-    assert_equal "$(cat "$E2E_DIR/.run_start_hour")" "$(date +%Y%m%d%H)"
-    assert_equal "$(cat "$E2E_DIR/.run_end_hour")" "$(date +%Y%m%d%H)"
+    assert_marker_is_current_hour "$E2E_DIR/.run_start_hour" "$before" "$after"
+    assert_marker_is_current_hour "$E2E_DIR/.run_end_hour" "$before" "$after"
 }
