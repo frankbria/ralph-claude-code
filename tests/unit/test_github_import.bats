@@ -145,71 +145,14 @@ run_with_path() {
 }
 
 # -----------------------------------------------------------------------------
-# resolve_github_issue_number
-# -----------------------------------------------------------------------------
-
-@test "resolve_github_issue_number by search returns first matching number" {
-    _mock_gh_ok '{}' '[{"number":17}]'
-
-    run resolve_github_issue_number "search" "login timeout" ""
-    assert_success
-    [[ "$output" == *"17"* ]]
-
-    local args
-    args=$(cat "$TEST_DIR/gh_args")
-    [[ "$args" == *"issue list"* ]]
-    [[ "$args" == *"--search login timeout"* ]]
-    [[ "$args" == *"--limit 1"* ]]
-}
-
-@test "resolve_github_issue_number by search fails clearly when nothing matches" {
-    _mock_gh_ok '{}' '[]'
-
-    run resolve_github_issue_number "search" "no such issue" ""
-    assert_failure
-    [[ "$output" == *"No issues"* ]]
-    [[ "$output" == *"no such issue"* ]]
-}
-
-@test "resolve_github_issue_number by label returns first matching number" {
-    _mock_gh_ok '{}' '[{"number":23}]'
-
-    run resolve_github_issue_number "label" "sprint-1" ""
-    assert_success
-    [[ "$output" == *"23"* ]]
-
-    local args
-    args=$(cat "$TEST_DIR/gh_args")
-    [[ "$args" == *"--label sprint-1"* ]]
-}
-
-@test "resolve_github_issue_number by label fails clearly when nothing matches" {
-    _mock_gh_ok '{}' '[]'
-
-    run resolve_github_issue_number "label" "nonexistent-label" ""
-    assert_failure
-    [[ "$output" == *"No issues"* ]]
-    [[ "$output" == *"nonexistent-label"* ]]
-}
-
-# -----------------------------------------------------------------------------
 # stdout/stderr separation
 #
 # These functions return data on stdout and are called inside $(...) capture
 # or `> file` redirects, so their error messages MUST go to stderr — otherwise
 # lookup/fetch failures are swallowed silently (codex review round 2).
+# resolve_github_issue_number's equivalents live in the
+# resolve_github_issue_candidates section (Issue #71 replaced the function).
 # -----------------------------------------------------------------------------
-
-@test "resolve_github_issue_number writes errors to stderr, not stdout" {
-    _mock_gh_ok '{}' '[]'
-
-    local out err
-    out=$(resolve_github_issue_number "search" "nope" "" 2>/dev/null) || true
-    [[ -z "$out" ]]
-
-    err=$(resolve_github_issue_number "search" "nope" "" 2>&1 >/dev/null) || true
-    [[ "$err" == *"No issues"* ]]
-}
 
 @test "fetch_github_issue writes errors to stderr, not stdout" {
     _mock_gh "    auth) exit 0 ;;
@@ -387,14 +330,13 @@ EOF
     [[ "$output" == *"--repo"* && "$output" == *"requires"* ]]
 }
 
-@test "parse_import_args rejects conflicting issue selectors" {
-    run parse_import_args --github-search "login" --github-label "bug"
-    assert_failure
-    [[ "$output" == *"only one of"* ]]
-
+@test "parse_import_args rejects --github-issue combined with --github-search" {
+    # Contract change (Issue #71): filter flags are now combinable with each
+    # other (search+label was previously rejected); only --github-issue —
+    # an exact address, not a filter — stays exclusive
     run parse_import_args --github-issue 42 --github-search "login"
     assert_failure
-    [[ "$output" == *"only one of"* ]]
+    [[ "$output" == *"--github-issue"* && "$output" == *"cannot be combined"* ]]
 }
 
 @test "parse_import_args captures --include-comments (default: excluded)" {
@@ -677,4 +619,434 @@ MOCKEOF
     echo "Just some text output" > plain.txt
     run detect_response_format "plain.txt"
     [[ "$output" == "text" ]]
+}
+
+# -----------------------------------------------------------------------------
+# parse_import_args - metadata filters and selection (Issue #71)
+# -----------------------------------------------------------------------------
+
+@test "parse_import_args captures metadata filter flags" {
+    parse_import_args --github-label bug --exclude-label wontfix \
+        --github-title "[P0]*" --github-assignee @me --github-milestone v1.0 \
+        --github-state closed
+    [[ "$IMPORT_MODE" == "github" ]]
+    [[ "$GITHUB_LABEL" == "bug" ]]
+    [[ "$GITHUB_EXCLUDE_LABEL" == "wontfix" ]]
+    [[ "$GITHUB_TITLE" == "[P0]*" ]]
+    [[ "$GITHUB_ASSIGNEE" == "@me" ]]
+    [[ "$GITHUB_MILESTONE" == "v1.0" ]]
+    [[ "$GITHUB_STATE" == "closed" ]]
+}
+
+@test "parse_import_args defaults state to open, select to first, dry-run off" {
+    parse_import_args --github-label bug
+    [[ "$GITHUB_STATE" == "open" ]]
+    [[ "$GITHUB_SELECT" == "first" ]]
+    [[ -z "$GITHUB_DRY_RUN" ]]
+}
+
+@test "parse_import_args captures comma-separated --github-label verbatim" {
+    parse_import_args --github-label "bug,P0"
+    [[ "$GITHUB_LABEL" == "bug,P0" ]]
+}
+
+@test "parse_import_args allows combining filter flags (contract change from #69)" {
+    # Issue #71 makes filters composable; the old one-selector rule now
+    # applies only to --github-issue (an exact address, not a filter)
+    parse_import_args --github-search "auth" --github-label bug \
+        --github-assignee @me --github-milestone v1.0
+    [[ "$IMPORT_MODE" == "github" ]]
+    [[ "$GITHUB_SEARCH" == "auth" ]]
+    [[ "$GITHUB_LABEL" == "bug" ]]
+}
+
+@test "parse_import_args rejects --github-issue combined with filter flags" {
+    run parse_import_args --github-issue 42 --github-label bug
+    assert_failure
+    [[ "$output" == *"--github-issue"* && "$output" == *"cannot be combined"* ]]
+
+    run parse_import_args --github-issue 42 --github-assignee @me
+    assert_failure
+
+    run parse_import_args --github-issue 42 --github-title "[P0]*"
+    assert_failure
+
+    run parse_import_args --github-issue 42 --github-milestone v1.0
+    assert_failure
+}
+
+@test "parse_import_args rejects --github-issue combined with selection modifiers" {
+    run parse_import_args --github-issue 42 --select priority
+    assert_failure
+    [[ "$output" == *"--select"* ]]
+
+    run parse_import_args --github-issue 42 --dry-run
+    assert_failure
+    [[ "$output" == *"--dry-run"* ]]
+
+    run parse_import_args --github-issue 42 --exclude-label wontfix
+    assert_failure
+
+    run parse_import_args --github-issue 42 --github-state closed
+    assert_failure
+}
+
+@test "parse_import_args rejects modifiers without a primary filter" {
+    run parse_import_args --dry-run
+    assert_failure
+    [[ "$output" == *"--dry-run"* && "$output" == *"filter"* ]]
+
+    run parse_import_args my-prd.md --select priority
+    assert_failure
+    [[ "$output" == *"--select"* ]]
+
+    run parse_import_args --exclude-label wontfix
+    assert_failure
+
+    run parse_import_args --github-state closed
+    assert_failure
+}
+
+@test "parse_import_args validates --github-state values" {
+    run parse_import_args --github-label bug --github-state banana
+    assert_failure
+    [[ "$output" == *"open"* && "$output" == *"closed"* && "$output" == *"all"* ]]
+
+    parse_import_args --github-label bug --github-state all
+    [[ "$GITHUB_STATE" == "all" ]]
+}
+
+@test "parse_import_args validates --select values" {
+    run parse_import_args --github-label bug --select random
+    assert_failure
+    [[ "$output" == *"first"* && "$output" == *"interactive"* && "$output" == *"priority"* ]]
+
+    parse_import_args --github-label bug --select interactive
+    [[ "$GITHUB_SELECT" == "interactive" ]]
+
+    parse_import_args --github-label bug --select priority
+    [[ "$GITHUB_SELECT" == "priority" ]]
+}
+
+@test "parse_import_args rejects new filter flags without values" {
+    local flag
+    for flag in --exclude-label --github-title --github-assignee --github-milestone --github-state --select; do
+        run parse_import_args --github-label bug "$flag"
+        assert_failure
+        [[ "$output" == *"$flag"* && "$output" == *"requires"* ]]
+
+        # Flag-shaped value must not be swallowed
+        run parse_import_args --github-label bug "$flag" --dry-run
+        assert_failure
+        [[ "$output" == *"$flag"* && "$output" == *"requires"* ]]
+    done
+}
+
+@test "parse_import_args captures --dry-run alongside a filter" {
+    parse_import_args --github-label bug --dry-run
+    [[ "$GITHUB_DRY_RUN" == "true" ]]
+}
+
+@test "parse_import_args allows plan flags with metadata filters" {
+    parse_import_args --github-label bug --github-assignee none --generate-plan
+    [[ "$PLAN_GENERATION" == "force" ]]
+    [[ "$GITHUB_ASSIGNEE" == "none" ]]
+}
+
+# -----------------------------------------------------------------------------
+# resolve_github_issue_candidates (Issue #71)
+# -----------------------------------------------------------------------------
+
+# Two-issue fixture used across candidate tests: #30 is newest, #12 oldest
+CANDIDATES_TWO='[{"number":30,"title":"Fix other thing","labels":[{"name":"bug"},{"name":"wontfix"}],"assignees":[],"milestone":null,"url":"u30"},{"number":12,"title":"[P0] Fix login","labels":[{"name":"bug"},{"name":"P0"}],"assignees":[{"login":"alice"}],"milestone":{"title":"v1.0"},"url":"u12"}]'
+
+@test "resolve_github_issue_candidates queries gh with state, limit 100 and label" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-label bug
+    run resolve_github_issue_candidates ""
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"issue list"* ]]
+    [[ "$args" == *"--state open"* ]]
+    [[ "$args" == *"--limit 100"* ]]
+    [[ "$args" == *"--label bug"* ]]
+    [[ "$args" == *"--json"* ]]
+    [[ "$args" != *"--repo"* ]]
+}
+
+@test "resolve_github_issue_candidates passes --repo through" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-label bug --repo owner/repo
+    run resolve_github_issue_candidates "owner/repo"
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"--repo owner/repo"* ]]
+}
+
+@test "resolve_github_issue_candidates expands comma-separated labels into ANDed --label flags" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-label "bug, P0"
+    run resolve_github_issue_candidates ""
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"--label bug"* ]]
+    # Whitespace around comma-separated tokens is trimmed
+    [[ "$args" == *"--label P0"* ]]
+    [[ "$args" != *"--label  P0"* ]]
+}
+
+@test "resolve_github_issue_candidates passes assignee through (including @me)" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-assignee @me
+    run resolve_github_issue_candidates ""
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"--assignee @me"* ]]
+}
+
+@test "resolve_github_issue_candidates maps assignee none to a no:assignee search" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-assignee none
+    run resolve_github_issue_candidates ""
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" != *"--assignee"* ]]
+    [[ "$args" == *"no:assignee"* ]]
+}
+
+@test "resolve_github_issue_candidates combines assignee none with search text" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-search "auth" --github-assignee none
+    run resolve_github_issue_candidates ""
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"--search auth no:assignee"* ]]
+}
+
+@test "resolve_github_issue_candidates passes milestone and state through" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-milestone "v1.0" --github-state closed
+    run resolve_github_issue_candidates ""
+    assert_success
+
+    local args
+    args=$(cat "$TEST_DIR/gh_args")
+    [[ "$args" == *"--milestone v1.0"* ]]
+    [[ "$args" == *"--state closed"* ]]
+}
+
+@test "resolve_github_issue_candidates excludes labels client-side (case-insensitive)" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-label bug --exclude-label "WontFix"
+    run resolve_github_issue_candidates ""
+    assert_success
+    # #30 carries wontfix and is dropped; #12 remains
+    [[ "$(echo "$output" | jq 'length')" == "1" ]]
+    [[ "$(echo "$output" | jq -r '.[0].number')" == "12" ]]
+}
+
+@test "resolve_github_issue_candidates matches titles with * wildcards and literal brackets" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    # [P0] must match literally (a bash glob would read it as a char class)
+    parse_import_args --github-label bug --github-title "[P0]*"
+    run resolve_github_issue_candidates ""
+    assert_success
+    [[ "$(echo "$output" | jq 'length')" == "1" ]]
+    [[ "$(echo "$output" | jq -r '.[0].title')" == "[P0] Fix login" ]]
+}
+
+@test "resolve_github_issue_candidates sorts candidates oldest-first" {
+    _mock_gh_ok '{}' "$CANDIDATES_TWO"
+
+    parse_import_args --github-label bug
+    run resolve_github_issue_candidates ""
+    assert_success
+    [[ "$(echo "$output" | jq -r '.[0].number')" == "12" ]]
+    [[ "$(echo "$output" | jq -r '.[1].number')" == "30" ]]
+}
+
+@test "resolve_github_issue_candidates fails with a clear error when nothing matches" {
+    _mock_gh_ok '{}' '[]'
+
+    parse_import_args --github-label no-such-label
+    run resolve_github_issue_candidates ""
+    assert_failure
+    [[ "$output" == *"No issues match"* ]]
+}
+
+@test "resolve_github_issue_candidates writes errors to stderr, not stdout" {
+    _mock_gh_ok '{}' '[]'
+
+    parse_import_args --github-label no-such-label
+    local out err
+    out=$(resolve_github_issue_candidates "" 2>/dev/null) || true
+    [[ -z "$out" ]]
+
+    err=$(resolve_github_issue_candidates "" 2>&1 >/dev/null) || true
+    [[ "$err" == *"No issues match"* ]]
+}
+
+# -----------------------------------------------------------------------------
+# select_issue_from_candidates (Issue #71)
+# -----------------------------------------------------------------------------
+
+@test "select_issue_from_candidates first picks the lowest-numbered issue" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    run select_issue_from_candidates "$json" first
+    assert_success
+    [[ "$output" == *"first match"* ]]
+
+    # The selected number is the function's stdout (logs go to stderr)
+    local result
+    result=$(select_issue_from_candidates "$json" first 2>/dev/null)
+    [[ "$result" == "12" ]]
+}
+
+@test "select_issue_from_candidates priority picks the highest-priority bare label" {
+    local json='[{"number":10,"title":"a","labels":[{"name":"P2"}]},{"number":20,"title":"b","labels":[{"name":"P0"}]}]'
+
+    run select_issue_from_candidates "$json" priority
+    assert_success
+    [[ "$output" == *"P0"* ]]
+
+    local result
+    result=$(select_issue_from_candidates "$json" priority 2>/dev/null)
+    [[ "$result" == "20" ]]
+}
+
+@test "select_issue_from_candidates priority understands 'priority: PN' labels" {
+    # This repo labels issues "priority: P4", not bare "P4"
+    local json='[{"number":5,"title":"a","labels":[{"name":"priority: P3"}]},{"number":9,"title":"b","labels":[{"name":"priority: P1"}]}]'
+
+    local result
+    result=$(select_issue_from_candidates "$json" priority 2>/dev/null)
+    [[ "$result" == "9" ]]
+}
+
+@test "select_issue_from_candidates priority mixes both label formats" {
+    local json='[{"number":3,"title":"a","labels":[{"name":"P1"}]},{"number":8,"title":"b","labels":[{"name":"priority: P0"}]}]'
+
+    local result
+    result=$(select_issue_from_candidates "$json" priority 2>/dev/null)
+    [[ "$result" == "8" ]]
+}
+
+@test "select_issue_from_candidates priority breaks ties by lowest issue number" {
+    local json='[{"number":4,"title":"a","labels":[{"name":"P1"}]},{"number":11,"title":"b","labels":[{"name":"P1"}]}]'
+
+    local result
+    result=$(select_issue_from_candidates "$json" priority 2>/dev/null)
+    [[ "$result" == "4" ]]
+}
+
+@test "select_issue_from_candidates priority falls back to first without priority labels" {
+    local json='[{"number":12,"title":"a","labels":[{"name":"bug"}]},{"number":30,"title":"b","labels":[]}]'
+
+    run select_issue_from_candidates "$json" priority
+    assert_success
+    [[ "$output" == *"falling back"* || "$output" == *"first match"* ]]
+
+    local result
+    result=$(select_issue_from_candidates "$json" priority 2>/dev/null)
+    [[ "$result" == "12" ]]
+}
+
+@test "select_issue_from_candidates interactive selects via stdin" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    local result
+    result=$(select_issue_from_candidates "$json" interactive 2>/dev/null <<< "2")
+    [[ "$result" == "30" ]]
+}
+
+@test "select_issue_from_candidates interactive cancels on q" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    run select_issue_from_candidates "$json" interactive <<< "q"
+    assert_failure
+    [[ "$output" == *"cancelled"* ]]
+}
+
+@test "select_issue_from_candidates interactive falls back to first on EOF" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    run select_issue_from_candidates "$json" interactive < /dev/null
+    assert_success
+    [[ "$output" == *"WARN"* ]]
+
+    local result
+    result=$(select_issue_from_candidates "$json" interactive 2>/dev/null < /dev/null)
+    [[ "$result" == "12" ]]
+}
+
+@test "select_issue_from_candidates interactive re-prompts on invalid input" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    local result
+    result=$(printf '99\nx\n2\n' | select_issue_from_candidates "$json" interactive 2>/dev/null)
+    [[ "$result" == "30" ]]
+}
+
+@test "select_issue_from_candidates short-circuits a single candidate" {
+    local json='[{"number":12,"title":"a","labels":[]}]'
+
+    # Even interactive needs no prompt when only one issue matches
+    local result
+    result=$(select_issue_from_candidates "$json" interactive 2>/dev/null < /dev/null)
+    [[ "$result" == "12" ]]
+}
+
+# -----------------------------------------------------------------------------
+# preview_issue_matches (Issue #71, --dry-run)
+# -----------------------------------------------------------------------------
+
+@test "preview_issue_matches renders a table with metadata columns and count" {
+    local json='[{"number":12,"title":"[P0] Fix login","labels":[{"name":"bug"},{"name":"P0"}],"assignees":[{"login":"alice"}],"milestone":{"title":"v1.0"},"url":"u12"},{"number":30,"title":"Fix other","labels":[],"assignees":[],"milestone":null,"url":"u30"}]'
+
+    run preview_issue_matches "$json" first
+    assert_success
+    [[ "$output" == *"NUMBER"* && "$output" == *"TITLE"* && "$output" == *"LABELS"* ]]
+    [[ "$output" == *"ASSIGNEE"* && "$output" == *"MILESTONE"* ]]
+    [[ "$output" == *"#12"* && "$output" == *"[P0] Fix login"* && "$output" == *"alice"* && "$output" == *"v1.0"* ]]
+    [[ "$output" == *"#30"* ]]
+    [[ "$output" == *"2 issue(s) match"* ]]
+}
+
+@test "preview_issue_matches shows what would be selected" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    run preview_issue_matches "$json" first
+    assert_success
+    [[ "$output" == *"Would select: #12"* ]]
+    [[ "$output" == *"nothing was imported"* ]]
+}
+
+@test "preview_issue_matches notes that interactive selection would prompt" {
+    local json='[{"number":12,"title":"a","labels":[]},{"number":30,"title":"b","labels":[]}]'
+
+    run preview_issue_matches "$json" interactive
+    assert_success
+    [[ "$output" == *"interactive"* && "$output" == *"prompt"* ]]
 }

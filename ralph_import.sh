@@ -253,20 +253,29 @@ check_claude_version() {
 IMPORT_MODE="file"          # "file" (default) or "github"
 GITHUB_ISSUE=""             # Issue number from --github-issue
 GITHUB_SEARCH=""            # Search query from --github-search
-GITHUB_LABEL=""             # Label from --github-label
+GITHUB_LABEL=""             # Label(s) from --github-label (comma = AND)
 GITHUB_REPO=""              # owner/repo override from --repo
 GITHUB_INCLUDE_COMMENTS=""  # "true" when --include-comments is passed
 PLAN_GENERATION="auto"      # "auto" (score decides) | "force" | "skip" (Issue #70)
 PLAN_MODEL=""               # Model alias for plan generation (--plan-model)
 COMPLETENESS_THRESHOLD=60   # Score below which a plan is generated
 PLAN_AUTO_APPROVE=""        # "true" when --auto-approve is passed
+GITHUB_EXCLUDE_LABEL=""     # Label(s) to exclude, comma-separated (Issue #71)
+GITHUB_TITLE=""             # Title pattern; * wildcard, rest literal (Issue #71)
+GITHUB_ASSIGNEE=""          # Assignee filter: username, @me, or none (Issue #71)
+GITHUB_MILESTONE=""         # Milestone title filter (Issue #71)
+GITHUB_STATE="open"         # Issue state filter: open|closed|all (Issue #71)
+GITHUB_SELECT="first"       # Selection strategy: first|interactive|priority (Issue #71)
+GITHUB_DRY_RUN=""           # "true" when --dry-run is passed (Issue #71)
 declare -a POSITIONAL=()
 
 # parse_import_args - Parse command-line arguments into mode + positional args
 #
-# Recognizes GitHub import flags (--github-issue, --github-search,
-# --github-label, --repo); everything else is collected into POSITIONAL,
-# preserving the original `ralph-import <source-file> [project-name]` form.
+# Recognizes GitHub import flags (--github-issue plus the Issue #71 metadata
+# filters --github-search/--github-label/--github-title/--github-assignee/
+# --github-milestone and their modifiers); everything else is collected into
+# POSITIONAL, preserving the original `ralph-import <source-file>
+# [project-name]` form.
 #
 # Returns:
 #   0 on success, 1 on invalid/missing flag values (with ERROR logged)
@@ -282,7 +291,15 @@ parse_import_args() {
     PLAN_MODEL=""
     COMPLETENESS_THRESHOLD=60
     PLAN_AUTO_APPROVE=""
+    GITHUB_EXCLUDE_LABEL=""
+    GITHUB_TITLE=""
+    GITHUB_ASSIGNEE=""
+    GITHUB_MILESTONE=""
+    GITHUB_STATE="open"
+    GITHUB_SELECT="first"
+    GITHUB_DRY_RUN=""
     local plan_flags_used=""
+    local modifier_flag_used=""
     POSITIONAL=()
 
     while [[ $# -gt 0 ]]; do
@@ -330,6 +347,79 @@ parse_import_args() {
                 ;;
             --include-comments)
                 GITHUB_INCLUDE_COMMENTS="true"
+                shift
+                ;;
+            --github-title)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--github-title requires a value (title pattern, * matches anything)"
+                    return 1
+                fi
+                IMPORT_MODE="github"
+                GITHUB_TITLE="$2"
+                shift 2
+                ;;
+            --github-assignee)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--github-assignee requires a value (username, @me, or none)"
+                    return 1
+                fi
+                IMPORT_MODE="github"
+                GITHUB_ASSIGNEE="$2"
+                shift 2
+                ;;
+            --github-milestone)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--github-milestone requires a value (milestone title)"
+                    return 1
+                fi
+                IMPORT_MODE="github"
+                GITHUB_MILESTONE="$2"
+                shift 2
+                ;;
+            --exclude-label)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--exclude-label requires a value (label name, comma-separated for several)"
+                    return 1
+                fi
+                GITHUB_EXCLUDE_LABEL="$2"
+                modifier_flag_used="--exclude-label"
+                shift 2
+                ;;
+            --github-state)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--github-state requires a value (open, closed, or all)"
+                    return 1
+                fi
+                case "$2" in
+                    open|closed|all) ;;
+                    *)
+                        log "ERROR" "--github-state must be one of: open, closed, all (got: $2)"
+                        return 1
+                        ;;
+                esac
+                GITHUB_STATE="$2"
+                modifier_flag_used="--github-state"
+                shift 2
+                ;;
+            --select)
+                if [[ -z "${2:-}" || "${2:0:1}" == "-" ]]; then
+                    log "ERROR" "--select requires a value (first, interactive, or priority)"
+                    return 1
+                fi
+                case "$2" in
+                    first|interactive|priority) ;;
+                    *)
+                        log "ERROR" "--select must be one of: first, interactive, priority (got: $2)"
+                        return 1
+                        ;;
+                esac
+                GITHUB_SELECT="$2"
+                modifier_flag_used="--select"
+                shift 2
+                ;;
+            --dry-run)
+                GITHUB_DRY_RUN="true"
+                modifier_flag_used="--dry-run"
                 shift
                 ;;
             --generate-plan)
@@ -384,14 +474,31 @@ parse_import_args() {
         esac
     done
 
-    # Exactly one selector may be used — silently resolving a precedence
-    # between conflicting selectors would import the wrong issue (codex P2)
-    local selector_count=0
-    [[ -n "$GITHUB_ISSUE" ]] && selector_count=$((selector_count + 1))
-    [[ -n "$GITHUB_SEARCH" ]] && selector_count=$((selector_count + 1))
-    [[ -n "$GITHUB_LABEL" ]] && selector_count=$((selector_count + 1))
-    if [[ $selector_count -gt 1 ]]; then
-        log "ERROR" "Use only one of --github-issue, --github-search, or --github-label"
+    # Metadata filters (Issue #71) are combinable with each other, but
+    # --github-issue addresses an exact issue — combining it with filters
+    # would silently ignore them and import the wrong issue (codex P2)
+    local filter_count=0
+    [[ -n "$GITHUB_SEARCH" ]] && filter_count=$((filter_count + 1))
+    [[ -n "$GITHUB_LABEL" ]] && filter_count=$((filter_count + 1))
+    [[ -n "$GITHUB_TITLE" ]] && filter_count=$((filter_count + 1))
+    [[ -n "$GITHUB_ASSIGNEE" ]] && filter_count=$((filter_count + 1))
+    [[ -n "$GITHUB_MILESTONE" ]] && filter_count=$((filter_count + 1))
+
+    if [[ -n "$GITHUB_ISSUE" ]]; then
+        if [[ $filter_count -gt 0 ]]; then
+            log "ERROR" "--github-issue selects an exact issue and cannot be combined with filter flags (--github-search, --github-label, --github-title, --github-assignee, --github-milestone)"
+            return 1
+        fi
+        if [[ -n "$modifier_flag_used" ]]; then
+            log "ERROR" "$modifier_flag_used only applies to filter queries and cannot be combined with --github-issue"
+            return 1
+        fi
+    fi
+
+    # Modifiers refine a filter query; without a filter there is nothing
+    # for them to act on
+    if [[ -n "$modifier_flag_used" && $filter_count -eq 0 ]]; then
+        log "ERROR" "$modifier_flag_used requires at least one filter (--github-search, --github-label, --github-title, --github-assignee, or --github-milestone)"
         return 1
     fi
 
@@ -425,50 +532,232 @@ check_github_cli() {
     return 0
 }
 
-# resolve_github_issue_number - Find an issue number by search query or label
+# resolve_github_issue_candidates - Query issues matching the metadata filters
+#
+# Builds a single `gh issue list` query from the Issue #71 filter globals.
+# Filters gh supports natively (labels with AND semantics, assignee including
+# @me, milestone, state, search text) are applied server-side; the two it
+# cannot express (--exclude-label, --github-title) are applied client-side
+# with jq. "none" as assignee maps to the no:assignee search qualifier.
 #
 # Parameters:
-#   $1 (mode)  - "search" or "label"
-#   $2 (query) - Search string or label name
-#   $3 (repo)  - Optional owner/repo (empty = repo of current directory)
+#   $1 (repo) - Optional owner/repo (empty = repo of current directory)
+#
+# Uses globals: GITHUB_SEARCH, GITHUB_LABEL, GITHUB_EXCLUDE_LABEL,
+#               GITHUB_TITLE, GITHUB_ASSIGNEE, GITHUB_MILESTONE, GITHUB_STATE
 #
 # Returns:
-#   Echoes the first matching open issue's number; returns 1 if none match
+#   Echoes a JSON array of matching issues sorted oldest-first (lowest issue
+#   number); returns 1 when the query fails or nothing matches. Errors go to
+#   stderr — stdout is data captured with $(...) by callers.
 #
-resolve_github_issue_number() {
-    local mode=$1
-    local query=$2
-    local repo="${3:-}"
+resolve_github_issue_candidates() {
+    local repo="${1:-}"
 
-    local gh_args=("issue" "list" "--state" "open" "--limit" "1" "--json" "number")
-    case "$mode" in
-        search) gh_args+=("--search" "$query") ;;
-        label)  gh_args+=("--label" "$query") ;;
-        *)
-            # Errors go to stderr: this function's stdout is data and is
-            # captured with $(...) by callers — stdout errors would be silent
-            log "ERROR" "Unknown GitHub lookup mode: $mode" >&2
-            return 1
-            ;;
-    esac
-    if [[ -n "$repo" ]]; then
-        gh_args+=("--repo" "$repo")
+    local gh_args=("issue" "list" "--state" "${GITHUB_STATE:-open}" "--limit" "100"
+                   "--json" "number,title,labels,assignees,milestone,url")
+
+    # Comma-separated labels become repeated --label flags (gh ANDs them)
+    if [[ -n "$GITHUB_LABEL" ]]; then
+        local label
+        while IFS= read -r label; do
+            label="${label#"${label%%[![:space:]]*}"}"
+            label="${label%"${label##*[![:space:]]}"}"
+            [[ -n "$label" ]] && gh_args+=("--label" "$label")
+        done < <(echo "$GITHUB_LABEL" | tr ',' '\n')
     fi
+
+    [[ -n "$GITHUB_MILESTONE" ]] && gh_args+=("--milestone" "$GITHUB_MILESTONE")
+
+    # gh has no flag for "unassigned", but the no:assignee search qualifier
+    # expresses it; @me and usernames pass through --assignee natively
+    local search_query="$GITHUB_SEARCH"
+    if [[ "$GITHUB_ASSIGNEE" == "none" ]]; then
+        search_query="${search_query:+$search_query }no:assignee"
+    elif [[ -n "$GITHUB_ASSIGNEE" ]]; then
+        gh_args+=("--assignee" "$GITHUB_ASSIGNEE")
+    fi
+    [[ -n "$search_query" ]] && gh_args+=("--search" "$search_query")
+    [[ -n "$repo" ]] && gh_args+=("--repo" "$repo")
 
     local json_output
     if ! json_output=$(gh "${gh_args[@]}" 2>/dev/null); then
-        log "ERROR" "GitHub issue lookup failed (${mode}: ${query})" >&2
+        log "ERROR" "GitHub issue query failed. Check the filters, repository access, and gh authentication." >&2
         return 1
     fi
 
-    local number
-    number=$(echo "$json_output" | jq -r '.[0].number // empty' 2>/dev/null)
-    if [[ -z "$number" ]]; then
-        log "ERROR" "No issues found matching ${mode}: \"${query}\". Try refining your ${mode} criteria." >&2
+    # Client-side: drop issues carrying an excluded label (case-insensitive,
+    # matching gh's own label semantics)
+    if [[ -n "$GITHUB_EXCLUDE_LABEL" ]]; then
+        json_output=$(echo "$json_output" | jq --arg ex "$GITHUB_EXCLUDE_LABEL" '
+            ($ex | split(",") | map(gsub("^\\s+|\\s+$"; "") | ascii_downcase) | map(select(. != ""))) as $excl
+            | map(select(
+                [.labels[]?.name | ascii_downcase] as $names
+                | ($excl | map(. as $e | $names | index($e)) | map(select(. != null)) | length) == 0
+              ))')
+    fi
+
+    # Client-side: title pattern. Only * is a wildcard; everything else is
+    # literal — a bash glob would read the common "[P0]*" prefix pattern as
+    # a character class. Matching is case-insensitive.
+    if [[ -n "$GITHUB_TITLE" ]]; then
+        local title_regex
+        title_regex=$(printf '%s' "$GITHUB_TITLE" | sed -e 's/[][^$.\/+?(){}|\\]/\\&/g' -e 's/\*/.*/g')
+        json_output=$(echo "$json_output" | jq --arg re "^${title_regex}\$" 'map(select(.title // "" | test($re; "i")))')
+    fi
+
+    # Oldest-first gives "first match" a stable, predictable meaning
+    # (gh returns newest-first by default)
+    json_output=$(echo "$json_output" | jq 'sort_by(.number)')
+
+    local match_count
+    match_count=$(echo "$json_output" | jq 'length')
+    if [[ "$match_count" -eq 0 ]]; then
+        log "ERROR" "No issues match the specified filters. Try relaxing or removing some filters." >&2
         return 1
     fi
+
+    echo "$json_output"
+}
+
+# select_issue_from_candidates - Pick one issue from filter matches (Issue #71)
+#
+# Parameters:
+#   $1 (candidates_json) - JSON array from resolve_github_issue_candidates
+#                          (sorted oldest-first)
+#   $2 (strategy)        - first | interactive | priority (default: first)
+#
+# Strategies:
+#   first       - oldest issue (lowest number)
+#   priority    - highest-priority label; understands bare "P0".."P9" and
+#                 "priority: P0" forms (case-insensitive); ties break to the
+#                 oldest issue; falls back to first when no candidate has a
+#                 priority label
+#   interactive - numbered menu on stderr, choice read from stdin; q cancels;
+#                 EOF (no input available) falls back to first with a warning
+#                 so unattended runs are never blocked (same contract as
+#                 approve_generated_plan)
+#
+# Returns:
+#   Echoes the selected issue number (logs go to stderr); 1 on cancellation
+#
+select_issue_from_candidates() {
+    local candidates_json=$1
+    local strategy="${2:-first}"
+
+    local count
+    count=$(echo "$candidates_json" | jq 'length')
+
+    if [[ "$count" -eq 1 ]]; then
+        local only
+        only=$(echo "$candidates_json" | jq -r '.[0].number')
+        log "INFO" "Single matching issue: #${only}" >&2
+        echo "$only"
+        return 0
+    fi
+
+    local number=""
+    case "$strategy" in
+        priority)
+            # Rank each issue by its best (lowest-digit) priority label;
+            # 99 means "no priority label"
+            local ranked best_rank
+            ranked=$(echo "$candidates_json" | jq '
+                map(. + {ralph_priority: (
+                    [ .labels[]?.name
+                      | ascii_downcase
+                      | (capture("^p(?<d>[0-9])$") // capture("^priority:\\s*p(?<d>[0-9])$") // empty)
+                      | .d | tonumber
+                    ] | min // 99
+                )})')
+            best_rank=$(echo "$ranked" | jq '[.[].ralph_priority] | min')
+            if [[ "$best_rank" == "99" ]]; then
+                number=$(echo "$candidates_json" | jq -r '.[0].number')
+                log "INFO" "No priority labels among ${count} matches; falling back to first match: #${number}" >&2
+            else
+                number=$(echo "$ranked" | jq -r 'sort_by(.ralph_priority, .number) | .[0].number')
+                log "INFO" "Selected highest priority (P${best_rank}): #${number}" >&2
+            fi
+            ;;
+        interactive)
+            {
+                echo ""
+                echo "Multiple issues match the filters (${count}):"
+                echo "$candidates_json" | jq -r 'to_entries[] | "  \(.key + 1)) #\(.value.number) \(.value.title // "(untitled)")\(if ((.value.labels // []) | length) > 0 then "  [\([.value.labels[].name] | join(", "))]" else "" end)"'
+                echo ""
+            } >&2
+            local choice
+            while true; do
+                if ! read -r -p "Select an issue [1-${count}, q to cancel]: " choice; then
+                    # EOF: no interactive input is available (CI, piped stdin
+                    # that ran dry) — proceed rather than block
+                    number=$(echo "$candidates_json" | jq -r '.[0].number')
+                    log "WARN" "No interactive input available; falling back to first match: #${number} (use --select first to silence)" >&2
+                    break
+                fi
+                case "$choice" in
+                    q|Q)
+                        log "ERROR" "Issue selection cancelled" >&2
+                        return 1
+                        ;;
+                esac
+                if [[ "$choice" =~ ^[1-9][0-9]*$ ]] && [[ "$choice" -le "$count" ]]; then
+                    number=$(echo "$candidates_json" | jq -r --argjson i "$((choice - 1))" '.[$i].number')
+                    log "INFO" "Selected issue #${number} (interactive)" >&2
+                    break
+                fi
+                echo "Invalid choice: ${choice}" >&2
+            done
+            ;;
+        first|*)
+            number=$(echo "$candidates_json" | jq -r '.[0].number')
+            log "INFO" "Selected first match (oldest issue): #${number}" >&2
+            ;;
+    esac
 
     echo "$number"
+}
+
+# preview_issue_matches - Dry-run preview of filter matches (Issue #71)
+#
+# Prints a table of every matching issue plus the one the active selection
+# strategy would pick, then returns without importing anything. Used by
+# --dry-run, which exits before any project creation or Claude call.
+#
+# Parameters:
+#   $1 (candidates_json) - JSON array from resolve_github_issue_candidates
+#   $2 (strategy)        - Selection strategy that would be applied
+#
+preview_issue_matches() {
+    local candidates_json=$1
+    local strategy="${2:-first}"
+
+    local count
+    count=$(echo "$candidates_json" | jq 'length')
+
+    echo ""
+    printf '%-8s %-50s %-28s %-15s %s\n' "NUMBER" "TITLE" "LABELS" "ASSIGNEE" "MILESTONE"
+    echo "$candidates_json" | jq -r '.[] | [
+        "#\(.number)",
+        ((.title // "") | if length > 48 then .[0:45] + "..." else . end),
+        ([.labels[]?.name] | join(",") | if length > 26 then .[0:23] + "..." else . end),
+        (.assignees[0].login // "-"),
+        (.milestone.title // "-")
+    ] | @tsv' | while IFS=$'\t' read -r num title labels assignee milestone; do
+        printf '%-8s %-50s %-28s %-15s %s\n' "$num" "$title" "${labels:--}" "$assignee" "$milestone"
+    done
+    echo ""
+    echo "${count} issue(s) match the filters."
+
+    if [[ "$strategy" == "interactive" ]]; then
+        echo "Selection strategy: interactive (would prompt to choose among the matches)"
+    else
+        local number
+        number=$(select_issue_from_candidates "$candidates_json" "$strategy" 2>/dev/null)
+        echo "Would select: #${number} (strategy: ${strategy})"
+    fi
+    echo ""
+    log "INFO" "Dry run: nothing was imported"
 }
 
 # fetch_github_issue - Fetch a single issue as JSON via the GitHub CLI
@@ -755,17 +1044,25 @@ main_github() {
     fi
 
     # Preflight local tooling before any (billed) Claude plan-generation
-    # call — a missing ralph-setup must fail fast, not after plan approval
-    check_dependencies
+    # call — a missing ralph-setup must fail fast, not after plan approval.
+    # --dry-run never converts, so it skips the conversion-tooling check.
+    if [[ "$GITHUB_DRY_RUN" != "true" ]]; then
+        check_dependencies
+    fi
 
-    # Resolve search/label queries to an issue number
+    # Resolve metadata filters to an issue number (Issue #71); an exact
+    # --github-issue bypasses the query entirely
     local issue_number="$GITHUB_ISSUE"
     if [[ -z "$issue_number" ]]; then
-        if [[ -n "$GITHUB_SEARCH" ]]; then
-            issue_number=$(resolve_github_issue_number "search" "$GITHUB_SEARCH" "$GITHUB_REPO") || exit 1
-        elif [[ -n "$GITHUB_LABEL" ]]; then
-            issue_number=$(resolve_github_issue_number "label" "$GITHUB_LABEL" "$GITHUB_REPO") || exit 1
+        local candidates
+        candidates=$(resolve_github_issue_candidates "$GITHUB_REPO") || exit 1
+
+        if [[ "$GITHUB_DRY_RUN" == "true" ]]; then
+            preview_issue_matches "$candidates" "$GITHUB_SELECT"
+            exit 0
         fi
+
+        issue_number=$(select_issue_from_candidates "$candidates" "$GITHUB_SELECT") || exit 1
     fi
 
     log "INFO" "Importing GitHub issue #${issue_number}${GITHUB_REPO:+ from $GITHUB_REPO}"
@@ -850,18 +1147,38 @@ Ralph Import - Convert PRDs to Ralph Format
 
 Usage: $0 <source-file> [project-name]
        $0 --github-issue <N> [project-name]
-       $0 --github-search <query> [project-name]
-       $0 --github-label <label> [project-name]
+       $0 [filter flags...] [project-name]   # e.g. --github-label bug --select priority
 
 Arguments:
     source-file     Path to your PRD/specification file (any format)
     project-name    Name for the new Ralph project (optional, defaults to
                     filename, or to a slug of the issue title for GitHub imports)
 
-GitHub import options (use exactly one of the three selectors):
-    --github-issue <N>        Import a specific issue by number
-    --github-search <query>   Import the first open issue matching a search
-    --github-label <label>    Import the first open issue with a label
+GitHub import options:
+    --github-issue <N>        Import a specific issue by number (cannot be
+                              combined with the filter flags below)
+
+  Filter flags (combinable; matches are sorted oldest-first):
+    --github-search <query>   GitHub search query over the issues
+    --github-label <labels>   Issues carrying ALL listed labels
+                              (comma-separated for several, e.g. "bug,P0")
+    --github-title <pattern>  Title pattern; * matches anything, everything
+                              else is literal (e.g. "[P0]*"), case-insensitive
+    --github-assignee <who>   Filter by assignee: a username, @me, or
+                              none (unassigned issues)
+    --github-milestone <name> Issues in the given milestone
+    --exclude-label <labels>  Drop issues carrying any listed label
+                              (comma-separated for several)
+    --github-state <state>    Issue state: open (default), closed, or all
+    --select <strategy>       When several issues match:
+                                first        oldest issue (default)
+                                interactive  numbered menu to choose from
+                                priority     highest P0-P9 / "priority: PN"
+                                             label (ties: oldest)
+    --dry-run                 Preview the matches and what would be selected,
+                              import nothing
+
+  Common options:
     --repo <owner/repo>       Repository to fetch from (default: current repo)
     --include-comments        Also import issue comments (excluded by default:
                               comments are untrusted input on public repos)
@@ -890,6 +1207,10 @@ Examples:
     $0 --github-label "sprint-1" my-sprint-app
     $0 --github-issue 42 --repo myorg/myrepo
     $0 --github-issue 42 --generate-plan --plan-model opus --auto-approve
+    $0 --github-label "bug,P0" --github-assignee @me
+    $0 --github-milestone "v1.0" --select interactive
+    $0 --github-label bug --exclude-label wontfix --select priority
+    $0 --github-title "[P0]*" --dry-run
 
 GitHub import prerequisites:
     - GitHub CLI (gh) installed: https://cli.github.com
