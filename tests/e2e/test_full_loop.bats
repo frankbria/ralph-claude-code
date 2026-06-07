@@ -316,6 +316,10 @@ EOF
         fi
         sleep 0.2
     done
+    # The run is effectively over once cleanup() has written its status; mark
+    # the end now so an hour boundary crossed during the assertions below
+    # cannot suppress the call-count check (Issue #285)
+    e2e_mark_run_end
 
     # cleanup() writes last_action="interrupted", status="stopped"
     assert_equal "$(status_field last_action)" "interrupted"
