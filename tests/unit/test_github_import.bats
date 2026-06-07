@@ -648,6 +648,22 @@ MOCKEOF
 @test "parse_import_args captures comma-separated --github-label verbatim" {
     parse_import_args --github-label "bug,P0"
     [[ "$GITHUB_LABEL" == "bug,P0" ]]
+
+    # Stray empty tokens are fine as long as one real label remains
+    parse_import_args --github-label "bug,,"
+    [[ "$GITHUB_LABEL" == "bug,," ]]
+}
+
+@test "parse_import_args rejects comma-only label lists" {
+    # "," would expand to zero --label flags and silently widen the query
+    # to every open issue (CodeRabbit, PR #291)
+    run parse_import_args --github-label ","
+    assert_failure
+    [[ "$output" == *"--github-label"* && "$output" == *"non-empty"* ]]
+
+    run parse_import_args --github-label bug --exclude-label ", ,"
+    assert_failure
+    [[ "$output" == *"--exclude-label"* && "$output" == *"non-empty"* ]]
 }
 
 @test "parse_import_args allows combining filter flags (contract change from #69)" {

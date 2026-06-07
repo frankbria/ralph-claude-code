@@ -269,6 +269,17 @@ GITHUB_SELECT="first"       # Selection strategy: first|interactive|priority (Is
 GITHUB_DRY_RUN=""           # "true" when --dry-run is passed (Issue #71)
 declare -a POSITIONAL=()
 
+# has_nonempty_label_token - True when a comma-separated label list contains
+# at least one non-blank token. Catches values like "," that would expand to
+# zero --label flags and silently widen the query to every open issue.
+has_nonempty_label_token() {
+    local token
+    while IFS= read -r token; do
+        [[ "$token" =~ [^[:space:]] ]] && return 0
+    done < <(echo "$1" | tr ',' '\n')
+    return 1
+}
+
 # parse_import_args - Parse command-line arguments into mode + positional args
 #
 # Recognizes GitHub import flags (--github-issue plus the Issue #71 metadata
@@ -334,6 +345,10 @@ parse_import_args() {
                     log "ERROR" "--github-label requires a value (label name)"
                     return 1
                 fi
+                if ! has_nonempty_label_token "$2"; then
+                    log "ERROR" "--github-label must include at least one non-empty label (got: '$2')"
+                    return 1
+                fi
                 IMPORT_MODE="github"
                 GITHUB_LABEL="$2"
                 shift 2
@@ -382,6 +397,13 @@ parse_import_args() {
                     log "ERROR" "--exclude-label requires a value (label name, comma-separated for several)"
                     return 1
                 fi
+                if ! has_nonempty_label_token "$2"; then
+                    log "ERROR" "--exclude-label must include at least one non-empty label (got: '$2')"
+                    return 1
+                fi
+                # A modifier, not a primary filter: exclusion alone selects
+                # nothing, so it deliberately does NOT set IMPORT_MODE — the
+                # modifiers-require-a-filter validation below catches misuse
                 GITHUB_EXCLUDE_LABEL="$2"
                 modifier_flag_used="--exclude-label"
                 shift 2
@@ -1075,7 +1097,8 @@ main_github() {
     fi
 
     # Resolve metadata filters to an issue number (Issue #71); an exact
-    # --github-issue bypasses the query entirely
+    # --github-issue bypasses the query entirely. parse_import_args
+    # guarantees at least one primary filter is active on this path.
     local issue_number="$GITHUB_ISSUE"
     if [[ -z "$issue_number" ]]; then
         local candidates
