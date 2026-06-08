@@ -502,6 +502,20 @@ setup_tmux_session() {
     if [[ "$ENABLE_BACKUP" == "true" ]]; then
         ralph_cmd="$ralph_cmd --backup"
     fi
+    # Forward GitHub issue lifecycle flags (Issue #73) so --monitor preserves them
+    if [[ -n "${GITHUB_ISSUE:-}" ]]; then
+        ralph_cmd="$ralph_cmd --github-issue '$GITHUB_ISSUE'"
+        [[ "$COMMENT_PROGRESS" == "true" ]] && ralph_cmd="$ralph_cmd --comment-progress"
+        [[ "$COMMENT_INTERVAL" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
+        [[ "$AUTO_CLOSE" == "true" ]] && ralph_cmd="$ralph_cmd --auto-close"
+        [[ "$CLOSE_SUMMARY" == "true" ]] && ralph_cmd="$ralph_cmd --close-summary"
+        [[ "$CREATE_PR" == "true" ]] && ralph_cmd="$ralph_cmd --create-pr"
+        [[ "$LINK_ISSUE" == "true" ]] && ralph_cmd="$ralph_cmd --link-issue"
+        [[ "$DRAFT_PR" == "true" ]] && ralph_cmd="$ralph_cmd --draft-pr"
+        [[ "$CREATE_FOLLOWUPS" == "true" ]] && ralph_cmd="$ralph_cmd --create-followups"
+        [[ "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
+        [[ -n "$ADD_COMPLETION_LABELS" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
+    fi
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,

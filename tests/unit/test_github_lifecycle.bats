@@ -228,6 +228,8 @@ EOF
     assert_success
     [[ "$output" == *"TODO: wire up the thing"* ]]
     [[ "$output" == *"FIXME: handle errors"* ]]
+    # Each marker is prefixed with the file it lives in (CodeRabbit nitpick)
+    [[ "$output" == *"code.txt: TODO: wire up the thing"* ]]
 }
 
 @test "scan_for_todos covers TODOs across all commits since lifecycle start (codex P2)" {

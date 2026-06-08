@@ -190,7 +190,14 @@ init_github_lifecycle() {
     # Capture HEAD at the start of the run so follow-up TODO scanning covers every
     # commit Ralph makes during development, not just the last one (empty if not a repo).
     start_sha=$(git rev-parse HEAD 2>/dev/null) || start_sha=""
-    jq -n \
+    # Write through a temp file + mv so an interrupted init never leaves a
+    # truncated/corrupt state file (same atomicity as _lifecycle_apply).
+    local tmp
+    tmp=$(mktemp "${GITHUB_LIFECYCLE_STATE_FILE}.XXXXXX" 2>/dev/null) || {
+        _lifecycle_log "WARN" "Could not initialize GitHub lifecycle state file"
+        return 1
+    }
+    if jq -n \
         --arg number "$number" \
         --arg repo "$repo" \
         --arg title "$title" \
@@ -210,10 +217,13 @@ init_github_lifecycle() {
                 followups_created: []
             },
             updated_at: $now
-        }' > "$GITHUB_LIFECYCLE_STATE_FILE" 2>/dev/null || {
-            _lifecycle_log "WARN" "Could not initialize GitHub lifecycle state file"
-            return 1
-        }
+        }' > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$GITHUB_LIFECYCLE_STATE_FILE"
+    else
+        rm -f "$tmp"
+        _lifecycle_log "WARN" "Could not initialize GitHub lifecycle state file"
+        return 1
+    fi
 
     _lifecycle_log "INFO" "🔗 GitHub issue lifecycle tracking #${number}${repo:+ ($repo)}"
     return 0
@@ -294,7 +304,8 @@ EOF
 # Scan lines ADDED since the lifecycle start SHA (all commits made during the run
 # plus the working tree) for TODO/FIXME/HACK/XXX markers. Falls back to the last
 # commit + working tree when no start SHA is recorded (e.g. lib used standalone).
-# Prints one marker per line (deduplicated).
+# Prints one "<file>: <marker text>" per line (deduplicated) so the follow-up
+# issue points reviewers at where each marker lives.
 scan_for_todos() {
     local base diff
     base=$(lifecycle_get '.lifecycle.start_sha' 2>/dev/null)
@@ -304,12 +315,29 @@ scan_for_todos() {
     else
         diff=$(git diff -U0 HEAD 2>/dev/null; git diff -U0 --cached 2>/dev/null; git diff -U0 HEAD~1 HEAD 2>/dev/null)
     fi
-    printf '%s\n' "$diff" \
-        | grep -E "^\+" \
-        | grep -vE "^\+\+\+" \
-        | grep -oiE "(TODO|FIXME|HACK|XXX):?.*" \
-        | sed 's/[[:space:]]*$//' \
-        | sort -u
+    # Track the current file from "+++ b/<path>" headers and prefix each marker.
+    # POSIX awk (no IGNORECASE): match on an upper-cased copy, slice from the
+    # original line to preserve the marker's text verbatim.
+    printf '%s\n' "$diff" | awk '
+        function first_marker(s,   kws, n, i, idx, best) {
+            n = split("TODO FIXME HACK XXX", kws, " ")
+            best = 0
+            for (i = 1; i <= n; i++) {
+                idx = index(s, kws[i])
+                if (idx > 0 && (best == 0 || idx < best)) best = idx
+            }
+            return best
+        }
+        /^\+\+\+ / { file = $2; sub(/^b\//, "", file); next }
+        /^\+/ {
+            p = first_marker(toupper($0))
+            if (p > 0) {
+                txt = substr($0, p)
+                sub(/[[:space:]]+$/, "", txt)
+                print (file == "" ? "" : file ": ") txt
+            }
+        }
+    ' | sort -u
 }
 
 # --- orchestration (always returns 0: graceful degradation) -----------------

@@ -144,6 +144,20 @@ setup_tmux_session() {
     if [[ "$ENABLE_BACKUP" == "true" ]]; then
         ralph_cmd="$ralph_cmd --backup"
     fi
+    # Forward GitHub issue lifecycle flags (Issue #73) so --monitor preserves them
+    if [[ -n "${GITHUB_ISSUE:-}" ]]; then
+        ralph_cmd="$ralph_cmd --github-issue '$GITHUB_ISSUE'"
+        [[ "${COMMENT_PROGRESS:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --comment-progress"
+        [[ "${COMMENT_INTERVAL:-5}" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
+        [[ "${AUTO_CLOSE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --auto-close"
+        [[ "${CLOSE_SUMMARY:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --close-summary"
+        [[ "${CREATE_PR:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --create-pr"
+        [[ "${LINK_ISSUE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --link-issue"
+        [[ "${DRAFT_PR:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --draft-pr"
+        [[ "${CREATE_FOLLOWUPS:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --create-followups"
+        [[ "${FOLLOWUP_LABEL:-tech-debt}" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
+        [[ -n "${ADD_COMPLETION_LABELS:-}" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
+    fi
 
     tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
@@ -439,6 +453,43 @@ assert_tmux_called_with() {
     local pane0_line
     pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--prompt"* ]]
+}
+
+# ==============================================================================
+# Issue #73: --monitor forwards GitHub issue lifecycle flags to the loop command
+# ==============================================================================
+
+@test "setup_tmux_session forwards GitHub lifecycle flags to loop command" {
+    export GITHUB_ISSUE="69"
+    export COMMENT_PROGRESS=true COMMENT_INTERVAL=3
+    export AUTO_CLOSE=true CREATE_PR=true LINK_ISSUE=true
+    export CREATE_FOLLOWUPS=true FOLLOWUP_LABEL=followup ADD_COMPLETION_LABELS=done
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--github-issue '69'"* ]]
+    [[ "$pane0_line" == *"--comment-progress"* ]]
+    [[ "$pane0_line" == *"--comment-interval 3"* ]]
+    [[ "$pane0_line" == *"--auto-close"* ]]
+    [[ "$pane0_line" == *"--create-pr"* ]]
+    [[ "$pane0_line" == *"--link-issue"* ]]
+    [[ "$pane0_line" == *"--create-followups"* ]]
+    [[ "$pane0_line" == *"--followup-label 'followup'"* ]]
+    [[ "$pane0_line" == *"--add-label 'done'"* ]]
+}
+
+@test "setup_tmux_session omits lifecycle flags when no issue is tracked" {
+    # No GITHUB_ISSUE set -> no lifecycle flags forwarded
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" != *"--github-issue"* ]]
+    [[ "$pane0_line" != *"--auto-close"* ]]
 }
 
 # ==============================================================================
