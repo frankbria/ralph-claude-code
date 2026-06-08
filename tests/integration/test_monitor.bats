@@ -235,3 +235,42 @@ EOF
         return 1
     }
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Issue queue progress section (Issue #72)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Helper: write a queue.json with the given entries (jq array literal)
+_write_queue() {
+    mkdir -p .ralph
+    jq -n --argjson q "$1" '{version:"1.0", queue:$q}' > .ralph/queue.json
+}
+
+@test "ralph_monitor.sh shows queue progress when a queue exists" {
+    _write_queue '[
+        {"issue_number":1,"title":"A","status":"completed"},
+        {"issue_number":2,"title":"B","status":"processing"},
+        {"issue_number":3,"title":"C","status":"pending"}
+    ]'
+    local output
+    output=$(monitor_output)
+    echo "$output" | grep -q "Issue Queue" || { echo "missing Issue Queue header: $output"; return 1; }
+    echo "$output" | grep -q "1/3" || { echo "missing 1/3 progress: $output"; return 1; }
+    echo "$output" | grep -q "#2 B" || { echo "missing current item: $output"; return 1; }
+}
+
+@test "ralph_monitor.sh hides queue section when no queue file exists" {
+    rm -f .ralph/queue.json
+    local output
+    output=$(monitor_output)
+    echo "$output" | grep -q "Issue Queue" && { echo "queue section shown without a queue"; return 1; }
+    return 0
+}
+
+@test "ralph_monitor.sh hides queue section for an empty queue" {
+    _write_queue '[]'
+    local output
+    output=$(monitor_output)
+    echo "$output" | grep -q "Issue Queue" && { echo "queue section shown for empty queue"; return 1; }
+    return 0
+}
