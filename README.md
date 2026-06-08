@@ -321,10 +321,29 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 ```
 
 **Other exit conditions:**
-- All tasks in `.ralph/fix_plan.md` marked complete
+- All tasks in `.ralph/fix_plan.md` marked complete — except unchecked items under **optional sections**
 - Multiple consecutive "done" signals from Claude Code
 - Too many test-focused loops (indicating feature completeness)
 - Claude API 5-hour usage limit reached (with user prompt to wait or exit)
+
+#### Optional / Future sections in fix_plan.md
+
+By default, Ralph keeps looping until **every** `- [ ]` item is checked. To mark work as
+genuinely optional so it does not block completion, put it under an optional section:
+
+```markdown
+## High Priority
+- [x] Core feature
+
+## Optional
+- [ ] Frontend integration   # does NOT block exit
+- [ ] SMS notifications      # does NOT block exit
+```
+
+Unchecked items under `Optional`, `Future`, `Future Enhancements`, or `Nice to Have` headings
+(and their subsections) are ignored by the completion check. Customize the section names with
+`OPTIONAL_SECTIONS` in `.ralphrc` (comma-separated, case-insensitive). This resolves the
+deadlock where Claude treats low-priority items as skippable while Ralph waits for them.
 
 ## Enabling Ralph in Existing Projects
 
@@ -485,6 +504,46 @@ Generated plans are shown for approval before conversion. Non-interactive sessio
 ### Troubleshooting
 - **"GitHub CLI (gh) is not installed"** — install it from https://cli.github.com
 - **"GitHub CLI is not authenticated"** — run `gh auth login`
+
+## GitHub Issue Lifecycle
+
+Once development is underway, Ralph can close the loop on the whole GitHub workflow. Pass
+`--github-issue <ref>` (a number `69`, `#69`, `owner/repo#69`, or a full issue URL) to `ralph`
+and opt into any of the lifecycle actions below. They all use the `gh` CLI (so the same
+`gh auth login` prerequisite applies), and every GitHub operation degrades gracefully — if a
+call is denied, Ralph logs a warning and keeps developing rather than crashing the loop.
+
+```bash
+# Post a progress comment to the issue every 5 loops while developing
+ralph --github-issue 69 --comment-progress --comment-interval 5
+
+# On completion: open a PR linked to the issue, comment a summary, and close it
+ralph --github-issue 69 --create-pr --link-issue --close-summary --auto-close
+
+# Add labels when closing, and open a follow-up issue for any TODO/FIXME left in the diff
+ralph --github-issue 69 --auto-close --add-label completed \
+      --create-followups --followup-label tech-debt
+
+# Open the PR as a draft for manual review before merge
+ralph --github-issue 69 --create-pr --draft-pr
+```
+
+| Flag | Effect |
+|------|--------|
+| `--github-issue REF` | Track the issue (required for all lifecycle features) |
+| `--comment-progress` | Post progress comments during development |
+| `--comment-interval N` | Comment every N loops (default: 5) |
+| `--auto-close` | Close the issue on graceful completion |
+| `--close-summary` | Post a completion summary comment |
+| `--create-pr` | Create a pull request on completion |
+| `--link-issue` | Add `Closes #N` to the PR body |
+| `--draft-pr` | Create the PR as a draft |
+| `--create-followups` | Open a grouped follow-up issue for TODO/FIXME markers added during dev |
+| `--followup-label LABEL` | Label for follow-up issues (default: `tech-debt`) |
+| `--add-label LABEL` | Label to add on close (repeatable) |
+
+These can also be set in `.ralphrc` (`COMMENT_PROGRESS`, `AUTO_CLOSE`, `CREATE_PR`, etc.).
+Lifecycle state is tracked in `.ralph/.github_lifecycle_state`.
 
 ## Batch Processing and Issue Queue
 

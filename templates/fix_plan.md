@@ -18,6 +18,13 @@
 - [ ] Integration with external services
 - [ ] Advanced error recovery
 
+## Optional
+<!-- Issue #239: unchecked items in this section (and "Future"/"Future Enhancements"/
+     "Nice to Have") do NOT block Ralph's exit. Use it for genuinely optional/future work
+     so Ralph can finish once the required sections above are complete. Configure the section
+     names via OPTIONAL_SECTIONS in .ralphrc. -->
+- [ ] Nice-to-have enhancements (non-blocking)
+
 ## Completed
 - [x] Project initialization
 
