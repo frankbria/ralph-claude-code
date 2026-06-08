@@ -1038,8 +1038,11 @@ write_session_id_file() {
         --arg session_id "$session_id" \
         --arg timestamp "$(get_iso_timestamp)" \
         '{ session_id: $session_id, timestamp: $timestamp }' > "$tmp" 2>/dev/null; then
-        mv "$tmp" "$file"
-        return 0
+        # Only report success if the atomic rename actually lands (don't mask a
+        # failed mv on a read-only path / full disk as success — would orphan tmp).
+        if mv "$tmp" "$file" 2>/dev/null; then
+            return 0
+        fi
     fi
     rm -f "$tmp" 2>/dev/null
     return 1
@@ -1062,11 +1065,14 @@ read_session_id_file() {
         return 0
     fi
 
-    # Legacy plain-text fallback
-    local line
-    line=$(head -n 1 "$file" 2>/dev/null | tr -d '\r\n[:space:]')
-    if [[ "$line" =~ ^[A-Za-z0-9_-]+$ ]]; then
-        printf '%s\n' "$line"
+    # Legacy plain-text fallback: the first line must be a single clean session-id
+    # token. Surrounding whitespace/CR is tolerated, but interior whitespace or JSON
+    # punctuation is rejected (so corrupt content like "abc 123" or "{...}" → "" rather
+    # than being normalized into a valid-looking id).
+    local raw
+    raw=$(head -n 1 "$file" 2>/dev/null)
+    if [[ "$raw" =~ ^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
     else
         echo ""
     fi

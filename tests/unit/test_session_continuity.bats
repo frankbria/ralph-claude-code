@@ -393,7 +393,8 @@ EOF
     run jq -e . "$CLAUDE_SESSION_FILE"
     [ "$status" -eq 0 ]
     [[ "$(jq -r '.session_id' "$CLAUDE_SESSION_FILE")" == "sess-123-abc" ]]
-    [[ -n "$(jq -r '.timestamp' "$CLAUDE_SESSION_FILE")" ]]
+    # // empty so a missing field is "" (jq -r prints "null" otherwise, passing falsely)
+    [[ -n "$(jq -r '.timestamp // empty' "$CLAUDE_SESSION_FILE")" ]]
 }
 
 @test "issue #123: write_session_id_file rejects empty id" {
@@ -401,6 +402,20 @@ EOF
     run write_session_id_file "" "$CLAUDE_SESSION_FILE"
     [ "$status" -ne 0 ]
     [[ ! -f "$CLAUDE_SESSION_FILE" ]]
+}
+
+@test "issue #123: write_session_id_file reports failure (rc 1) when it cannot write" {
+    [[ "$(id -u)" -eq 0 ]] && skip "root bypasses directory permissions"
+    local rodir="$TEST_DIR/readonly"
+    mkdir -p "$rodir"; chmod 555 "$rodir"
+
+    run write_session_id_file "no-write-id" "$rodir/sess"
+    chmod 755 "$rodir"   # restore so teardown can clean up
+
+    [ "$status" -ne 0 ]
+    [[ ! -f "$rodir/sess" ]]
+    # No orphaned temp files left behind
+    [[ -z "$(ls -A "$rodir" 2>/dev/null)" ]]
 }
 
 @test "issue #123: read_session_id_file reads JSON format" {
@@ -425,6 +440,14 @@ EOF
 
 @test "issue #123: read_session_id_file returns empty on corrupt/JSON-looking junk" {
     echo 'not valid json at all {{{' > "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ -z "$output" ]]
+}
+
+@test "issue #123: read_session_id_file rejects a legacy line with interior whitespace" {
+    # "abc 123" must NOT be normalized into a valid "abc123" id (CodeRabbit)
+    printf 'abc 123\n' > "$CLAUDE_SESSION_FILE"
     run read_session_id_file "$CLAUDE_SESSION_FILE"
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
