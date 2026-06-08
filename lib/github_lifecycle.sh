@@ -365,14 +365,15 @@ lifecycle_on_completion() {
         if [[ -z "$branch" || "$branch" == "HEAD" || "$branch" == "$default_branch" || "$branch" == "main" || "$branch" == "master" ]]; then
             _lifecycle_log "WARN" "Skipping PR creation: current branch ('${branch:-detached HEAD}') is the default/protected branch. Run Ralph on a feature branch to open a PR."
         else
-            local title="${GITHUB_PR_TITLE:-}"
-            [[ -z "$title" ]] && title="$(lifecycle_get '.issue.title')"
+            local title
+            title="$(lifecycle_get '.issue.title')"
             [[ -z "$title" ]] && title="Ralph: resolve issue #${number}"
             local pr_body="$summary"
             if [[ "${LINK_ISSUE:-false}" == "true" ]]; then
                 pr_body="$summary"$'\n\n'"Closes #${number}"
             fi
             # Best-effort push of the feature branch so gh has something to open a PR from.
+            _lifecycle_log "INFO" "⬆️  Pushing '$branch' to origin for PR creation"
             git push -u origin "$branch" >/dev/null 2>&1 || true
             local pr_url
             if pr_url=$(gh_create_pr "$title" "$pr_body" "${DRAFT_PR:-false}" "$repo"); then
@@ -407,7 +408,11 @@ EOF
         fi
     fi
 
-    # 4. Close the issue (+ optional completion labels)
+    # 4. Close the issue (+ optional completion labels).
+    # Note: with both --auto-close and --link-issue, the issue is closed here AND
+    # would be auto-closed again when the "Closes #N" PR merges. GitHub treats the
+    # second close as a no-op; this is intentional so an --auto-close run closes the
+    # issue immediately rather than waiting on the merge.
     if [[ "${AUTO_CLOSE:-false}" == "true" ]]; then
         if [[ -n "${ADD_COMPLETION_LABELS:-}" ]]; then
             gh_add_labels "$number" "$repo" "$ADD_COMPLETION_LABELS" || true

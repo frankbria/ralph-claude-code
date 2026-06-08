@@ -308,11 +308,12 @@ EOF
     git init -q; git config user.email t@t.co; git config user.name t
     git checkout -q -b feature/work
     echo a > a.txt; git add a.txt; git commit -qm init
-    init_github_lifecycle "42"
+    init_github_lifecycle "42" "Resolve the bug"
     : > "$RALPH_DIR/fix_plan.md"
-    CREATE_PR=true LINK_ISSUE=true GITHUB_PR_TITLE="My PR"
+    CREATE_PR=true LINK_ISSUE=true
     lifecycle_on_completion
-    [[ "$(_gh_args)" == *"pr create --title My PR"* ]]
+    # PR title defaults to the tracked issue title
+    [[ "$(_gh_args)" == *"pr create --title Resolve the bug"* ]]
     [[ "$(cat "$TEST_DIR/gh_stdin")" == *"Closes #42"* ]]
     assert_equal "$(lifecycle_get '.lifecycle.pr_created')" "true"
     assert_equal "$(lifecycle_get '.lifecycle.pr_url')" "https://github.com/o/r/pull/100"
