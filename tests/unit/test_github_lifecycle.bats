@@ -230,6 +230,20 @@ EOF
     [[ "$output" == *"FIXME: handle errors"* ]]
 }
 
+@test "scan_for_todos covers TODOs across all commits since lifecycle start (codex P2)" {
+    git init -q; git config user.email t@t.co; git config user.name t
+    echo base > code.txt; git add code.txt; git commit -qm init
+    # init captures the start SHA HERE, before the development commits
+    init_github_lifecycle "42"
+    printf 'base\n# TODO: from first commit\n' > code.txt; git add code.txt; git commit -qm c1
+    printf 'base\n# TODO: from first commit\n# FIXME: from second commit\n' > code.txt; git add code.txt; git commit -qm c2
+    run scan_for_todos
+    assert_success
+    # Both the earlier-commit TODO and the later-commit FIXME are found
+    [[ "$output" == *"TODO: from first commit"* ]]
+    [[ "$output" == *"FIXME: from second commit"* ]]
+}
+
 # -----------------------------------------------------------------------------
 # orchestration: lifecycle_post_progress
 # -----------------------------------------------------------------------------
@@ -290,6 +304,10 @@ EOF
 
 @test "lifecycle_on_completion adds Closes #N to PR body with --create-pr --link-issue" {
     _mock_gh ok
+    # PR creation requires a feature branch (not the default/protected branch)
+    git init -q; git config user.email t@t.co; git config user.name t
+    git checkout -q -b feature/work
+    echo a > a.txt; git add a.txt; git commit -qm init
     init_github_lifecycle "42"
     : > "$RALPH_DIR/fix_plan.md"
     CREATE_PR=true LINK_ISSUE=true GITHUB_PR_TITLE="My PR"
@@ -298,6 +316,20 @@ EOF
     [[ "$(cat "$TEST_DIR/gh_stdin")" == *"Closes #42"* ]]
     assert_equal "$(lifecycle_get '.lifecycle.pr_created')" "true"
     assert_equal "$(lifecycle_get '.lifecycle.pr_url')" "https://github.com/o/r/pull/100"
+}
+
+@test "lifecycle_on_completion skips PR creation on the default branch (codex P1)" {
+    _mock_gh ok
+    git init -q; git config user.email t@t.co; git config user.name t
+    git checkout -q -b main 2>/dev/null || git branch -m main
+    echo a > a.txt; git add a.txt; git commit -qm init
+    init_github_lifecycle "42"
+    : > "$RALPH_DIR/fix_plan.md"
+    CREATE_PR=true LINK_ISSUE=true
+    lifecycle_on_completion
+    [[ "$(_gh_args 2>/dev/null)" != *"pr create"* ]]
+    # pr_created stays false (lifecycle_get's `// empty` renders a false boolean as "")
+    [[ "$(lifecycle_get '.lifecycle.pr_created')" != "true" ]]
 }
 
 @test "lifecycle_on_completion posts a summary comment with --close-summary" {

@@ -185,17 +185,22 @@ init_github_lifecycle() {
     GITHUB_ISSUE_REPO="$repo"
 
     mkdir -p "$(dirname "$GITHUB_LIFECYCLE_STATE_FILE")" 2>/dev/null
-    local now
+    local now start_sha
     now=$(get_iso_timestamp)
+    # Capture HEAD at the start of the run so follow-up TODO scanning covers every
+    # commit Ralph makes during development, not just the last one (empty if not a repo).
+    start_sha=$(git rev-parse HEAD 2>/dev/null) || start_sha=""
     jq -n \
         --arg number "$number" \
         --arg repo "$repo" \
         --arg title "$title" \
         --arg now "$now" \
+        --arg start_sha "$start_sha" \
         '{
             issue: { number: ($number | tonumber), repo: $repo, title: $title },
             lifecycle: {
                 initialized_at: $now,
+                start_sha: $start_sha,
                 last_progress_comment: null,
                 progress_comments_posted: 0,
                 completion_detected_at: null,
@@ -286,11 +291,19 @@ EOF
 }
 
 # scan_for_todos
-# Scan lines ADDED in the working tree / last commit for TODO/FIXME/HACK/XXX
-# markers. Prints one "file: marker text" per line (deduplicated).
+# Scan lines ADDED since the lifecycle start SHA (all commits made during the run
+# plus the working tree) for TODO/FIXME/HACK/XXX markers. Falls back to the last
+# commit + working tree when no start SHA is recorded (e.g. lib used standalone).
+# Prints one marker per line (deduplicated).
 scan_for_todos() {
-    local diff
-    diff=$(git diff -U0 HEAD 2>/dev/null; git diff -U0 --cached 2>/dev/null; git diff -U0 HEAD~1 HEAD 2>/dev/null)
+    local base diff
+    base=$(lifecycle_get '.lifecycle.start_sha' 2>/dev/null)
+    if [[ -n "$base" ]] && git rev-parse --quiet --verify "$base^{commit}" >/dev/null 2>&1; then
+        # Diff the start SHA against the working tree: covers every commit + uncommitted change.
+        diff=$(git diff -U0 "$base" 2>/dev/null)
+    else
+        diff=$(git diff -U0 HEAD 2>/dev/null; git diff -U0 --cached 2>/dev/null; git diff -U0 HEAD~1 HEAD 2>/dev/null)
+    fi
     printf '%s\n' "$diff" \
         | grep -E "^\+" \
         | grep -vE "^\+\+\+" \
@@ -341,25 +354,31 @@ lifecycle_on_completion() {
         gh_issue_comment "$number" "$repo" "$summary" || true
     fi
 
-    # 2. Pull request linked to the issue
+    # 2. Pull request linked to the issue.
+    # Refuse to operate on the default/protected branch: pushing it would land the
+    # work directly on the base instead of proposing it in a PR (codex P1).
     if [[ "${CREATE_PR:-false}" == "true" ]]; then
-        local title="${GITHUB_PR_TITLE:-}"
-        [[ -z "$title" ]] && title="$(lifecycle_get '.issue.title')"
-        [[ -z "$title" ]] && title="Ralph: resolve issue #${number}"
-        local pr_body="$summary"
-        if [[ "${LINK_ISSUE:-false}" == "true" ]]; then
-            pr_body="$summary"$'\n\n'"Closes #${number}"
-        fi
-        # Best-effort push of the current branch so gh has something to open a PR from.
-        local branch=""
+        local branch="" default_branch=""
         branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || branch=""
-        if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+        default_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##') || default_branch=""
+        [[ -z "$default_branch" ]] && default_branch="main"
+        if [[ -z "$branch" || "$branch" == "HEAD" || "$branch" == "$default_branch" || "$branch" == "main" || "$branch" == "master" ]]; then
+            _lifecycle_log "WARN" "Skipping PR creation: current branch ('${branch:-detached HEAD}') is the default/protected branch. Run Ralph on a feature branch to open a PR."
+        else
+            local title="${GITHUB_PR_TITLE:-}"
+            [[ -z "$title" ]] && title="$(lifecycle_get '.issue.title')"
+            [[ -z "$title" ]] && title="Ralph: resolve issue #${number}"
+            local pr_body="$summary"
+            if [[ "${LINK_ISSUE:-false}" == "true" ]]; then
+                pr_body="$summary"$'\n\n'"Closes #${number}"
+            fi
+            # Best-effort push of the feature branch so gh has something to open a PR from.
             git push -u origin "$branch" >/dev/null 2>&1 || true
-        fi
-        local pr_url
-        if pr_url=$(gh_create_pr "$title" "$pr_body" "${DRAFT_PR:-false}" "$repo"); then
-            _lifecycle_apply '.lifecycle.pr_created = true | .lifecycle.pr_url = $url' \
-                --arg url "$pr_url" >/dev/null 2>&1 || true
+            local pr_url
+            if pr_url=$(gh_create_pr "$title" "$pr_body" "${DRAFT_PR:-false}" "$repo"); then
+                _lifecycle_apply '.lifecycle.pr_created = true | .lifecycle.pr_url = $url' \
+                    --arg url "$pr_url" >/dev/null 2>&1 || true
+            fi
         fi
     fi
 
