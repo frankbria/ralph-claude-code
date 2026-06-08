@@ -4,6 +4,7 @@ on:
     types: [opened]
   workflow_dispatch:
   roles: all
+engine: claude
 permissions:
   contents: read
   actions: read
