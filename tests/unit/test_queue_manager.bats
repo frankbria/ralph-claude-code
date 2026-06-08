@@ -65,6 +65,13 @@ _count() { echo "$1" | jq -r ".$2"; }
     [ "$(jq -r '.queue | length' "$QUEUE_FILE")" -eq 1 ]
 }
 
+@test "init_queue produces valid JSON for a repository containing quotes" {
+    init_queue 'owner/"weird"repo'
+    run jq -e '.' "$QUEUE_FILE"
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.repository' "$QUEUE_FILE")" = 'owner/"weird"repo' ]
+}
+
 @test "init_queue recreates a corrupt queue file" {
     echo "not json {" > "$QUEUE_FILE"
     run init_queue

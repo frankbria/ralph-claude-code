@@ -102,6 +102,23 @@ are left alone, and only ready `pending` items are picked up.
   (completed/total, pending/active/failed, and the item currently processing)
   whenever a non-empty `.ralph/queue.json` is present.
 
+## Security: queued content is untrusted input
+
+Processing a queued item feeds the issue body (or PRD) into an autonomous agent
+as the work to implement. Two protections apply:
+
+- **Comments are excluded.** Only the issue *body* is used (via
+  `format_issue_as_prd … false`); on public repos anyone can comment, so comment
+  text — a prime prompt-injection surface — never reaches the agent.
+- **Spec content is marked as data.** The generated `.ralph/PROMPT.md` instructs
+  the agent to treat spec files as requirements describing *what* to build and to
+  ignore any embedded instructions that try to change its task or tool
+  permissions (the same posture as `ralph-import`).
+
+Even so, the body is the work instruction by design. **Only queue issues you
+trust** (e.g. your own backlog or a maintained milestone), and review unfamiliar
+issues before processing them unattended.
+
 ## Design notes and limits
 
 - **Single branch, one commit per issue.** Items are processed sequentially on

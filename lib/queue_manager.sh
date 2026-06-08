@@ -59,15 +59,15 @@ init_queue() {
 
     local now
     now=$(get_iso_timestamp)
-    cat > "$QUEUE_FILE" << EOF
-{
-    "version": "1.0",
-    "created_at": "$now",
-    "updated_at": "$now",
-    "repository": "$repository",
-    "queue": []
-}
-EOF
+    # Build with jq so a repository string containing quotes/backslashes/
+    # newlines can't produce invalid JSON (codex review, #72).
+    jq -n --arg now "$now" --arg repo "$repository" '{
+        version: "1.0",
+        created_at: $now,
+        updated_at: $now,
+        repository: $repo,
+        queue: []
+    }' > "$QUEUE_FILE"
 }
 
 # --- helpers reused by callers ---------------------------------------------

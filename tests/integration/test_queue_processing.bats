@@ -136,6 +136,14 @@ _qcount() { jq -r ".$1" <("$RALPH_QUEUE" status --json 2>/dev/null); }
     [ "$(jq -rc '.queue[0].dependencies' "$RALPH_DIR/queue.json")" = "[69,70]" ]
 }
 
+@test "add fails fast (no hang) when an option value is missing" {
+    _install_gh_mock
+    run timeout 10 "$RALPH_QUEUE" add --github-issues
+    [ "$status" -ne 0 ]
+    [ "$status" -ne 124 ]   # 124 would mean it hung (codex regression)
+    [[ "$output" == *"requires a value"* ]]
+}
+
 @test "add --prd queues a local spec file" {
     echo "# Spec" > "$TEST_DIR/spec.md"
     run "$RALPH_QUEUE" add --prd "$TEST_DIR/spec.md"
