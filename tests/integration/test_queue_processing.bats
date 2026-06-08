@@ -334,3 +334,55 @@ EOF
     [[ "$output" == *"ralph-queue"* ]]
     [[ "$output" == *"status"* ]]
 }
+
+# ============================================================================
+# ralph_loop.sh --queue-* delegation (Issue #72 wiring)
+# ============================================================================
+
+@test "ralph --queue-status delegates to ralph-queue status" {
+    _install_gh_mock
+    _issue_fixture 1 "Alpha" "x"
+    "$RALPH_QUEUE" add --github-issues 1
+    run bash "$PROJECT_ROOT/ralph_loop.sh" --queue-status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Queue:"* ]]
+    [[ "$output" == *"#1"* ]]
+}
+
+@test "ralph --queue-next delegates and prints the next id" {
+    _install_gh_mock
+    _issue_fixture 2 "B" "x" '[{"name":"P0"}]'
+    "$RALPH_QUEUE" add --github-issues 2
+    run bash "$PROJECT_ROOT/ralph_loop.sh" --queue-next
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"github-2"* ]]
+}
+
+@test "ralph --queue-clear delegates and empties the queue" {
+    _install_gh_mock
+    _issue_fixture 1 "a" "x"
+    "$RALPH_QUEUE" add --github-issues 1
+    run bash "$PROJECT_ROOT/ralph_loop.sh" --queue-clear
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.queue | length' "$RALPH_DIR/queue.json")" -eq 0 ]
+}
+
+@test "ralph --queue-remove delegates and removes an item" {
+    _install_gh_mock
+    _issue_fixture 1 "a" "x"; _issue_fixture 2 "b" "x"
+    "$RALPH_QUEUE" add --github-issues 1,2
+    run bash "$PROJECT_ROOT/ralph_loop.sh" --queue-remove 1
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.queue | length' "$RALPH_DIR/queue.json")" -eq 1 ]
+    [ "$(jq -r '.queue[0].issue_number' "$RALPH_DIR/queue.json")" -eq 2 ]
+}
+
+@test "ralph --process-queue delegates to the processor" {
+    _install_gh_mock
+    _install_loop_mock
+    _issue_fixture 1 "a" "x" '[{"name":"P0"}]'
+    "$RALPH_QUEUE" add --github-issues 1
+    run bash "$PROJECT_ROOT/ralph_loop.sh" --process-queue
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.queue[0].status' "$RALPH_DIR/queue.json")" = "completed" ]
+}

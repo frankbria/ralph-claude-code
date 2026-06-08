@@ -207,11 +207,24 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/ralph-stats.sh" "$@"
 EOF
 
+    # Create ralph-queue command (Issue #72)
+    cat > "$INSTALL_DIR/ralph-queue" << 'EOF'
+#!/bin/bash
+# Ralph Queue - Batch processing and issue queue management
+
+RALPH_HOME="$HOME/.ralph"
+
+exec "$RALPH_HOME/ralph_queue.sh" "$@"
+EOF
+
     # Copy actual script files to Ralph home with modifications for global operation
     cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
 
     # Copy PRD import script to Ralph home
     cp "$SCRIPT_DIR/ralph_import.sh" "$RALPH_HOME/"
+
+    # Copy queue management script to Ralph home (Issue #72)
+    cp "$SCRIPT_DIR/ralph_queue.sh" "$RALPH_HOME/"
 
     # Copy migration script to Ralph home
     cp "$SCRIPT_DIR/migrate_to_ralph_folder.sh" "$RALPH_HOME/"
@@ -232,8 +245,10 @@ EOF
     chmod +x "$INSTALL_DIR/ralph-enable"
     chmod +x "$INSTALL_DIR/ralph-enable-ci"
     chmod +x "$INSTALL_DIR/ralph-stats"
+    chmod +x "$INSTALL_DIR/ralph-queue"
     chmod +x "$RALPH_HOME/ralph_monitor.sh"
     chmod +x "$RALPH_HOME/ralph_import.sh"
+    chmod +x "$RALPH_HOME/ralph_queue.sh"
     chmod +x "$RALPH_HOME/migrate_to_ralph_folder.sh"
     chmod +x "$RALPH_HOME/ralph_enable.sh"
     chmod +x "$RALPH_HOME/ralph_enable_ci.sh"
@@ -335,7 +350,7 @@ case "${1:-install}" in
         ;;
     uninstall)
         log "INFO" "Uninstalling Ralph for Claude Code..."
-        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci" "$INSTALL_DIR/ralph-stats"
+        rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci" "$INSTALL_DIR/ralph-stats" "$INSTALL_DIR/ralph-queue"
         rm -rf "$RALPH_HOME"
         log "SUCCESS" "Ralph for Claude Code uninstalled"
         ;;

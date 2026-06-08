@@ -2490,6 +2490,15 @@ Options:
     --show-tool-args        Show tool arguments (commands, file paths) in live streaming output
     --rollback [BRANCH]     Roll back to a backup branch (lists available backups if no branch given)
 
+Batch processing / issue queue (Issue #72; see 'ralph-queue --help'):
+    --queue-status          Show the issue queue and exit
+    --process-queue [--halt-on-failure]
+                            Process pending queued issues sequentially and exit
+    --resume-queue          Resume processing the remaining pending issues
+    --queue-next            Print the id of the next ready queued issue
+    --queue-clear           Remove all items from the queue
+    --queue-remove <id|N>   Remove one item from the queue by id or issue number
+
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
                             Note: --live mode requires JSON and will auto-switch
@@ -2650,6 +2659,27 @@ while [[ $# -gt 0 ]]; do
             source "$SCRIPT_DIR/lib/date_utils.sh"
             rollback_to_backup "${2:-}"
             exit $?
+            ;;
+        --queue-status)
+            # Batch processing / issue queue management (Issue #72)
+            exec "$SCRIPT_DIR/ralph_queue.sh" status
+            ;;
+        --process-queue)
+            shift
+            exec "$SCRIPT_DIR/ralph_queue.sh" process "$@"
+            ;;
+        --resume-queue)
+            shift
+            exec "$SCRIPT_DIR/ralph_queue.sh" resume "$@"
+            ;;
+        --queue-next)
+            exec "$SCRIPT_DIR/ralph_queue.sh" next
+            ;;
+        --queue-clear)
+            exec "$SCRIPT_DIR/ralph_queue.sh" clear
+            ;;
+        --queue-remove)
+            exec "$SCRIPT_DIR/ralph_queue.sh" remove "${2:-}"
             ;;
         *)
             echo "Unknown option: $1"
