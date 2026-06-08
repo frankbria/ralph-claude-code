@@ -1017,6 +1017,68 @@ SESSION_FILE="$RALPH_DIR/.claude_session_id"
 # Session expiration time in seconds (24 hours)
 SESSION_EXPIRATION_SECONDS=86400
 
+# Issue #123: canonical session-file format. Every site that persists the Claude
+# session id (store_session_id here, save_claude_session and the timeout fallback
+# in ralph_loop.sh) writes the SAME JSON shape — {session_id, timestamp} — through
+# this writer, and every reader goes through read_session_id_file. Previously the
+# file was written as JSON in one place and bare text in another, which could make
+# init_claude_session resume with a garbage id (e.g. "{") read off a JSON file.
+
+# write_session_id_file <session_id> [file]
+# Atomically write the canonical JSON session record. Returns 1 on empty id.
+write_session_id_file() {
+    local session_id="$1"
+    local file="${2:-$SESSION_FILE}"
+
+    [[ -z "$session_id" ]] && return 1
+
+    local tmp
+    tmp=$(mktemp "${file}.XXXXXX" 2>/dev/null) || tmp="${file}.tmp.$$"
+    if jq -n \
+        --arg session_id "$session_id" \
+        --arg timestamp "$(get_iso_timestamp)" \
+        '{ session_id: $session_id, timestamp: $timestamp }' > "$tmp" 2>/dev/null; then
+        # Only report success if the atomic rename actually lands (don't mask a
+        # failed mv on a read-only path / full disk as success — would orphan tmp).
+        if mv "$tmp" "$file" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    rm -f "$tmp" 2>/dev/null
+    return 1
+}
+
+# read_session_id_file [file]
+# Read a session id, tolerating both the canonical JSON format and the legacy
+# plain-text format (a bare id on the first line, written by older Ralph versions).
+# JSON is tried first; the plain-text fallback only accepts a clean session-id
+# token (no JSON punctuation/whitespace), so corrupt content yields "".
+# The fallback keeps the issue #254 robustness: first line only, CR/whitespace stripped.
+read_session_id_file() {
+    local file="${1:-$SESSION_FILE}"
+    [[ -f "$file" ]] || { echo ""; return 0; }
+
+    local session_id
+    session_id=$(jq -r '.session_id // empty' "$file" 2>/dev/null)
+    if [[ -n "$session_id" && "$session_id" != "null" ]]; then
+        printf '%s\n' "$session_id"
+        return 0
+    fi
+
+    # Legacy plain-text fallback: the first line must be a single clean session-id
+    # token. Surrounding whitespace/CR is tolerated, but interior whitespace or JSON
+    # punctuation is rejected (so corrupt content like "abc 123" or "{...}" → "" rather
+    # than being normalized into a valid-looking id).
+    local raw
+    raw=$(head -n 1 "$file" 2>/dev/null)
+    if [[ "$raw" =~ ^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+    else
+        echo ""
+    fi
+    return 0
+}
+
 # Store session ID to file with timestamp
 # Usage: store_session_id "session-uuid-123"
 store_session_id() {
@@ -1026,30 +1088,13 @@ store_session_id() {
         return 1
     fi
 
-    # Write session with timestamp using jq for safe JSON construction
-    jq -n \
-        --arg session_id "$session_id" \
-        --arg timestamp "$(get_iso_timestamp)" \
-        '{
-            session_id: $session_id,
-            timestamp: $timestamp
-        }' > "$SESSION_FILE"
-
-    return 0
+    write_session_id_file "$session_id" "$SESSION_FILE"
 }
 
-# Get the last stored session ID
-# Returns: session ID string or empty if not found
+# Get the last stored session ID (tolerates JSON and legacy plain-text formats)
+# Returns: session ID string or empty if not found/corrupt
 get_last_session_id() {
-    if [[ ! -f "$SESSION_FILE" ]]; then
-        echo ""
-        return 0
-    fi
-
-    # Extract session_id from JSON file
-    local session_id=$(jq -r '.session_id // ""' "$SESSION_FILE" 2>/dev/null)
-    echo "$session_id"
-    return 0
+    read_session_id_file "$SESSION_FILE"
 }
 
 # Check if the stored session should be resumed
@@ -1120,6 +1165,8 @@ export -f update_exit_signals
 export -f log_analysis_summary
 export -f detect_stuck_loop
 export -f detect_questions
+export -f write_session_id_file
+export -f read_session_id_file
 export -f store_session_id
 export -f get_last_session_id
 export -f should_resume_session

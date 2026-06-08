@@ -1169,12 +1169,13 @@ init_claude_session() {
             return 0
         fi
 
-        # Session is valid, try to read it
-        # Fix #254: Read only the first line and strip any whitespace/CR — if the file was
-        # corrupted by a multi-line write (e.g. jq returning multiple matches), don't pass
-        # multi-line content to --resume.
+        # Session is valid, try to read it.
+        # Issue #123: read through the shared format-tolerant reader so a JSON session
+        # file (written by store_session_id / save_claude_session) resolves to the real
+        # id, while legacy plain-text files still work. The reader keeps the #254
+        # robustness (first line only, CR/whitespace stripped) in its plain fallback.
         local session_id
-        session_id=$(head -n 1 "$CLAUDE_SESSION_FILE" 2>/dev/null | tr -d '\r\n[:space:]')
+        session_id=$(read_session_id_file "$CLAUDE_SESSION_FILE")
         if [[ -n "$session_id" ]]; then
             log_status "INFO" "Resuming Claude session: ${session_id:0:20}... (${age_hours}h old)"
             echo "$session_id"
@@ -1211,7 +1212,8 @@ save_claude_session() {
                      | head -n 1 \
                      | tr -d '\r\n[:space:]')
         if [[ -n "$session_id" && "$session_id" != "null" ]]; then
-            echo "$session_id" > "$CLAUDE_SESSION_FILE"
+            # Issue #123: persist as canonical JSON so every write site agrees on format
+            write_session_id_file "$session_id" "$CLAUDE_SESSION_FILE"
             log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
         fi
     fi
@@ -1890,7 +1892,8 @@ execute_claude_code() {
                     local fallback_session_id
                     fallback_session_id=$(echo "$system_line" | jq -r '.session_id // empty' 2>/dev/null)
                     if [[ -n "$fallback_session_id" ]]; then
-                        echo "$fallback_session_id" > "$CLAUDE_SESSION_FILE"
+                        # Issue #123: persist as canonical JSON (was a bare echo)
+                        write_session_id_file "$fallback_session_id" "$CLAUDE_SESSION_FILE"
                         log_status "INFO" "Extracted session ID from system message (timeout fallback)"
                     fi
                 fi

@@ -383,6 +383,133 @@ EOF
 }
 
 # =============================================================================
+# Issue #123: UNIFIED SESSION STORAGE FORMAT (JSON, tolerant readers)
+# =============================================================================
+
+@test "issue #123: write_session_id_file writes canonical JSON with timestamp" {
+    write_session_id_file "sess-123-abc" "$CLAUDE_SESSION_FILE"
+
+    # Valid JSON, with session_id and a non-empty timestamp
+    run jq -e . "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$(jq -r '.session_id' "$CLAUDE_SESSION_FILE")" == "sess-123-abc" ]]
+    # // empty so a missing field is "" (jq -r prints "null" otherwise, passing falsely)
+    [[ -n "$(jq -r '.timestamp // empty' "$CLAUDE_SESSION_FILE")" ]]
+}
+
+@test "issue #123: write_session_id_file rejects empty id" {
+    rm -f "$CLAUDE_SESSION_FILE"
+    run write_session_id_file "" "$CLAUDE_SESSION_FILE"
+    [ "$status" -ne 0 ]
+    [[ ! -f "$CLAUDE_SESSION_FILE" ]]
+}
+
+@test "issue #123: write_session_id_file reports failure (rc 1) when it cannot write" {
+    [[ "$(id -u)" -eq 0 ]] && skip "root bypasses directory permissions"
+    local rodir="$TEST_DIR/readonly"
+    mkdir -p "$rodir"; chmod 555 "$rodir"
+
+    run write_session_id_file "no-write-id" "$rodir/sess"
+    chmod 755 "$rodir"   # restore so teardown can clean up
+
+    [ "$status" -ne 0 ]
+    [[ ! -f "$rodir/sess" ]]
+    # No orphaned temp files left behind
+    [[ -z "$(ls -A "$rodir" 2>/dev/null)" ]]
+}
+
+@test "issue #123: read_session_id_file reads JSON format" {
+    echo '{"session_id": "json-id-1", "timestamp": "2026-01-09T10:00:00Z"}' > "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "json-id-1" ]]
+}
+
+@test "issue #123: read_session_id_file reads legacy plain-text format" {
+    printf 'plain-legacy-id-2\n' > "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "plain-legacy-id-2" ]]
+}
+
+@test "issue #123: read_session_id_file strips CR from legacy plain id (issue #254 robustness)" {
+    printf 'abc123-session-id\r\n' > "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [[ "$output" == "abc123-session-id" ]]
+}
+
+@test "issue #123: read_session_id_file returns empty on corrupt/JSON-looking junk" {
+    echo 'not valid json at all {{{' > "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ -z "$output" ]]
+}
+
+@test "issue #123: read_session_id_file rejects a legacy line with interior whitespace" {
+    # "abc 123" must NOT be normalized into a valid "abc123" id (CodeRabbit)
+    printf 'abc 123\n' > "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ -z "$output" ]]
+}
+
+@test "issue #123: read_session_id_file returns empty for missing file" {
+    rm -f "$CLAUDE_SESSION_FILE"
+    run read_session_id_file "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]
+    [[ -z "$output" ]]
+}
+
+@test "issue #123: save_claude_session persists canonical JSON (not plain text)" {
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local output_file="$LOG_DIR/claude_out.json"
+    echo '{"session_id": "save-json-id", "result": "ok"}' > "$output_file"
+
+    save_claude_session "$output_file"
+
+    [[ -f "$CLAUDE_SESSION_FILE" ]]
+    run jq -e . "$CLAUDE_SESSION_FILE"
+    [ "$status" -eq 0 ]                                   # file is valid JSON
+    [[ "$(jq -r '.session_id' "$CLAUDE_SESSION_FILE")" == "save-json-id" ]]
+}
+
+@test "issue #123: init_claude_session resumes from a JSON session file" {
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # Recent JSON file (mtime = now -> not expired)
+    write_session_id_file "resume-json-id" "$CLAUDE_SESSION_FILE"
+
+    run init_claude_session
+    # Must return the real id, NOT "{" (the old plain-text reader's failure mode)
+    [[ "$output" == *"resume-json-id"* ]]
+    [[ "$output" != *"{"* ]]
+}
+
+@test "issue #123: init_claude_session resumes from a legacy plain-text file" {
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    printf 'legacy-plain-resume\n' > "$CLAUDE_SESSION_FILE"
+
+    run init_claude_session
+    [[ "$output" == *"legacy-plain-resume"* ]]
+}
+
+@test "issue #123: save_claude_session -> init_claude_session round-trips the id" {
+    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    local output_file="$LOG_DIR/claude_out.json"
+    echo '{"session_id": "roundtrip-xyz"}' > "$output_file"
+
+    save_claude_session "$output_file"
+    run init_claude_session
+    [[ "$output" == *"roundtrip-xyz"* ]]
+    [[ "$output" != *"{"* ]]
+}
+
+@test "issue #123: get_last_session_id reads a legacy plain-text id" {
+    printf 'legacy-getlast-id\n' > "$CLAUDE_SESSION_FILE"
+    run get_last_session_id
+    [[ "$output" == "legacy-getlast-id" ]]
+}
+
+# =============================================================================
 # SESSION RESET CLEARS EXIT SIGNALS (Issue #91 Fix)
 # =============================================================================
 
