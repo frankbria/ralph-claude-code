@@ -313,6 +313,22 @@ _count() { echo "$1" | jq -r ".$2"; }
     [ "$status" -eq 0 ]
 }
 
+@test "is_dependency_satisfied true when a dependency is not in the queue (external prereq)" {
+    init_queue
+    # #70 depends on #50, which was never queued → treated as already done
+    add_to_queue "$(_gh_entry 70 'x' '' '[50]')"
+    run is_dependency_satisfied 70
+    [ "$status" -eq 0 ]
+}
+
+@test "get_next_issue returns an item whose only dependency is outside the queue" {
+    init_queue
+    add_to_queue "$(_gh_entry 70 'x' 'P1' '[50]')"
+    run get_next_issue
+    [ "$status" -eq 0 ]
+    [ "$output" = "github-70" ]
+}
+
 @test "get_next_issue respects priority order among ready issues" {
     init_queue
     add_to_queue "$(_gh_entry 1 'low' 'P3')"

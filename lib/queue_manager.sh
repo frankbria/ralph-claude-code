@@ -244,12 +244,17 @@ is_dependency_satisfied() {
     local id="${1:-}"
     [[ -f "$QUEUE_FILE" ]] || return 1
 
+    # A dependency blocks only if it is itself a queue item that hasn't
+    # completed yet. A dependency on an issue NOT in the queue is treated as an
+    # already-satisfied external prerequisite (matches validate_dependencies and
+    # the documented contract; CodeRabbit #72).
     local result
     result=$(jq -r --arg id "$id" "
         ([ .queue[] | select(.status==\"completed\") | .issue_number ]) as \$done
+        | ([ .queue[].issue_number | select(. != null) ]) as \$all
         | (.queue[] | select($_QUEUE_MATCH)) as \$e
         | (\$e.dependencies // [])
-        | all(. as \$d | (\$done | index(\$d)) != null)
+        | all(. as \$d | (\$done | index(\$d)) != null or (\$all | index(\$d)) == null)
     " "$QUEUE_FILE" 2>/dev/null)
 
     [[ "$result" == "true" ]] && return 0
@@ -264,9 +269,10 @@ get_next_issue() {
     local id
     id=$(jq -r '
         ([ .queue[] | select(.status=="completed") | .issue_number ]) as $done
+        | ([ .queue[].issue_number | select(. != null) ]) as $all
         | [ .queue | to_entries[] | .value + {__order: .key} ]
         | map(select(.status=="pending"))
-        | map(select((.dependencies // []) | all(. as $d | ($done | index($d)) != null)))
+        | map(select((.dependencies // []) | all(. as $d | ($done | index($d)) != null or ($all | index($d)) == null)))
         | map(. + {__rank: (
             [ .priority // "" | ascii_downcase
               | (capture("p(?<d>[0-9])") | .d | tonumber) ] | (.[0] // 99))})

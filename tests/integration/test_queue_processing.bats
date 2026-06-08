@@ -337,6 +337,20 @@ EOF
     [ "$(wc -l < "$TEST_DIR/loop_calls")" -eq 2 ]
 }
 
+@test "process recovers an item orphaned in 'processing' by an interrupted run" {
+    _install_gh_mock
+    _install_loop_mock
+    _issue_fixture 1 "stuck" "x" '[{"name":"P0"}]'
+    "$RALPH_QUEUE" add --github-issues 1
+    # Simulate a crash mid-flight: force the item into 'processing'
+    jq '(.queue[0]).status="processing"' "$RALPH_DIR/queue.json" > "$RALPH_DIR/q.tmp"
+    mv "$RALPH_DIR/q.tmp" "$RALPH_DIR/queue.json"
+    run "$RALPH_QUEUE" process
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.queue[0].status' "$RALPH_DIR/queue.json")" = "completed" ]
+    [ "$(wc -l < "$TEST_DIR/loop_calls")" -eq 1 ]
+}
+
 @test "help is shown for no subcommand" {
     run "$RALPH_QUEUE"
     [[ "$output" == *"ralph-queue"* ]]

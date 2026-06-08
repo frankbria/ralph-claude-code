@@ -132,11 +132,15 @@ display_queue_status() {
     local current
     current=$(jq -r 'first(.queue[] | select(.status=="processing")) // empty
                      | "#\(.issue_number // .id) \(.title // "")"' "$queue_file" 2>/dev/null)
+    # Strip control characters; issue titles are untrusted and would otherwise
+    # let a crafted title inject terminal escape sequences (CodeRabbit #72).
+    current=$(printf '%s' "$current" | tr -d '\000-\037')
 
     echo -e "${CYAN}┌─ Issue Queue ───────────────────────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│${NC} Progress:       ${WHITE}${completed}/${total}${NC} done  (${pending} pending, ${processing} active, ${failed} failed)"
     if [[ -n "$current" ]]; then
-        echo -e "${CYAN}│${NC} Current:        ${current}"
+        # %s (not echo -e) so backslash sequences in the title are not interpreted
+        printf "${CYAN}│${NC} Current:        %s\n" "$current"
     fi
     echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────────┘${NC}"
     echo
