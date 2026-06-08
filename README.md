@@ -179,7 +179,7 @@ cd ralph-claude-code
 ./install.sh
 ```
 
-This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-migrate`, `ralph-enable`, and `ralph-enable-ci` commands to your PATH.
+This adds `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-queue`, `ralph-migrate`, `ralph-enable`, and `ralph-enable-ci` commands to your PATH.
 
 > **Note**: You only need to do this once per system. After installation, you can delete the cloned repository if desired.
 
@@ -485,6 +485,57 @@ Generated plans are shown for approval before conversion. Non-interactive sessio
 ### Troubleshooting
 - **"GitHub CLI (gh) is not installed"** — install it from https://cli.github.com
 - **"GitHub CLI is not authenticated"** — run `gh auth login`
+
+## Batch Processing and Issue Queue
+
+For larger efforts, the `ralph-queue` command builds a persistent queue of work items (GitHub issues or local PRD specs) and processes them sequentially, respecting priority and dependencies. The queue is stored at `.ralph/queue.json` and survives restarts, so an interrupted run can be resumed. See [docs/QUEUE_MANAGEMENT.md](docs/QUEUE_MANAGEMENT.md) for the full guide.
+
+### Building a queue
+
+```bash
+# Queue issues by metadata filter (reuses the import filter flags)
+ralph-queue add --github-label "bug,P0"
+ralph-queue add --github-milestone "v1.0"
+
+# Queue specific issues by number
+ralph-queue add --github-issues 69,70,71
+
+# Queue a local PRD/spec file
+ralph-queue add --prd ./docs/feature.md
+```
+
+When a GitHub issue is queued, its priority is read from `P0`–`P9` / `priority: PN` labels and its dependencies are parsed from the body (`depends on #N`, `blocked by #N`, `requires #N`).
+
+### Managing the queue
+
+```bash
+ralph-queue status            # Show the queue (counts + items); --json for machine output
+ralph-queue next              # Print the id of the next ready item
+ralph-queue reorder           # Sort the queue by priority (P0 first)
+ralph-queue validate          # Check for circular dependencies
+ralph-queue remove 69         # Remove an item by issue number or id
+ralph-queue clear             # Empty the queue
+```
+
+These are also available through `ralph` itself: `ralph --queue-status`, `ralph --queue-next`, `ralph --queue-clear`, and `ralph --queue-remove <id|N>`.
+
+### Processing the queue
+
+```bash
+# Process all ready pending items in priority/dependency order
+ralph --process-queue
+ralph-queue process
+
+# Stop at the first failure instead of skipping it
+ralph --process-queue --halt-on-failure
+
+# Resume after an interruption (only pending items are picked up)
+ralph --resume-queue
+```
+
+For each ready item the processor stages the project from the issue/spec, runs the Ralph loop, commits the work as `Fix #N: <title>` (one commit per issue when in a git repo), then advances. Failed items are marked `failed` and skipped by default (or halt the run with `--halt-on-failure`); items whose dependencies never complete remain `pending`. Progress is written to `.ralph/logs/queue_processing.log` and shown in the `ralph-monitor` dashboard.
+
+Concurrent (parallel) processing is intentionally out of scope — items are processed one at a time on a single branch.
 - **"Could not fetch issue #N"** — check the issue number, your repo access, and the `--repo` value
 - **"No issues match the specified filters"** — relax or remove some filters; only open issues are matched unless `--github-state closed|all` is given. `--dry-run` shows what a filter set matches.
 
@@ -952,6 +1003,12 @@ ralph [OPTIONS]
   --circuit-status        Show circuit breaker status
   --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
   --reset-session         Reset session state manually
+  --queue-status          Show the issue queue and exit
+  --process-queue         Process pending queued issues sequentially (--halt-on-failure to stop on first failure)
+  --resume-queue          Resume processing the remaining pending issues
+  --queue-next            Print the id of the next ready queued issue
+  --queue-clear           Remove all items from the queue
+  --queue-remove <id|N>   Remove one item from the queue
 ```
 
 > **Full reference**: every flag is documented in depth, with examples and `.ralphrc` patterns, in [docs/CLI_OPTIONS.md](docs/CLI_OPTIONS.md).
@@ -962,6 +1019,9 @@ ralph-setup project-name     # Create new Ralph project
 ralph-enable                 # Enable Ralph in existing project (interactive)
 ralph-enable-ci              # Enable Ralph in existing project (non-interactive)
 ralph-import prd.md project  # Convert PRD/specs to Ralph project
+ralph-queue add --github-label bug   # Build a batch queue of issues
+ralph-queue status           # Show the issue queue
+ralph --process-queue        # Process the queue sequentially
 ralph --monitor              # Start with integrated monitoring
 ralph --status               # Check current loop status
 ralph --verbose              # Enable detailed progress updates

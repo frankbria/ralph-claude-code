@@ -96,6 +96,9 @@ display_status() {
         fi
     fi
     
+    # Issue queue section (Issue #72) - only shown when a queue exists
+    display_queue_status
+
     # Recent logs
     echo -e "${BLUE}┌─ Recent Activity ───────────────────────────────────────────────────────┐${NC}"
     if [[ -f "$LOG_FILE" ]]; then
@@ -110,6 +113,37 @@ display_status() {
     # Footer
     echo
     echo -e "${YELLOW}Controls: Ctrl+C to exit | Refreshes every ${REFRESH_INTERVAL}s | $(date '+%H:%M:%S')${NC}"
+}
+
+# Issue queue progress (Issue #72). No-op unless .ralph/queue.json exists.
+display_queue_status() {
+    local queue_file=".ralph/queue.json"
+    [[ -f "$queue_file" ]] || return 0
+
+    local total pending processing completed failed
+    total=$(jq -r '.queue | length' "$queue_file" 2>/dev/null || echo 0)
+    [[ "$total" -eq 0 ]] 2>/dev/null && return 0
+
+    pending=$(jq -r '[.queue[] | select(.status=="pending")] | length' "$queue_file" 2>/dev/null || echo 0)
+    processing=$(jq -r '[.queue[] | select(.status=="processing")] | length' "$queue_file" 2>/dev/null || echo 0)
+    completed=$(jq -r '[.queue[] | select(.status=="completed")] | length' "$queue_file" 2>/dev/null || echo 0)
+    failed=$(jq -r '[.queue[] | select(.status=="failed")] | length' "$queue_file" 2>/dev/null || echo 0)
+
+    local current
+    current=$(jq -r 'first(.queue[] | select(.status=="processing")) // empty
+                     | "#\(.issue_number // .id) \(.title // "")"' "$queue_file" 2>/dev/null)
+    # Strip control characters; issue titles are untrusted and would otherwise
+    # let a crafted title inject terminal escape sequences (CodeRabbit #72).
+    current=$(printf '%s' "$current" | tr -d '\000-\037')
+
+    echo -e "${CYAN}┌─ Issue Queue ───────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC} Progress:       ${WHITE}${completed}/${total}${NC} done  (${pending} pending, ${processing} active, ${failed} failed)"
+    if [[ -n "$current" ]]; then
+        # %s (not echo -e) so backslash sequences in the title are not interpreted
+        printf "${CYAN}│${NC} Current:        %s\n" "$current"
+    fi
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────────┘${NC}"
+    echo
 }
 
 # Main monitor loop

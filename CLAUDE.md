@@ -22,6 +22,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
     - One `gh issue list --limit 500` query (server-side where gh supports it; exclude-label and title matching client-side via jq); candidates sorted oldest-first. Cap-hit handling (gh returns newest-first, so a capped set may be missing the true oldest matches): WARN for server-side-only queries; hard ERROR when client-side filters are active (they could pick the wrong issue or report zero matches over a truncated set)
     - `--select first|interactive|priority` picks among multiple matches: priority understands bare `P0`–`P9` and `priority: PN` labels (ties → oldest, none → first); interactive falls back to first on non-TTY/EOF. `--dry-run` previews the match table + would-be selection without importing
   - Completeness assessment + plan generation (Issue #70): issues are scored 0–100 via `lib/issue_analyzer.sh`; below `--completeness-threshold` (default 60) an implementation plan is generated via Claude CLI (`--plan-model` passthrough) and appended to the PRD before conversion, plus saved to `.ralph/specs/implementation-plan.md`. Flags: `--generate-plan` (force), `--no-generate-plan` (fail if below threshold), `--plan-model <model>`, `--completeness-threshold <0-100>`, `--auto-approve` (skip the approval prompt; non-TTY sessions auto-accept)
+- **ralph_queue.sh** — `ralph-queue` command: batch processing and issue queue management (Issue #72). Builds a persistent queue at `.ralph/queue.json` of GitHub issues (reuses `ralph_import.sh`'s `gh` machinery: `resolve_github_issue_candidates`, `fetch_github_issue`, `format_issue_as_prd`) or local PRD specs. Subcommands: `add` (`--github-issues N,N` | filter flags | `--prd <file>`), `status [--json]`, `next`, `remove`, `clear`, `reorder`, `validate`, `process [--halt-on-failure]`, `resume`. The sequential processor stages `.ralph/` from each ready item (priority + dependency order), runs the loop via `RALPH_LOOP_CMD` (default `ralph_loop.sh`; overridable for tests), commits `Fix #N: <title>` per issue, skips failures (or halts), and writes `.ralph/logs/queue_processing.log`. Single branch, no concurrency. See [docs/QUEUE_MANAGEMENT.md](docs/QUEUE_MANAGEMENT.md)
 - **ralph_enable.sh** — interactive wizard enabling Ralph in existing projects (environment detection, task source selection, generates `.ralphrc`)
 - **ralph_enable_ci.sh** — non-interactive version for CI/automation; `--json` output mode; exit codes: 0 (success), 1 (error), 2 (already enabled)
 
@@ -37,6 +38,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **issue_analyzer.sh** — `assess_issue_completeness()`: deterministic 0–100 heuristic scoring of issue PRDs (acceptance criteria +25, checklists/code blocks/sections/keywords/length +15 each); JSON output with `confidence_score`, `completeness_level`, `missing_elements`, `recommendation`; `log_issue_analysis()` for summaries
 - **file_protection.sh** — `validate_ralph_integrity()` checks `RALPH_REQUIRED_PATHS` exist; runs every loop iteration; `get_integrity_report()` for recovery instructions
 - **log_utils.sh** — `rotate_logs()` rotates `$LOG_DIR/ralph.log` at 10MB, keeping 4 archives (`.log.1`–`.log.4`); GNU `stat -c%s` with BSD `stat -f%z` fallback
+- **queue_manager.sh** — queue state primitives backing `ralph-queue` (Issue #72). State at `.ralph/queue.json` (`{version, created_at, updated_at, repository, queue:[…]}`); entries carry `id`/`source` (`github`|`prd`)/`issue_number`/`path`/`title`/`priority`/`labels`/`milestone`/`dependencies`/`status`/timestamps. Functions: `init_queue`, `add_to_queue` (dedupe by id, fills defaults; rc 0/1/2), `remove_from_queue`, `clear_queue`, `mark_issue_status` (validates status, stamps started/completed), `get_queue_status` (counts JSON), `sort_queue_by_priority` (rank then FIFO), `get_priority_from_labels` (reuses the P0–P9 / `priority: PN` parser), `parse_issue_dependencies` (`depends on/blocked by/requires #N`), `is_dependency_satisfied`, `get_next_issue` (ready+priority+FIFO), `validate_dependencies` (jq cycle detection). All mutations are atomic temp-file+`mv` via `_queue_apply`
 
 ## Key Commands
 
@@ -79,6 +81,28 @@ ralph --reset-session            # Reset session state manually
 ralph --backup                   # (-b) Enable automatic backup before each loop
 ralph --rollback                 # List available backup branches
 ralph --rollback ralph-backup-loop-3-1775155286   # Roll back to a specific backup
+```
+
+### Batch Processing / Issue Queue (Issue #72)
+```bash
+# Build a queue (GitHub issues or local PRDs)
+ralph-queue add --github-label "bug,P0"      # filters reuse the ralph-import flags
+ralph-queue add --github-issues 69,70,71     # explicit list
+ralph-queue add --github-milestone "v1.0"
+ralph-queue add --prd ./docs/feature.md
+
+# Manage
+ralph-queue status [--json]      # also: ralph --queue-status
+ralph-queue next                 # also: ralph --queue-next
+ralph-queue reorder              # sort by priority (P0 first)
+ralph-queue validate             # detect circular dependencies
+ralph-queue remove 69            # also: ralph --queue-remove 69
+ralph-queue clear                # also: ralph --queue-clear
+
+# Process sequentially (priority + dependency order; one commit per issue)
+ralph --process-queue            # also: ralph-queue process
+ralph --process-queue --halt-on-failure
+ralph --resume-queue             # continue remaining pending items
 ```
 
 ### Monitoring
@@ -269,7 +293,7 @@ project-name/
 ## Global Installation
 
 `./install.sh` installs:
-- **Commands** → `~/.local/bin/`: `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-migrate`, `ralph-enable`, `ralph-enable-ci`, `ralph-stats`
+- **Commands** → `~/.local/bin/`: `ralph`, `ralph-monitor`, `ralph-setup`, `ralph-import`, `ralph-queue`, `ralph-migrate`, `ralph-enable`, `ralph-enable-ci`, `ralph-stats`
 - **Scripts + templates** → `~/.ralph/` (main scripts, `templates/`, `lib/`)
 
 **External dependencies**: Claude Code CLI (execution engine), tmux (integrated monitoring), git (projects must be repos), jq (JSON processing), standard Unix tools.
