@@ -48,5 +48,8 @@ target/
 # Claude Code local settings
 .claude/settings.local.json
 
+# Claude Code local memory (per-developer working notes, not source)
+.claude/memories/
+
 # Ralph backup directories (created by migration)
 .ralph_backup_*
