@@ -337,6 +337,19 @@ EOF
     [ "$(wc -l < "$TEST_DIR/loop_calls")" -eq 2 ]
 }
 
+@test "process keeps same-basename PRDs from different dirs distinct in specs/" {
+    _install_loop_mock
+    mkdir -p "$TEST_DIR/frontend" "$TEST_DIR/backend"
+    echo "# frontend spec" > "$TEST_DIR/frontend/spec.md"
+    echo "# backend spec"  > "$TEST_DIR/backend/spec.md"
+    "$RALPH_QUEUE" add --prd "$TEST_DIR/frontend/spec.md"
+    "$RALPH_QUEUE" add --prd "$TEST_DIR/backend/spec.md"
+    run "$RALPH_QUEUE" process
+    [ "$status" -eq 0 ]
+    # both PRDs land as distinct spec files (no overwrite)
+    [ "$(ls "$RALPH_DIR/specs"/*spec.md | wc -l)" -eq 2 ]
+}
+
 @test "process recovers an item orphaned in 'processing' by an interrupted run" {
     _install_gh_mock
     _install_loop_mock

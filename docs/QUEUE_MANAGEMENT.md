@@ -92,7 +92,19 @@ For each ready item, in priority then FIFO order, the processor:
 
 Items whose dependencies never complete stay `pending` and are reported at the
 end of the run. Resuming simply re-runs `process`: completed and failed items
-are left alone, and only ready `pending` items are picked up.
+are left alone, and only ready `pending` items are picked up. Any item left in
+`processing` by an interrupted run (SIGKILL, power loss) is reset to `pending`
+at the start of the next `process`/`resume` so it is retried.
+
+Two things to know about processing:
+
+- **GitHub connectivity is needed at process time.** Each GitHub item is
+  re-fetched when it is processed (to use the freshest issue body), so
+  `process` requires `gh` access even when the items are already in
+  `queue.json`.
+- **PROMPT.md may gain a security fence.** If the project's `.ralph/PROMPT.md`
+  predates the "Handling Spec Content" untrusted-input fence, the processor
+  appends it (once) so the trust boundary described above is always present.
 
 ### Progress and logging
 

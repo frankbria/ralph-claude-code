@@ -315,11 +315,16 @@ _prepare_work() {
         rm -f "$tmp"
         _ensure_loop_files "Implement GitHub issue #${num}" ".ralph/specs/issue-${num}.md"
     else
-        local path
+        local path id spec_name
         path=$(echo "$entry" | jq -r '.path')
+        id=$(echo "$entry" | jq -r '.id')
         [[ -f "$path" ]] || { log "ERROR" "PRD spec missing: $path"; return 1; }
-        cp "$path" "$RALPH_DIR/specs/$(basename "$path")"
-        _ensure_loop_files "Implement spec $(basename "$path")" ".ralph/specs/$(basename "$path")"
+        # Namespace the copied spec by the entry id so two PRDs with the same
+        # basename from different directories don't overwrite each other
+        # (claude-review #72).
+        spec_name="${id}-$(basename "$path")"
+        cp "$path" "$RALPH_DIR/specs/$spec_name"
+        _ensure_loop_files "Implement spec $(basename "$path")" ".ralph/specs/$spec_name"
     fi
 }
 
