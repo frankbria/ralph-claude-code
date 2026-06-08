@@ -23,6 +23,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
     - `--select first|interactive|priority` picks among multiple matches: priority understands bare `P0`–`P9` and `priority: PN` labels (ties → oldest, none → first); interactive falls back to first on non-TTY/EOF. `--dry-run` previews the match table + would-be selection without importing
   - Completeness assessment + plan generation (Issue #70): issues are scored 0–100 via `lib/issue_analyzer.sh`; below `--completeness-threshold` (default 60) an implementation plan is generated via Claude CLI (`--plan-model` passthrough) and appended to the PRD before conversion, plus saved to `.ralph/specs/implementation-plan.md`. Flags: `--generate-plan` (force), `--no-generate-plan` (fail if below threshold), `--plan-model <model>`, `--completeness-threshold <0-100>`, `--auto-approve` (skip the approval prompt; non-TTY sessions auto-accept)
 - **ralph_queue.sh** — `ralph-queue` command: batch processing and issue queue management (Issue #72). Builds a persistent queue at `.ralph/queue.json` of GitHub issues (reuses `ralph_import.sh`'s `gh` machinery: `resolve_github_issue_candidates`, `fetch_github_issue`, `format_issue_as_prd`) or local PRD specs. Subcommands: `add` (`--github-issues N,N` | filter flags | `--prd <file>`), `status [--json]`, `next`, `remove`, `clear`, `reorder`, `validate`, `process [--halt-on-failure]`, `resume`. The sequential processor stages `.ralph/` from each ready item (priority + dependency order), runs the loop via `RALPH_LOOP_CMD` (default `ralph_loop.sh`; overridable for tests), commits `Fix #N: <title>` per issue, skips failures (or halts), and writes `.ralph/logs/queue_processing.log`. Single branch, no concurrency. See [docs/QUEUE_MANAGEMENT.md](docs/QUEUE_MANAGEMENT.md)
+- **GitHub issue lifecycle** (Issue #73): when `ralph` is run with `--github-issue <ref>`, it tracks the issue across the loop via `lib/github_lifecycle.sh`. During development it can post progress comments every N loops (`--comment-progress`, `--comment-interval`); on graceful completion it runs a completion workflow — summary comment (`--close-summary`), PR creation linked with `Closes #N` (`--create-pr --link-issue`, optional `--draft-pr`), grouped follow-up issue from TODO/FIXME markers added during dev (`--create-followups --followup-label`), and issue close with optional labels (`--auto-close --add-label`). All steps are opt-in and degrade gracefully (a gh permission failure is logged and the loop continues). State lives in `.ralph/.github_lifecycle_state`. Uses the `gh` CLI exclusively (not raw REST/`GITHUB_TOKEN`)
 - **ralph_enable.sh** — interactive wizard enabling Ralph in existing projects (environment detection, task source selection, generates `.ralphrc`)
 - **ralph_enable_ci.sh** — non-interactive version for CI/automation; `--json` output mode; exit codes: 0 (success), 1 (error), 2 (already enabled)
 
@@ -38,6 +39,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **issue_analyzer.sh** — `assess_issue_completeness()`: deterministic 0–100 heuristic scoring of issue PRDs (acceptance criteria +25, checklists/code blocks/sections/keywords/length +15 each); JSON output with `confidence_score`, `completeness_level`, `missing_elements`, `recommendation`; `log_issue_analysis()` for summaries
 - **file_protection.sh** — `validate_ralph_integrity()` checks `RALPH_REQUIRED_PATHS` exist; runs every loop iteration; `get_integrity_report()` for recovery instructions
 - **log_utils.sh** — `rotate_logs()` rotates `$LOG_DIR/ralph.log` at 10MB, keeping 4 archives (`.log.1`–`.log.4`); GNU `stat -c%s` with BSD `stat -f%z` fallback
+- **github_lifecycle.sh** — GitHub issue lifecycle management backing `ralph --github-issue` (Issue #73). `parse_issue_reference` (N | #N | owner/repo#N | URL → number+repo); gh wrappers `gh_issue_comment`/`gh_close_issue`/`gh_add_labels`/`gh_create_pr`/`gh_create_issue` (each logs + returns non-zero on failure, never exits); state primitives `init_github_lifecycle`/`lifecycle_get`/`_lifecycle_apply` (atomic temp+`mv` at `.ralph/.github_lifecycle_state`, program-first signature like `_queue_apply`); generators `generate_progress_comment`/`generate_completion_summary`/`scan_for_todos`; orchestration `lifecycle_post_progress <loop>` (interval-gated) and `lifecycle_on_completion` (summary → PR → followups → close, each flag-guarded, always returns 0). Reuses `lib/date_utils.sh` timestamps
 - **queue_manager.sh** — queue state primitives backing `ralph-queue` (Issue #72). State at `.ralph/queue.json` (`{version, created_at, updated_at, repository, queue:[…]}`); entries carry `id`/`source` (`github`|`prd`)/`issue_number`/`path`/`title`/`priority`/`labels`/`milestone`/`dependencies`/`status`/timestamps. Functions: `init_queue`, `add_to_queue` (dedupe by id, fills defaults; rc 0/1/2), `remove_from_queue`, `clear_queue`, `mark_issue_status` (validates status, stamps started/completed), `get_queue_status` (counts JSON), `sort_queue_by_priority` (rank then FIFO), `get_priority_from_labels` (reuses the P0–P9 / `priority: PN` parser), `parse_issue_dependencies` (`depends on/blocked by/requires #N`), `is_dependency_satisfied`, `get_next_issue` (ready+priority+FIFO), `validate_dependencies` (jq cycle detection). All mutations are atomic temp-file+`mv` via `_queue_apply`
 
 ## Key Commands
@@ -82,6 +84,24 @@ ralph --backup                   # (-b) Enable automatic backup before each loop
 ralph --rollback                 # List available backup branches
 ralph --rollback ralph-backup-loop-3-1775155286   # Roll back to a specific backup
 ```
+
+### GitHub Issue Lifecycle (Issue #73)
+```bash
+# Track an issue and post progress comments every 5 loops
+ralph --github-issue 69 --comment-progress --comment-interval 5
+
+# On completion: open a PR that closes the issue, then close it with a summary
+ralph --github-issue 69 --create-pr --link-issue --close-summary --auto-close
+
+# Add labels on close and open a follow-up issue for any TODO/FIXME left behind
+ralph --github-issue owner/repo#69 --auto-close --add-label completed \
+      --create-followups --followup-label tech-debt
+
+# Draft PR for manual review before merge
+ralph --github-issue 69 --create-pr --draft-pr
+```
+All lifecycle flags are opt-in and require `--github-issue`. Each GitHub operation
+degrades gracefully — a permission failure is logged and the loop continues.
 
 ### Batch Processing / Issue Queue (Issue #72)
 ```bash
@@ -178,7 +198,7 @@ Exit requires BOTH conditions (dual-condition check prevents premature exits):
 - `MAX_CONSECUTIVE_DONE_SIGNALS=2` — repeated "done" signals from Claude
 - `MAX_CONSECUTIVE_TEST_LOOPS=3` — too many test-only iterations (feature completeness)
 - `TEST_PERCENTAGE_THRESHOLD=30%` — flag if testing dominates recent loops
-- All items in `.ralph/fix_plan.md` marked complete
+- All items in `.ralph/fix_plan.md` marked complete — but unchecked items under **optional sections** are excluded (Issue #239). `_count_blocking_unchecked()` (awk, section-aware) counts only unchecked `- [ ]` items NOT under a heading whose title matches `OPTIONAL_SECTIONS` (default `"Optional,Future,Future Enhancements,Nice to Have"`, case-insensitive, comma-separated, configurable in `.ralphrc`). Optional context persists into deeper subsections and closes at the next same-or-higher-level heading. This resolves the deadlock where Claude treats "Low Priority"/optional items as skippable while Ralph keeps looping for them. With no optional sections present, behavior is identical to the prior full-file count (backward compatible)
 
 **Startup state reset (Issue #194)**: every `ralph` invocation unconditionally resets `.exit_signals` and removes `.response_analysis` before the main loop, so stale completion signals from a prior run (crash, SIGKILL, API-limit exit) can't trigger `should_exit_gracefully()` on the first iteration. The API-limit "user chose exit" path also calls `reset_session()`.
 

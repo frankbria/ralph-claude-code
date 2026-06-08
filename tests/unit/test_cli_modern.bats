@@ -278,6 +278,31 @@ teardown() {
 }
 
 # =============================================================================
+# GITHUB ISSUE LIFECYCLE FLAGS (Issue #73)
+# =============================================================================
+
+@test "issue #73: GitHub lifecycle flags are accepted" {
+    local flags="--github-issue 42 --comment-progress --comment-interval 3 --auto-close --close-summary --create-pr --link-issue --draft-pr --create-followups --followup-label tech-debt --add-label done"
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh $flags --help 2>&1 || true"
+    [[ "$output" != *"Unknown option"* ]]
+}
+
+@test "issue #73: --comment-interval rejects non-positive values" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --comment-interval 0 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"comment-interval"* ]]
+}
+
+@test "issue #73: help text documents the lifecycle flags" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --help 2>&1 || true"
+    [[ "$output" == *"--github-issue"* ]]
+    [[ "$output" == *"--comment-progress"* ]]
+    [[ "$output" == *"--auto-close"* ]]
+    [[ "$output" == *"--create-pr"* ]]
+    [[ "$output" == *"--create-followups"* ]]
+}
+
+# =============================================================================
 # BUILD_LOOP_CONTEXT TESTS
 # =============================================================================
 

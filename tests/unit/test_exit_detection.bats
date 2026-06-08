@@ -13,6 +13,8 @@ setup() {
     export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
     export MAX_CONSECUTIVE_TEST_LOOPS=3
     export MAX_CONSECUTIVE_DONE_SIGNALS=2
+    # Issue #239: default optional sections (matches ralph_loop.sh default); tests may override
+    export OPTIONAL_SECTIONS="Optional,Future,Future Enhancements,Nice to Have"
 
     # Create temp test directory
     export TEST_TEMP_DIR="$(mktemp -d)"
@@ -26,6 +28,43 @@ setup() {
 teardown() {
     cd /
     rm -rf "$TEST_TEMP_DIR"
+}
+
+# Helper: _count_blocking_unchecked (extracted from ralph_loop.sh, Issue #239)
+# Counts unchecked "- [ ]" items that block exit, skipping items under OPTIONAL_SECTIONS.
+_count_blocking_unchecked() {
+    local file="$1"
+    [[ ! -f "$file" ]] && { printf '0'; return 0; }
+    local raw
+    raw=$(awk -v sections="${OPTIONAL_SECTIONS:-}" '
+        BEGIN {
+            n = split(sections, arr, ",")
+            for (i = 1; i <= n; i++) {
+                s = arr[i]
+                gsub(/^[ \t]+|[ \t]+$/, "", s)
+                if (s != "") opt[tolower(s)] = 1
+            }
+        }
+        /^[[:space:]]*#+[[:space:]]+/ {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            level = 0
+            while (substr(line, level + 1, 1) == "#") level++
+            title = substr(line, level + 1)
+            sub(/^[[:space:]]+/, "", title)
+            sub(/[[:space:]]+$/, "", title)
+            if (optional_active && level <= optional_level) optional_active = 0
+            if (tolower(title) in opt) { optional_active = 1; optional_level = level }
+            next
+        }
+        !optional_active && /^[[:space:]]*- \[ \]/ { count++ }
+        END { print count + 0 }
+    ' "$file" 2>/dev/null | tr -d '\r\n[:space:]' | head -c 10)
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+        printf '%d' "$raw"
+    else
+        printf '0'
+    fi
 }
 
 # Helper function: should_exit_gracefully (extracted from ralph_loop.sh)
@@ -76,11 +115,11 @@ should_exit_gracefully() {
 
     # 4. Check fix_plan.md for completion
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
+    # Issue #239: unchecked items under OPTIONAL_SECTIONS do not block exit
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
         local uncompleted_items
         local completed_items
-        uncompleted_items=$(grep -cE "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        uncompleted_items=$(echo "$uncompleted_items" | tr -d '[:space:]')
+        uncompleted_items=$(_count_blocking_unchecked "$RALPH_DIR/fix_plan.md")
         completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
         completed_items=$(echo "$completed_items" | tr -d '[:space:]')
         local total_items=$((uncompleted_items + completed_items))
@@ -182,6 +221,159 @@ EOF
 - [x] Task 1
 - [ ] Task 2
 - [ ] Task 3
+EOF
+
+    result=$(should_exit_gracefully || true)
+    assert_equal "$result" ""
+}
+
+# --- Issue #239: Optional/Future section support in fix_plan.md ---
+
+# Unchecked items under an Optional section do not block exit when required work is done
+@test "issue #239: exits when only Optional-section items remain unchecked" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## High Priority
+- [x] Core feature implementation
+
+## Optional
+- [ ] Frontend integration
+- [ ] SMS verification
+EOF
+
+    result=$(should_exit_gracefully)
+    assert_equal "$result" "plan_complete"
+}
+
+# Unchecked items under a Future section also do not block exit
+@test "issue #239: exits when only Future-section items remain unchecked" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Medium Priority
+- [x] Additional features
+
+## Future Enhancements
+- [ ] Multi-language support
+EOF
+
+    result=$(should_exit_gracefully)
+    assert_equal "$result" "plan_complete"
+}
+
+# Unchecked items in a NON-optional section still block exit (backward compatible)
+@test "issue #239: still blocks when a required section has unchecked items" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## High Priority
+- [x] Core feature
+
+## Low Priority
+- [ ] Configurable settings
+
+## Optional
+- [ ] Frontend integration
+EOF
+
+    result=$(should_exit_gracefully || true)
+    assert_equal "$result" ""
+}
+
+# Section matching is case-insensitive
+@test "issue #239: optional section match is case-insensitive" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Done
+- [x] Real work
+
+## OPTIONAL
+- [ ] Skippable extra
+EOF
+
+    result=$(should_exit_gracefully)
+    assert_equal "$result" "plan_complete"
+}
+
+# Optional context persists into deeper subsections...
+@test "issue #239: subsections under an optional section stay optional" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Core
+- [x] Implemented
+
+## Optional
+### Nice extras
+- [ ] Themeing
+- [ ] Animations
+EOF
+
+    result=$(should_exit_gracefully)
+    assert_equal "$result" "plan_complete"
+}
+
+# ...and a same-or-higher-level heading after an optional section ends optional context
+@test "issue #239: a following required section re-blocks after an optional one" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Core
+- [x] Implemented
+
+## Optional
+- [ ] Skippable
+
+## Cleanup
+- [ ] Required teardown
+EOF
+
+    result=$(should_exit_gracefully || true)
+    assert_equal "$result" ""
+}
+
+# OPTIONAL_SECTIONS is configurable; default names are NOT optional when overridden
+@test "issue #239: OPTIONAL_SECTIONS is configurable" {
+    export OPTIONAL_SECTIONS="Backlog"
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Core
+- [x] Implemented
+
+## Backlog
+- [ ] Someday item
+EOF
+
+    result=$(should_exit_gracefully)
+    assert_equal "$result" "plan_complete"
+}
+
+# With OPTIONAL_SECTIONS overridden, the default "Optional" header is no longer optional
+@test "issue #239: overriding OPTIONAL_SECTIONS drops the built-in defaults" {
+    export OPTIONAL_SECTIONS="Backlog"
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+
+## Core
+- [x] Implemented
+
+## Optional
+- [ ] Now required because defaults were overridden
+EOF
+
+    result=$(should_exit_gracefully || true)
+    assert_equal "$result" ""
+}
+
+# Backward compatibility: a plan with no optional sections behaves exactly as before
+@test "issue #239: no optional sections present preserves prior behavior" {
+    cat > "$RALPH_DIR/fix_plan.md" << 'EOF'
+# Fix Plan
+- [x] Task 1
+- [ ] Task 2
 EOF
 
     result=$(should_exit_gracefully || true)

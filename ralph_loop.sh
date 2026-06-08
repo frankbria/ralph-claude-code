@@ -16,6 +16,7 @@ source "$SCRIPT_DIR/lib/response_analyzer.sh" || { echo "FATAL: Failed to source
 source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source lib/circuit_breaker.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source lib/file_protection.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/log_utils.sh" || { echo "FATAL: Failed to source lib/log_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/github_lifecycle.sh" || { echo "FATAL: Failed to source lib/github_lifecycle.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -53,6 +54,19 @@ _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 _env_ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-}"
 _env_ENABLE_BACKUP="${ENABLE_BACKUP:-}"
 _env_LIVE_SHOW_TOOL_ARGS="${LIVE_SHOW_TOOL_ARGS:-}"
+_env_OPTIONAL_SECTIONS="${OPTIONAL_SECTIONS:-}"
+# Issue #73: GitHub issue lifecycle configuration
+_env_GITHUB_ISSUE="${GITHUB_ISSUE:-}"
+_env_COMMENT_PROGRESS="${COMMENT_PROGRESS:-}"
+_env_COMMENT_INTERVAL="${COMMENT_INTERVAL:-}"
+_env_AUTO_CLOSE="${AUTO_CLOSE:-}"
+_env_CLOSE_SUMMARY="${CLOSE_SUMMARY:-}"
+_env_CREATE_PR="${CREATE_PR:-}"
+_env_LINK_ISSUE="${LINK_ISSUE:-}"
+_env_DRAFT_PR="${DRAFT_PR:-}"
+_env_CREATE_FOLLOWUPS="${CREATE_FOLLOWUPS:-}"
+_env_FOLLOWUP_LABEL="${FOLLOWUP_LABEL:-}"
+_env_ADD_COMPLETION_LABELS="${ADD_COMPLETION_LABELS:-}"
 
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
@@ -76,6 +90,21 @@ DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making 
 ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications; set true or use --notify flag
 ENABLE_BACKUP="${ENABLE_BACKUP:-false}"               # Enable automatic git backups before each loop; set true or use --backup flag
 LIVE_SHOW_TOOL_ARGS="${LIVE_SHOW_TOOL_ARGS:-false}"  # Show tool arguments in live streaming output (file paths, commands, patterns)
+# Issue #239: comma-separated fix_plan.md section titles whose unchecked items do NOT block the
+# plan-complete exit (case-insensitive). Lets users mark truly optional/future work as non-blocking.
+OPTIONAL_SECTIONS="${OPTIONAL_SECTIONS:-Optional,Future,Future Enhancements,Nice to Have}"
+# Issue #73: GitHub issue lifecycle management (all opt-in; require --github-issue)
+GITHUB_ISSUE="${GITHUB_ISSUE:-}"                       # Issue reference: N, #N, owner/repo#N, or URL
+COMMENT_PROGRESS="${COMMENT_PROGRESS:-false}"          # Post progress comments during development
+COMMENT_INTERVAL="${COMMENT_INTERVAL:-5}"              # Post a progress comment every N loops
+AUTO_CLOSE="${AUTO_CLOSE:-false}"                      # Close the issue on graceful completion
+CLOSE_SUMMARY="${CLOSE_SUMMARY:-false}"                # Post a summary comment on completion
+CREATE_PR="${CREATE_PR:-false}"                        # Create a PR on completion
+LINK_ISSUE="${LINK_ISSUE:-false}"                      # Add "Closes #N" to the PR body
+DRAFT_PR="${DRAFT_PR:-false}"                          # Create the PR as a draft
+CREATE_FOLLOWUPS="${CREATE_FOLLOWUPS:-false}"          # Open a follow-up issue for discovered TODOs
+FOLLOWUP_LABEL="${FOLLOWUP_LABEL:-tech-debt}"          # Label applied to follow-up issues
+ADD_COMPLETION_LABELS="${ADD_COMPLETION_LABELS:-}"     # Comma-separated labels added to the issue on close
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -135,6 +164,52 @@ _safe_count() {
     fi
 }
 
+# _count_blocking_unchecked - Count unchecked "- [ ]" items that BLOCK the plan-complete exit.
+# Issue #239: unchecked items under "Optional"/"Future" sections do NOT block exit, resolving
+# the deadlock where Claude treats "Low Priority"/optional items as skippable while Ralph keeps
+# looping waiting for them. A heading marks its section optional when the heading title matches
+# (case-insensitive, trimmed) an entry in $OPTIONAL_SECTIONS (comma-separated). The optional
+# context persists into deeper subsections and closes at the next same-or-higher-level heading.
+# With no optional sections configured (or none present) this counts every unchecked item, so
+# behavior is identical to the previous full-file count (backward compatible).
+# Usage: count=$(_count_blocking_unchecked "$file")
+_count_blocking_unchecked() {
+    local file="$1"
+    [[ ! -f "$file" ]] && { printf '0'; return 0; }
+    local raw
+    raw=$(awk -v sections="${OPTIONAL_SECTIONS:-}" '
+        BEGIN {
+            n = split(sections, arr, ",")
+            for (i = 1; i <= n; i++) {
+                s = arr[i]
+                gsub(/^[ \t]+|[ \t]+$/, "", s)
+                if (s != "") opt[tolower(s)] = 1
+            }
+        }
+        # ATX heading (requires "# " — a space after the #s): track optional context by level
+        /^[[:space:]]*#+[[:space:]]+/ {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            level = 0
+            while (substr(line, level + 1, 1) == "#") level++
+            title = substr(line, level + 1)
+            sub(/^[[:space:]]+/, "", title)
+            sub(/[[:space:]]+$/, "", title)
+            if (optional_active && level <= optional_level) optional_active = 0
+            if (tolower(title) in opt) { optional_active = 1; optional_level = level }
+            next
+        }
+        # Unchecked checkbox outside any optional section blocks exit
+        !optional_active && /^[[:space:]]*- \[ \]/ { count++ }
+        END { print count + 0 }
+    ' "$file" 2>/dev/null | tr -d '\r\n[:space:]' | head -c 10)
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+        printf '%d' "$raw"
+    else
+        printf '0'
+    fi
+}
+
 # .ralphrc configuration file
 RALPHRC_FILE=".ralphrc"
 RALPHRC_LOADED=false
@@ -159,6 +234,7 @@ RALPHRC_LOADED=false
 #   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
 #   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
 #   - RALPH_SHELL_INIT_FILE (shell init file to source before running claude)
+#   - OPTIONAL_SECTIONS (fix_plan.md sections whose unchecked items don't block exit, Issue #239)
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
@@ -204,6 +280,18 @@ load_ralphrc() {
     [[ -n "$_env_ENABLE_NOTIFICATIONS" ]] && ENABLE_NOTIFICATIONS="$_env_ENABLE_NOTIFICATIONS"
     [[ -n "$_env_ENABLE_BACKUP" ]] && ENABLE_BACKUP="$_env_ENABLE_BACKUP"
     [[ -n "$_env_LIVE_SHOW_TOOL_ARGS" ]] && LIVE_SHOW_TOOL_ARGS="$_env_LIVE_SHOW_TOOL_ARGS"
+    [[ -n "$_env_OPTIONAL_SECTIONS" ]] && OPTIONAL_SECTIONS="$_env_OPTIONAL_SECTIONS"
+    [[ -n "$_env_GITHUB_ISSUE" ]] && GITHUB_ISSUE="$_env_GITHUB_ISSUE"
+    [[ -n "$_env_COMMENT_PROGRESS" ]] && COMMENT_PROGRESS="$_env_COMMENT_PROGRESS"
+    [[ -n "$_env_COMMENT_INTERVAL" ]] && COMMENT_INTERVAL="$_env_COMMENT_INTERVAL"
+    [[ -n "$_env_AUTO_CLOSE" ]] && AUTO_CLOSE="$_env_AUTO_CLOSE"
+    [[ -n "$_env_CLOSE_SUMMARY" ]] && CLOSE_SUMMARY="$_env_CLOSE_SUMMARY"
+    [[ -n "$_env_CREATE_PR" ]] && CREATE_PR="$_env_CREATE_PR"
+    [[ -n "$_env_LINK_ISSUE" ]] && LINK_ISSUE="$_env_LINK_ISSUE"
+    [[ -n "$_env_DRAFT_PR" ]] && DRAFT_PR="$_env_DRAFT_PR"
+    [[ -n "$_env_CREATE_FOLLOWUPS" ]] && CREATE_FOLLOWUPS="$_env_CREATE_FOLLOWUPS"
+    [[ -n "$_env_FOLLOWUP_LABEL" ]] && FOLLOWUP_LABEL="$_env_FOLLOWUP_LABEL"
+    [[ -n "$_env_ADD_COMPLETION_LABELS" ]] && ADD_COMPLETION_LABELS="$_env_ADD_COMPLETION_LABELS"
 
     RALPHRC_LOADED=true
     return 0
@@ -778,11 +866,13 @@ should_exit_gracefully() {
     # 5. Check fix_plan.md for completion
     # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
     # Valid patterns: "- [ ]" (uncompleted) and "- [x]" or "- [X]" (completed)
+    # Issue #239: unchecked items under OPTIONAL_SECTIONS (Optional/Future/...) do NOT block
+    # exit, so _count_blocking_unchecked is used instead of a full-file unchecked count.
     if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
         # Use _safe_count to avoid arithmetic crash on CRLF / no-match (issues #255, #251, #260)
         local uncompleted_items
         local completed_items
-        uncompleted_items=$(_safe_count "^[[:space:]]*- \[ \]" "$RALPH_DIR/fix_plan.md")
+        uncompleted_items=$(_count_blocking_unchecked "$RALPH_DIR/fix_plan.md")
         completed_items=$(_safe_count "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md")
         local total_items=$((uncompleted_items + completed_items))
 
@@ -2196,6 +2286,18 @@ main() {
     # _cli_ENABLE_BACKUP is set only when --backup / -b was explicitly passed
     [[ "${_cli_ENABLE_BACKUP:-false}" == "true" ]] && ENABLE_BACKUP=true
     [[ "${_cli_LIVE_SHOW_TOOL_ARGS:-false}" == "true" ]] && LIVE_SHOW_TOOL_ARGS=true
+    # GitHub issue lifecycle flags (Issue #73) — CLI overrides .ralphrc
+    [[ -n "${_cli_GITHUB_ISSUE:-}" ]] && GITHUB_ISSUE="$_cli_GITHUB_ISSUE"
+    [[ "${_cli_COMMENT_PROGRESS:-false}" == "true" ]] && COMMENT_PROGRESS=true
+    [[ -n "${_cli_COMMENT_INTERVAL:-}" ]] && COMMENT_INTERVAL="$_cli_COMMENT_INTERVAL"
+    [[ "${_cli_AUTO_CLOSE:-false}" == "true" ]] && AUTO_CLOSE=true
+    [[ "${_cli_CLOSE_SUMMARY:-false}" == "true" ]] && CLOSE_SUMMARY=true
+    [[ "${_cli_CREATE_PR:-false}" == "true" ]] && CREATE_PR=true
+    [[ "${_cli_LINK_ISSUE:-false}" == "true" ]] && LINK_ISSUE=true
+    [[ "${_cli_DRAFT_PR:-false}" == "true" ]] && DRAFT_PR=true
+    [[ "${_cli_CREATE_FOLLOWUPS:-false}" == "true" ]] && CREATE_FOLLOWUPS=true
+    [[ -n "${_cli_FOLLOWUP_LABEL:-}" ]] && FOLLOWUP_LABEL="$_cli_FOLLOWUP_LABEL"
+    [[ -n "${_cli_ADD_COMPLETION_LABELS:-}" ]] && ADD_COMPLETION_LABELS="$_cli_ADD_COMPLETION_LABELS"
 
     # Source user shell init file if configured (e.g. ~/.zshrc for zsh environments)
     # This allows non-bash shells or non-standard setups to export PATH/env vars
@@ -2260,6 +2362,16 @@ main() {
 
     # Initialize session tracking before entering the loop
     init_session_tracking
+
+    # Initialize GitHub issue lifecycle tracking if an issue was provided (Issue #73)
+    if [[ -n "$GITHUB_ISSUE" ]]; then
+        if init_github_lifecycle "$GITHUB_ISSUE"; then
+            log_status "INFO" "GitHub issue lifecycle enabled for: $GITHUB_ISSUE"
+        else
+            log_status "WARN" "Disabling GitHub issue lifecycle (invalid reference): $GITHUB_ISSUE"
+            GITHUB_ISSUE=""
+        fi
+    fi
 
     # Reset exit signals to prevent stale state from prior run causing premature exit (Issue #194)
     # This is unconditional: regardless of how the previous run ended (crash, SIGKILL, API limit exit),
@@ -2365,6 +2477,12 @@ main() {
             log_status "INFO" "  - Exit reason: $exit_reason"
             print_metrics_summary
 
+            # GitHub issue lifecycle completion workflow (Issue #73): summary, PR,
+            # follow-ups, close. Each step is opt-in and degrades gracefully.
+            if [[ -n "$GITHUB_ISSUE" ]]; then
+                lifecycle_on_completion
+            fi
+
             break
         fi
         
@@ -2399,6 +2517,11 @@ main() {
         if [ $exec_result -eq 0 ]; then
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "completed" "success"
             send_notification "Ralph - Loop Complete" "Loop #$loop_count completed successfully"
+
+            # Post a GitHub progress comment every COMMENT_INTERVAL loops (Issue #73)
+            if [[ -n "$GITHUB_ISSUE" ]]; then
+                lifecycle_post_progress "$loop_count"
+            fi
 
             # Brief pause between successful executions
             sleep 5
@@ -2498,6 +2621,19 @@ Batch processing / issue queue (Issue #72; see 'ralph-queue --help'):
     --queue-next            Print the id of the next ready queued issue
     --queue-clear           Remove all items from the queue
     --queue-remove <id|N>   Remove one item from the queue by id or issue number
+
+GitHub issue lifecycle (Issue #73; all opt-in, require --github-issue):
+    --github-issue REF      Track a GitHub issue (N, #N, owner/repo#N, or URL)
+    --comment-progress      Post progress comments to the issue during development
+    --comment-interval NUM  Post a progress comment every NUM loops (default: $COMMENT_INTERVAL)
+    --auto-close            Close the issue on graceful completion
+    --close-summary         Post a summary comment on completion
+    --create-pr             Create a pull request on completion
+    --link-issue            Add "Closes #N" to the PR body (with --create-pr)
+    --draft-pr              Create the PR as a draft (with --create-pr)
+    --create-followups      Open a follow-up issue for TODO/FIXME markers added during dev
+    --followup-label LABEL  Label for follow-up issues (default: $FOLLOWUP_LABEL)
+    --add-label LABEL       Label to add to the issue on close (repeatable)
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2659,6 +2795,72 @@ while [[ $# -gt 0 ]]; do
             source "$SCRIPT_DIR/lib/date_utils.sh"
             rollback_to_backup "${2:-}"
             exit $?
+            ;;
+        --github-issue)
+            # GitHub issue lifecycle management (Issue #73)
+            GITHUB_ISSUE="$2"
+            _cli_GITHUB_ISSUE="$2"
+            shift 2
+            ;;
+        --comment-progress)
+            COMMENT_PROGRESS=true
+            _cli_COMMENT_PROGRESS=true
+            shift
+            ;;
+        --comment-interval)
+            if [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+                COMMENT_INTERVAL="$2"
+                _cli_COMMENT_INTERVAL="$2"
+            else
+                echo "Error: --comment-interval must be a positive integer"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --auto-close)
+            AUTO_CLOSE=true
+            _cli_AUTO_CLOSE=true
+            shift
+            ;;
+        --close-summary)
+            CLOSE_SUMMARY=true
+            _cli_CLOSE_SUMMARY=true
+            shift
+            ;;
+        --create-pr)
+            CREATE_PR=true
+            _cli_CREATE_PR=true
+            shift
+            ;;
+        --link-issue)
+            LINK_ISSUE=true
+            _cli_LINK_ISSUE=true
+            shift
+            ;;
+        --draft-pr)
+            DRAFT_PR=true
+            _cli_DRAFT_PR=true
+            shift
+            ;;
+        --create-followups)
+            CREATE_FOLLOWUPS=true
+            _cli_CREATE_FOLLOWUPS=true
+            shift
+            ;;
+        --followup-label)
+            FOLLOWUP_LABEL="$2"
+            _cli_FOLLOWUP_LABEL="$2"
+            shift 2
+            ;;
+        --add-label)
+            # Repeatable: accumulate into a comma-separated list
+            if [[ -n "$ADD_COMPLETION_LABELS" ]]; then
+                ADD_COMPLETION_LABELS="${ADD_COMPLETION_LABELS},$2"
+            else
+                ADD_COMPLETION_LABELS="$2"
+            fi
+            _cli_ADD_COMPLETION_LABELS="$ADD_COMPLETION_LABELS"
+            shift 2
             ;;
         --queue-status)
             # Batch processing / issue queue management (Issue #72)
