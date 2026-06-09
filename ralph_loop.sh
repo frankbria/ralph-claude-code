@@ -1664,7 +1664,6 @@ rollback_to_backup() {
     return 0
 }
 
-# Main execution function
 # wrap_claude_command_for_sandbox - Route CLAUDE_CMD_ARGS through the sandbox (Issue #74)
 #
 # Replaces the global CLAUDE_CMD_ARGS array with its `docker exec` wrapping so
@@ -1680,6 +1679,7 @@ wrap_claude_command_for_sandbox() {
     return 0
 }
 
+# Main execution function
 execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/claude_output_${timestamp}.log"
