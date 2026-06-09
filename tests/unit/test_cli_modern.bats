@@ -1991,3 +1991,71 @@ EOF
     [[ "${CLAUDE_CMD_ARGS[*]}" != *"--model"* ]]
     [[ "${CLAUDE_CMD_ARGS[*]}" != *"--effort"* ]]
 }
+
+# ==============================================================================
+# Issue #74: --sandbox docker CLI flags
+# ==============================================================================
+
+@test "issue #74: --sandbox docker is accepted" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox docker --help 2>&1 || true"
+    [[ "$output" != *"Unknown option"* ]]
+    [[ "$output" != *"Error"* ]]
+}
+
+@test "issue #74: --sandbox e2b is rejected as not yet implemented" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"not yet implemented"* ]]
+}
+
+@test "issue #74: --sandbox rejects unknown providers" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox podman 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"docker"* ]]
+}
+
+@test "issue #74: sandbox sub-flags are accepted alongside --sandbox docker" {
+    local flags="--sandbox docker --sandbox-image node:20 --sandbox-memory 2g --sandbox-cpus 1.5 --sandbox-network none"
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh $flags --help 2>&1 || true"
+    [[ "$output" != *"Unknown option"* ]]
+    [[ "$output" != *"Error"* ]]
+}
+
+@test "issue #74: --sandbox-image rejects shell metacharacters" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox docker --sandbox-image 'evil;rm -rf /' 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"image"* ]]
+}
+
+@test "issue #74: --sandbox-memory rejects malformed values" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox docker --sandbox-memory lots 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"memory"* ]]
+}
+
+@test "issue #74: --sandbox-cpus rejects non-numeric values" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox docker --sandbox-cpus two 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"cpus"* ]]
+}
+
+@test "issue #74: --sandbox-network rejects unknown modes" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox docker --sandbox-network vpn 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"network"* ]]
+}
+
+@test "issue #74: sandbox sub-flag without --sandbox errors at startup" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --sandbox-image node:20
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--sandbox"* ]]
+}
+
+@test "issue #74: help text documents the sandbox flags" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --help 2>&1 || true"
+    [[ "$output" == *"--sandbox PROVIDER"* ]]
+    [[ "$output" == *"--sandbox-image"* ]]
+    [[ "$output" == *"--sandbox-memory"* ]]
+    [[ "$output" == *"--sandbox-cpus"* ]]
+    [[ "$output" == *"--sandbox-network"* ]]
+}

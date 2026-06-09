@@ -158,6 +158,14 @@ setup_tmux_session() {
         [[ "${FOLLOWUP_LABEL:-tech-debt}" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
         [[ -n "${ADD_COMPLETION_LABELS:-}" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
     fi
+    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them
+    if [[ -n "${SANDBOX_PROVIDER:-}" ]]; then
+        ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
+        [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
+        [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
+        [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
+        [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
+    fi
 
     tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
@@ -490,6 +498,38 @@ assert_tmux_called_with() {
     pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" != *"--github-issue"* ]]
     [[ "$pane0_line" != *"--auto-close"* ]]
+}
+
+# ==============================================================================
+# Issue #74: --monitor forwards Docker sandbox flags to the loop command
+# ==============================================================================
+
+@test "setup_tmux_session forwards sandbox flags to loop command" {
+    export SANDBOX_PROVIDER=docker
+    export SANDBOX_DOCKER_IMAGE="node:20"
+    export SANDBOX_DOCKER_MEMORY="2g"
+    export SANDBOX_DOCKER_CPUS="1.5"
+    export SANDBOX_DOCKER_NETWORK="none"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--sandbox docker"* ]]
+    [[ "$pane0_line" == *"--sandbox-image 'node:20'"* ]]
+    [[ "$pane0_line" == *"--sandbox-memory 2g"* ]]
+    [[ "$pane0_line" == *"--sandbox-cpus 1.5"* ]]
+    [[ "$pane0_line" == *"--sandbox-network none"* ]]
+}
+
+@test "setup_tmux_session omits sandbox flags when sandbox disabled" {
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" != *"--sandbox"* ]]
 }
 
 # ==============================================================================
