@@ -40,6 +40,7 @@ Ralph for Claude Code — an autonomous AI development loop system enabling cont
 - **file_protection.sh** — `validate_ralph_integrity()` checks `RALPH_REQUIRED_PATHS` exist; runs every loop iteration; `get_integrity_report()` for recovery instructions
 - **log_utils.sh** — `rotate_logs()` rotates `$LOG_DIR/ralph.log` at 10MB, keeping 4 archives (`.log.1`–`.log.4`); GNU `stat -c%s` with BSD `stat -f%z` fallback
 - **github_lifecycle.sh** — GitHub issue lifecycle management backing `ralph --github-issue` (Issue #73). `parse_issue_reference` (N | #N | owner/repo#N | URL → number+repo); gh wrappers `gh_issue_comment`/`gh_close_issue`/`gh_add_labels`/`gh_create_pr`/`gh_create_issue` (each logs + returns non-zero on failure, never exits); state primitives `init_github_lifecycle`/`lifecycle_get`/`_lifecycle_apply` (atomic temp+`mv` at `.ralph/.github_lifecycle_state`, program-first signature like `_queue_apply`); generators `generate_progress_comment`/`generate_completion_summary`/`scan_for_todos`; orchestration `lifecycle_post_progress <loop>` (interval-gated) and `lifecycle_on_completion` (summary → PR → followups → close, each flag-guarded, always returns 0). Reuses `lib/date_utils.sh` timestamps
+- **sandbox_docker.sh** — Docker sandbox execution backing `ralph --sandbox docker` (Issue #74). Containerizes only the Claude CLI execution: one persistent container per run (`docker run -d … sleep infinity`, project bind-mounted rw at `/workspace`), each iteration wrapped as `docker exec -i -w /workspace <cid> claude …` via `build_sandbox_exec_args`/`wrap_claude_command_for_sandbox` (works in live and background modes); ralph orchestration, analysis, and status.json stay host-side so ralph-monitor is unaffected. `validate_sandbox_config` (image/memory/cpus/network), `init_docker_sandbox` (daemon + image checks with build/pull guidance), `setup_docker_credentials` (ANTHROPIC_API_KEY → 0600 env-file via `--env-file`, else host `~/.claude/.credentials.json` copied into a container-scoped home — never `docker secret`, which needs Swarm), `handle_sandbox_timeout` (exit 124 kills only the docker-exec client → `docker restart` reaps orphans), idempotent `cleanup_docker_sandbox` on all exit paths. State: `.ralph/.docker_sandbox_state` (atomic temp+`mv`). Setup failure is fatal — never falls back to host execution. Config: `SANDBOX_PROVIDER`, `SANDBOX_DOCKER_IMAGE/MEMORY/CPUS/NETWORK` (env > CLI > .ralphrc); sandbox `_env_*` capture sits BEFORE the lib source block in ralph_loop.sh because the lib sets defaults at source time. Default image built locally from the repo `Dockerfile` (`docker build -t ralph-sandbox .`; install.sh copies it to `~/.ralph`)
 - **queue_manager.sh** — queue state primitives backing `ralph-queue` (Issue #72). State at `.ralph/queue.json` (`{version, created_at, updated_at, repository, queue:[…]}`); entries carry `id`/`source` (`github`|`prd`)/`issue_number`/`path`/`title`/`priority`/`labels`/`milestone`/`dependencies`/`status`/timestamps. Functions: `init_queue`, `add_to_queue` (dedupe by id, fills defaults; rc 0/1/2), `remove_from_queue`, `clear_queue`, `mark_issue_status` (validates status, stamps started/completed), `get_queue_status` (counts JSON), `sort_queue_by_priority` (rank then FIFO), `get_priority_from_labels` (reuses the P0–P9 / `priority: PN` parser), `parse_issue_dependencies` (`depends on/blocked by/requires #N`), `is_dependency_satisfied`, `get_next_issue` (ready+priority+FIFO), `validate_dependencies` (jq cycle detection). All mutations are atomic temp-file+`mv` via `_queue_apply`
 
 ## Key Commands
@@ -124,6 +125,17 @@ ralph --process-queue            # also: ralph-queue process
 ralph --process-queue --halt-on-failure
 ralph --resume-queue             # continue remaining pending items
 ```
+
+### Docker Sandbox Execution (Issue #74)
+```bash
+docker build -t ralph-sandbox .          # One time: build the default image (or ~/.ralph post-install)
+
+ralph --sandbox docker                   # Run Claude in an isolated container
+ralph --sandbox docker --sandbox-image node:20 --sandbox-memory 8g --sandbox-cpus 4
+ralph --sandbox docker --sandbox-network none   # Full isolation (blocks Claude API — special images only)
+ralph --monitor --sandbox docker         # Flags forwarded through tmux
+```
+Providers e2b/daytona/cloudflare are rejected with "not yet implemented" (#75/#79/#80). Sub-flags require a provider. See [docs/DOCKER_SANDBOX.md](docs/DOCKER_SANDBOX.md).
 
 ### Monitoring
 ```bash

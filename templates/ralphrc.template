@@ -114,3 +114,16 @@ RALPH_VERBOSE=false
 
 # Custom agent file (relative to .ralph/)
 # AGENT_FILE="@AGENT.md"
+
+# =============================================================================
+# DOCKER SANDBOX EXECUTION (optional, Issue #74)
+# =============================================================================
+
+# Run Claude Code inside an isolated Docker container instead of on the host.
+# Build the default image first: docker build -t ralph-sandbox ~/.ralph
+# CLI flags (--sandbox, --sandbox-image, ...) override these values.
+# SANDBOX_PROVIDER="docker"
+# SANDBOX_DOCKER_IMAGE="ralph-sandbox:latest"
+# SANDBOX_DOCKER_MEMORY="4g"
+# SANDBOX_DOCKER_CPUS="2"
+# SANDBOX_DOCKER_NETWORK="bridge"   # none | bridge | host ('none' blocks the Claude API)
