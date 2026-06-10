@@ -44,7 +44,7 @@ case "\$1" in
     info) exit 0 ;;
     image) exit 0 ;;
     run) echo "abc123containerid"; exit 0 ;;
-    inspect) echo "running"; exit 0 ;;
+    inspect) echo "true"; exit 0 ;;   # docker inspect -f '{{.State.Running}}'
 esac
 exit 0
 EOF
