@@ -345,16 +345,16 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
 
 @test "setup_docker_credentials: writes 600 env-file from ANTHROPIC_API_KEY" {
     _mock_docker ok
-    export ANTHROPIC_API_KEY="sk-ant-secret123"
+    export ANTHROPIC_API_KEY="sk-ant-test-placeholder"
     setup_docker_credentials
     [[ -f "$SANDBOX_ENV_FILE" ]]
     assert_equal "$(stat -c %a "$SANDBOX_ENV_FILE" 2>/dev/null || stat -f %Lp "$SANDBOX_ENV_FILE")" "600"
-    grep -q "ANTHROPIC_API_KEY=sk-ant-secret123" "$SANDBOX_ENV_FILE"
+    grep -q "ANTHROPIC_API_KEY=sk-ant-test-placeholder" "$SANDBOX_ENV_FILE"
 }
 
 @test "setup_docker_credentials: env-file is passed to docker run" {
     _mock_docker ok
-    export ANTHROPIC_API_KEY="sk-ant-secret123"
+    export ANTHROPIC_API_KEY="sk-ant-test-placeholder"
     init_docker_sandbox
     setup_docker_credentials
     start_sandbox_container
@@ -365,16 +365,16 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
 
 @test "setup_docker_credentials: never logs the API key value" {
     _mock_docker ok
-    export ANTHROPIC_API_KEY="sk-ant-secret123"
+    export ANTHROPIC_API_KEY="sk-ant-test-placeholder"
     run setup_docker_credentials
     assert_success
-    [[ "$output" != *"sk-ant-secret123"* ]]
+    [[ "$output" != *"sk-ant-test-placeholder"* ]]
 }
 
 @test "setup_docker_credentials: seeds container claude home from host credentials" {
     _mock_docker ok
     mkdir -p "$HOME/.claude"
-    echo '{"token":"oauth-secret"}' > "$HOME/.claude/.credentials.json"
+    echo '{"token":"test-placeholder-token"}' > "$HOME/.claude/.credentials.json"
     setup_docker_credentials
     [[ -f "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json" ]]
     assert_equal "$(stat -c %a "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json" 2>/dev/null || stat -f %Lp "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json")" "600"
@@ -383,7 +383,7 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
 @test "setup_docker_credentials: claude home is mounted with HOME override" {
     _mock_docker ok
     mkdir -p "$HOME/.claude"
-    echo '{"token":"oauth-secret"}' > "$HOME/.claude/.credentials.json"
+    echo '{"token":"test-placeholder-token"}' > "$HOME/.claude/.credentials.json"
     init_docker_sandbox
     setup_docker_credentials
     start_sandbox_container
@@ -518,9 +518,9 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
 
 @test "cleanup_docker_sandbox: removes container, env-file, and claude home" {
     _mock_docker ok
-    export ANTHROPIC_API_KEY="sk-ant-secret123"
+    export ANTHROPIC_API_KEY="sk-ant-test-placeholder"
     mkdir -p "$HOME/.claude"
-    echo '{"token":"oauth-secret"}' > "$HOME/.claude/.credentials.json"
+    echo '{"token":"test-placeholder-token"}' > "$HOME/.claude/.credentials.json"
     init_docker_sandbox
     setup_docker_credentials
     start_sandbox_container
