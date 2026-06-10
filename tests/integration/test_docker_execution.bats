@@ -91,6 +91,21 @@ _source_ralph() {
     [[ "${CLAUDE_CMD_ARGS[${#CLAUDE_CMD_ARGS[@]}-1]}" == "multi word prompt with 'quotes'" ]]
 }
 
+@test "wrap_claude_command_for_sandbox rewrites host-specific claude paths to the container CLI" {
+    _mock_docker
+    export SANDBOX_PROVIDER=docker
+    _source_ralph
+    init_docker_sandbox
+    start_sandbox_container
+
+    # A host-only path (or npx wrapper) does not exist inside the image
+    CLAUDE_CMD_ARGS=(/opt/homebrew/bin/claude --output-format json -p "hi")
+    wrap_claude_command_for_sandbox
+
+    [[ "${CLAUDE_CMD_ARGS[*]}" != *"/opt/homebrew"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"abc123containerid claude --output-format json"* ]]
+}
+
 @test "wrap_claude_command_for_sandbox fails without a running container" {
     _mock_docker
     export SANDBOX_PROVIDER=docker

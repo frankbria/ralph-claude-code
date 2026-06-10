@@ -539,14 +539,15 @@ setup_tmux_session() {
         [[ "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
         [[ -n "$ADD_COMPLETION_LABELS" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
     fi
-    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them
-    if [[ -n "${SANDBOX_PROVIDER:-}" ]]; then
-        ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
-        [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
-        [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
-        [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
-        [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
-    fi
+    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them.
+    # Sub-flags forward independently of the provider: this runs BEFORE main()
+    # loads .ralphrc, which may be what supplies SANDBOX_PROVIDER — the child
+    # re-validates the sub-flag/provider pairing at its own startup.
+    [[ -n "${SANDBOX_PROVIDER:-}" ]] && ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
+    [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
+    [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
+    [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
+    [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,
@@ -1678,7 +1679,12 @@ wrap_claude_command_for_sandbox() {
     if ! ensure_sandbox_container; then
         return 1
     fi
-    if ! build_sandbox_exec_args "${CLAUDE_CMD_ARGS[@]}"; then
+    # Inside the container the CLI is always `claude` on PATH. Host-specific
+    # CLAUDE_CODE_CMD values (absolute paths like /opt/homebrew/bin/claude,
+    # npx wrappers) don't exist in the image, so argv[0] is rewritten.
+    local -a container_cmd=("${CLAUDE_CMD_ARGS[@]}")
+    container_cmd[0]="claude"
+    if ! build_sandbox_exec_args "${container_cmd[@]}"; then
         return 1
     fi
     CLAUDE_CMD_ARGS=("${SANDBOX_EXEC_ARGS[@]}")

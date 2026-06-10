@@ -158,14 +158,15 @@ setup_tmux_session() {
         [[ "${FOLLOWUP_LABEL:-tech-debt}" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
         [[ -n "${ADD_COMPLETION_LABELS:-}" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
     fi
-    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them
-    if [[ -n "${SANDBOX_PROVIDER:-}" ]]; then
-        ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
-        [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
-        [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
-        [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
-        [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
-    fi
+    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them.
+    # Sub-flags forward independently of the provider: this runs BEFORE main()
+    # loads .ralphrc, which may be what supplies SANDBOX_PROVIDER — the child
+    # re-validates the sub-flag/provider pairing at its own startup.
+    [[ -n "${SANDBOX_PROVIDER:-}" ]] && ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
+    [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
+    [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
+    [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
+    [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
 
     tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
@@ -530,6 +531,21 @@ assert_tmux_called_with() {
     local pane0_line
     pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" != *"--sandbox"* ]]
+}
+
+@test "setup_tmux_session forwards sandbox sub-flags even when provider comes from .ralphrc" {
+    # setup_tmux_session runs before main() loads .ralphrc — a CLI sub-flag
+    # override must survive into the child even though SANDBOX_PROVIDER is
+    # not yet set in this process (the child reads it from .ralphrc)
+    export SANDBOX_DOCKER_IMAGE="node:20"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--sandbox-image 'node:20'"* ]]
+    [[ "$pane0_line" != *"--sandbox docker"* ]]
 }
 
 # ==============================================================================
