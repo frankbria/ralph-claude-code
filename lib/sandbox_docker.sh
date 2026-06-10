@@ -286,8 +286,10 @@ start_sandbox_container() {
     # Capture stderr separately: a successful `docker run -d` can still emit
     # warnings (e.g. "kernel does not support swap limit capabilities"), and
     # merging them into stdout would corrupt the recorded container id.
+    # (mkdir: start can be called without setup_docker_credentials — tests do)
+    mkdir -p "$SANDBOX_RUNTIME_DIR" && chmod 700 "$SANDBOX_RUNTIME_DIR"
     local container_id run_stderr
-    run_stderr=$(mktemp) || return 1
+    run_stderr=$(mktemp "$SANDBOX_RUNTIME_DIR/docker-run-stderr.XXXXXX") || return 1
     if ! container_id=$(docker "${run_args[@]}" 2>"$run_stderr"); then
         _sandbox_log "ERROR" "Failed to start sandbox container: $(cat "$run_stderr" 2>/dev/null)"
         rm -f "$run_stderr"
