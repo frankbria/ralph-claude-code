@@ -95,6 +95,14 @@ check_dependencies() {
         log "WARN" "tmux not found. Install for integrated monitoring: apt-get install tmux / brew install tmux"
     fi
 
+    # Check Docker (optional — only needed for `ralph --sandbox docker`, Issue #74)
+    if command -v docker &> /dev/null; then
+        log "INFO" "Docker found — sandbox execution available (ralph --sandbox docker)"
+        log "INFO" "  Build the default sandbox image: docker build -t ralph-sandbox \$RALPH_HOME"
+    else
+        log "INFO" "Docker not found (optional). Install it to use sandboxed execution: ralph --sandbox docker"
+    fi
+
     log "SUCCESS" "Dependencies check completed"
 }
 
@@ -121,6 +129,11 @@ install_scripts() {
 
     # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh)
     cp -r "$SCRIPT_DIR/lib/"* "$RALPH_HOME/lib/"
+
+    # Copy the sandbox image build context (Issue #74) so installed users can
+    # build the default image: docker build -t ralph-sandbox $RALPH_HOME
+    cp "$SCRIPT_DIR/Dockerfile" "$RALPH_HOME/Dockerfile" 2>/dev/null || true
+    cp "$SCRIPT_DIR/.dockerignore" "$RALPH_HOME/.dockerignore" 2>/dev/null || true
     
     # Create the main ralph command
     cat > "$INSTALL_DIR/ralph" << 'EOF'

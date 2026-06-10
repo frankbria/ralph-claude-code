@@ -154,6 +154,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **CI/CD Integration** - GitHub Actions workflow with automated testing
 - **Clean Uninstall** - Dedicated uninstall script for complete removal
 - **Live Streaming Output** - Real-time visibility into Claude Code execution with `--live` flag
+- **Docker Sandbox Execution** - Run Claude Code in an isolated container with `--sandbox docker` (resource limits, network policy, secure credential handoff)
 
 ## Quick Start
 
@@ -597,6 +598,38 @@ For each ready item the processor stages the project from the issue/spec, runs t
 Concurrent (parallel) processing is intentionally out of scope — items are processed one at a time on a single branch.
 - **"Could not fetch issue #N"** — check the issue number, your repo access, and the `--repo` value
 - **"No issues match the specified filters"** — relax or remove some filters; only open issues are matched unless `--github-state closed|all` is given. `--dry-run` shows what a filter set matches.
+
+## Docker Sandbox Execution
+
+Run Claude Code inside an isolated Docker container instead of directly on your machine (Issue #74). Ralph's loop, rate limiting, and monitoring stay on the host; only Claude's execution — the part that edits files and runs commands autonomously — is containerized. The project directory is bind-mounted read-write at `/workspace`, so changes land on the host directly and `ralph-monitor` works unchanged.
+
+### Setup
+
+```bash
+# One time: build the default sandbox image (from a source checkout, or ~/.ralph after install)
+docker build -t ralph-sandbox .
+```
+
+### Usage
+
+```bash
+ralph --sandbox docker                          # Default image, 4g RAM, 2 CPUs, bridge network
+ralph --sandbox docker --sandbox-image node:20  # Any image with `claude` on PATH
+ralph --sandbox docker --sandbox-memory 8g --sandbox-cpus 4
+ralph --sandbox docker --sandbox-network none   # Full network isolation (blocks the Claude API —
+                                                # only for images with their own auth/proxy setup)
+ralph --monitor --sandbox docker                # Works with tmux monitoring
+```
+
+Equivalent `.ralphrc` settings: `SANDBOX_PROVIDER`, `SANDBOX_DOCKER_IMAGE`, `SANDBOX_DOCKER_MEMORY`, `SANDBOX_DOCKER_CPUS`, `SANDBOX_DOCKER_NETWORK` (CLI flags override).
+
+### How credentials reach the container
+
+- `ANTHROPIC_API_KEY` set → handed off via a `0600` env-file passed to `docker run --env-file` (never logged)
+- Otherwise, your `~/.claude/.credentials.json` is **copied** into a container-scoped directory mounted as the container's home — the container never touches your real `~/.claude`
+- Both are removed by the automatic cleanup on exit (including Ctrl+C)
+
+A persistent container serves all loop iterations (Claude session state survives between loops); it is stopped and removed when the loop exits. If sandbox setup fails, Ralph refuses to fall back to host execution. E2B, Daytona, and Cloudflare cloud sandboxes are planned (#75, #79, #80). See [docs/DOCKER_SANDBOX.md](docs/DOCKER_SANDBOX.md) for details.
 
 ## Configuration
 

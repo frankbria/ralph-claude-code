@@ -8,6 +8,16 @@
 # via --allowedTools flag in CLAUDE_CMD_ARGS, which is the proper approach.
 # Exporting sandbox variables without a verified sandbox would be misleading.
 
+# Issue #74: capture sandbox environment state BEFORE sourcing the libraries —
+# lib/sandbox_docker.sh sets defaults for these at source time, so capturing
+# after (like the main _env_* block below) would treat lib defaults as
+# user-provided environment values and break .ralphrc overrides.
+_env_SANDBOX_PROVIDER="${SANDBOX_PROVIDER:-}"
+_env_SANDBOX_DOCKER_IMAGE="${SANDBOX_DOCKER_IMAGE:-}"
+_env_SANDBOX_DOCKER_MEMORY="${SANDBOX_DOCKER_MEMORY:-}"
+_env_SANDBOX_DOCKER_CPUS="${SANDBOX_DOCKER_CPUS:-}"
+_env_SANDBOX_DOCKER_NETWORK="${SANDBOX_DOCKER_NETWORK:-}"
+
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh" || { echo "FATAL: Failed to source lib/date_utils.sh" >&2; exit 1; }
@@ -17,6 +27,7 @@ source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source l
 source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source lib/file_protection.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/log_utils.sh" || { echo "FATAL: Failed to source lib/log_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/github_lifecycle.sh" || { echo "FATAL: Failed to source lib/github_lifecycle.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/sandbox_docker.sh" || { echo "FATAL: Failed to source lib/sandbox_docker.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -105,6 +116,13 @@ DRAFT_PR="${DRAFT_PR:-false}"                          # Create the PR as a draf
 CREATE_FOLLOWUPS="${CREATE_FOLLOWUPS:-false}"          # Open a follow-up issue for discovered TODOs
 FOLLOWUP_LABEL="${FOLLOWUP_LABEL:-tech-debt}"          # Label applied to follow-up issues
 ADD_COMPLETION_LABELS="${ADD_COMPLETION_LABELS:-}"     # Comma-separated labels added to the issue on close
+# Issue #74: Docker sandbox execution (lib/sandbox_docker.sh sets the same
+# defaults at source time; repeated here so the configuration surface is visible)
+SANDBOX_PROVIDER="${SANDBOX_PROVIDER:-}"                          # "" = host execution; "docker" = sandboxed
+SANDBOX_DOCKER_IMAGE="${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}"  # Container image for sandboxed execution
+SANDBOX_DOCKER_MEMORY="${SANDBOX_DOCKER_MEMORY:-4g}"              # Container memory limit
+SANDBOX_DOCKER_CPUS="${SANDBOX_DOCKER_CPUS:-2}"                   # Container CPU limit
+SANDBOX_DOCKER_NETWORK="${SANDBOX_DOCKER_NETWORK:-bridge}"        # none | bridge | host (bridge: Claude API reachable)
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -292,6 +310,11 @@ load_ralphrc() {
     [[ -n "$_env_CREATE_FOLLOWUPS" ]] && CREATE_FOLLOWUPS="$_env_CREATE_FOLLOWUPS"
     [[ -n "$_env_FOLLOWUP_LABEL" ]] && FOLLOWUP_LABEL="$_env_FOLLOWUP_LABEL"
     [[ -n "$_env_ADD_COMPLETION_LABELS" ]] && ADD_COMPLETION_LABELS="$_env_ADD_COMPLETION_LABELS"
+    [[ -n "$_env_SANDBOX_PROVIDER" ]] && SANDBOX_PROVIDER="$_env_SANDBOX_PROVIDER"
+    [[ -n "$_env_SANDBOX_DOCKER_IMAGE" ]] && SANDBOX_DOCKER_IMAGE="$_env_SANDBOX_DOCKER_IMAGE"
+    [[ -n "$_env_SANDBOX_DOCKER_MEMORY" ]] && SANDBOX_DOCKER_MEMORY="$_env_SANDBOX_DOCKER_MEMORY"
+    [[ -n "$_env_SANDBOX_DOCKER_CPUS" ]] && SANDBOX_DOCKER_CPUS="$_env_SANDBOX_DOCKER_CPUS"
+    [[ -n "$_env_SANDBOX_DOCKER_NETWORK" ]] && SANDBOX_DOCKER_NETWORK="$_env_SANDBOX_DOCKER_NETWORK"
 
     RALPHRC_LOADED=true
     return 0
@@ -516,6 +539,15 @@ setup_tmux_session() {
         [[ "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
         [[ -n "$ADD_COMPLETION_LABELS" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
     fi
+    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them.
+    # Sub-flags forward independently of the provider: this runs BEFORE main()
+    # loads .ralphrc, which may be what supplies SANDBOX_PROVIDER — the child
+    # re-validates the sub-flag/provider pairing at its own startup.
+    [[ -n "${SANDBOX_PROVIDER:-}" ]] && ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
+    [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
+    [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
+    [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
+    [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,
@@ -612,6 +644,12 @@ update_status() {
     
     local tokens_used
     tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+    # Issue #74: surface sandbox state for ralph-monitor (read before the
+    # heredoc per the project convention — no lazy $() inside cat >)
+    local sandbox_json='{"provider": "none"}'
+    if [[ -n "${SANDBOX_PROVIDER:-}" ]] && declare -F get_sandbox_status >/dev/null 2>&1; then
+        sandbox_json=$(get_sandbox_status)
+    fi
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
@@ -623,6 +661,7 @@ update_status() {
     "last_action": "$last_action",
     "status": "$status",
     "exit_reason": "$exit_reason",
+    "sandbox": $sandbox_json,
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
@@ -1626,6 +1665,32 @@ rollback_to_backup() {
     return 0
 }
 
+# wrap_claude_command_for_sandbox - Route CLAUDE_CMD_ARGS through the sandbox (Issue #74)
+#
+# Replaces the global CLAUDE_CMD_ARGS array with its `docker exec` wrapping so
+# the Claude CLI runs inside the persistent sandbox container. The array-in/
+# array-out shape keeps both execution paths (live stream-json pipeline and
+# background mode) working unchanged. Returns 1 when no container is running —
+# callers must treat that as fatal rather than falling back to host execution.
+wrap_claude_command_for_sandbox() {
+    # Liveness + recovery first: the container can die between iterations
+    # (OOM kill under --memory, daemon restart) and exec against a dead
+    # container would burn loops until the circuit breaker opens.
+    if ! ensure_sandbox_container; then
+        return 1
+    fi
+    # Inside the container the CLI is always `claude` on PATH. Host-specific
+    # CLAUDE_CODE_CMD values (absolute paths like /opt/homebrew/bin/claude,
+    # npx wrappers) don't exist in the image, so argv[0] is rewritten.
+    local -a container_cmd=("${CLAUDE_CMD_ARGS[@]}")
+    container_cmd[0]="claude"
+    if ! build_sandbox_exec_args "${container_cmd[@]}"; then
+        return 1
+    fi
+    CLAUDE_CMD_ARGS=("${SANDBOX_EXEC_ARGS[@]}")
+    return 0
+}
+
 # Main execution function
 execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -1688,6 +1753,21 @@ execute_claude_code() {
             log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
             LIVE_OUTPUT=false
         fi
+    fi
+
+    # Issue #74: route execution through the Docker sandbox. The user asked for
+    # isolation, so a failure here is fatal — NEVER silently fall back to
+    # executing Claude on the host.
+    if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+        if [[ "$use_modern_cli" != "true" ]]; then
+            log_status "ERROR" "Sandbox mode requires the modern CLI command; refusing host-side legacy fallback"
+            return 1
+        fi
+        if ! wrap_claude_command_for_sandbox; then
+            log_status "ERROR" "Failed to wrap Claude command for sandbox execution"
+            return 1
+        fi
+        log_status "INFO" "🐳 Executing in Docker sandbox (image: $SANDBOX_DOCKER_IMAGE)"
     fi
 
     # Execute Claude Code
@@ -2145,6 +2225,12 @@ EOF
         if [[ $exit_code -eq 124 ]]; then
             log_status "WARN" "⏱️ Claude Code execution timed out (not an API limit)"
 
+            # Issue #74: a host-side timeout kills only the docker exec client;
+            # restart the container so orphaned in-container processes are reaped
+            if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+                handle_sandbox_timeout
+            fi
+
             # Check git for actual changes made during the timed-out execution
             local timeout_loop_start_sha=""
             local timeout_current_sha=""
@@ -2258,6 +2344,13 @@ cleanup() {
     if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
     _CLEANUP_DONE=true
 
+    # Tear down the Docker sandbox on any exit path so no orphaned containers
+    # or credential files are left behind (Issue #74). cleanup_docker_sandbox
+    # is idempotent, so running here AND after the main loop is safe.
+    if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]] && declare -F cleanup_docker_sandbox >/dev/null 2>&1; then
+        cleanup_docker_sandbox
+    fi
+
     # Only record "interrupted" status for abnormal exits (non-zero exit code)
     # Normal exit (code 0) preserves the status already written by the main loop
     if [[ $loop_count -gt 0 && $trap_exit_code -ne 0 ]]; then
@@ -2315,6 +2408,29 @@ main() {
     [[ "${_cli_CREATE_FOLLOWUPS:-false}" == "true" ]] && CREATE_FOLLOWUPS=true
     [[ -n "${_cli_FOLLOWUP_LABEL:-}" ]] && FOLLOWUP_LABEL="$_cli_FOLLOWUP_LABEL"
     [[ -n "${_cli_ADD_COMPLETION_LABELS:-}" ]] && ADD_COMPLETION_LABELS="$_cli_ADD_COMPLETION_LABELS"
+    # Docker sandbox flags (Issue #74) — CLI overrides .ralphrc
+    [[ -n "${_cli_SANDBOX_PROVIDER:-}" ]] && SANDBOX_PROVIDER="$_cli_SANDBOX_PROVIDER"
+    [[ -n "${_cli_SANDBOX_IMAGE:-}" ]] && SANDBOX_DOCKER_IMAGE="$_cli_SANDBOX_IMAGE"
+    [[ -n "${_cli_SANDBOX_MEMORY:-}" ]] && SANDBOX_DOCKER_MEMORY="$_cli_SANDBOX_MEMORY"
+    [[ -n "${_cli_SANDBOX_CPUS:-}" ]] && SANDBOX_DOCKER_CPUS="$_cli_SANDBOX_CPUS"
+    [[ -n "${_cli_SANDBOX_NETWORK:-}" ]] && SANDBOX_DOCKER_NETWORK="$_cli_SANDBOX_NETWORK"
+
+    # Sandbox sub-flags are meaningless without a provider (Issue #74). Checked
+    # here (not at parse time) because .ralphrc may legitimately supply
+    # SANDBOX_PROVIDER while the CLI only overrides e.g. the image.
+    if [[ -z "$SANDBOX_PROVIDER" ]] && \
+       [[ -n "${_cli_SANDBOX_IMAGE:-}${_cli_SANDBOX_MEMORY:-}${_cli_SANDBOX_CPUS:-}${_cli_SANDBOX_NETWORK:-}" ]]; then
+        log_status "ERROR" "--sandbox-image/--sandbox-memory/--sandbox-cpus/--sandbox-network require --sandbox docker"
+        exit 1
+    fi
+
+    # SANDBOX_PROVIDER can arrive via env/.ralphrc, bypassing the CLI's parse-time
+    # validation. An unsupported value (typo, not-yet-implemented provider) must
+    # halt — silently executing on the host would defeat the requested isolation.
+    if [[ -n "$SANDBOX_PROVIDER" && "$SANDBOX_PROVIDER" != "docker" ]]; then
+        log_status "ERROR" "Unsupported sandbox provider '$SANDBOX_PROVIDER' (supported: docker). Refusing host execution."
+        exit 1
+    fi
 
     # Source user shell init file if configured (e.g. ~/.zshrc for zsh environments)
     # This allows non-bash shells or non-standard setups to export PATH/env vars
@@ -2329,15 +2445,21 @@ main() {
         fi
     fi
 
-    # Validate Claude Code CLI is available before starting
-    if ! validate_claude_command; then
-        log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
-        exit 1
-    fi
+    # Validate Claude Code CLI is available before starting. In sandbox mode
+    # Claude runs inside the container (the image pins its own CLI), so host
+    # validation/version checks are skipped (Issue #74).
+    if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+        log_status "INFO" "Sandbox mode: skipping host Claude CLI validation (container provides the CLI)"
+    else
+        if ! validate_claude_command; then
+            log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
+            exit 1
+        fi
 
-    # Check CLI version compatibility and auto-update (Issue #190)
-    check_claude_version
-    check_claude_updates
+        # Check CLI version compatibility and auto-update (Issue #190)
+        check_claude_version
+        check_claude_updates
+    fi
 
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
@@ -2375,6 +2497,18 @@ main() {
         echo "$(get_integrity_report)"
         echo ""
         exit 1
+    fi
+
+    # Start the Docker sandbox before entering the loop (Issue #74). One
+    # persistent container serves every iteration via docker exec. Any failure
+    # is fatal — the user asked for isolation, so host fallback is forbidden.
+    if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+        log_status "INFO" "🐳 Docker sandbox mode enabled (image: $SANDBOX_DOCKER_IMAGE, network: $SANDBOX_DOCKER_NETWORK)"
+        if ! init_docker_sandbox || ! setup_docker_credentials || ! start_sandbox_container; then
+            log_status "ERROR" "Docker sandbox setup failed — refusing to fall back to host execution"
+            cleanup_docker_sandbox
+            exit 1
+        fi
     fi
 
     # Initialize session tracking before entering the loop
@@ -2599,6 +2733,12 @@ main() {
         
         log_status "LOOP" "=== Completed Loop #$loop_count ==="
     done
+
+    # Tear down the sandbox on every normal loop exit (break paths). The
+    # SIGINT/SIGTERM trap covers interrupts; cleanup is idempotent (Issue #74).
+    if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+        cleanup_docker_sandbox
+    fi
 }
 
 # Help function
@@ -2651,6 +2791,16 @@ GitHub issue lifecycle (Issue #73; all opt-in, require --github-issue):
     --create-followups      Open a follow-up issue for TODO/FIXME markers added during dev
     --followup-label LABEL  Label for follow-up issues (default: $FOLLOWUP_LABEL)
     --add-label LABEL       Label to add to the issue on close (repeatable)
+
+Sandbox execution (Issue #74; isolates Claude in a Docker container):
+    --sandbox PROVIDER      Run Claude Code inside a sandbox: docker
+                            (e2b, daytona, cloudflare planned — see issues #75/#79/#80)
+    --sandbox-image IMAGE   Container image (default: $SANDBOX_DOCKER_IMAGE)
+                            Build the default: docker build -t ralph-sandbox .
+    --sandbox-memory SIZE   Container memory limit (default: $SANDBOX_DOCKER_MEMORY)
+    --sandbox-cpus NUM      Container CPU limit (default: $SANDBOX_DOCKER_CPUS)
+    --sandbox-network MODE  Container network: none, bridge, host (default: $SANDBOX_DOCKER_NETWORK)
+                            Note: 'none' blocks the Claude API — only for pre-authenticated images
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -2877,6 +3027,64 @@ while [[ $# -gt 0 ]]; do
                 ADD_COMPLETION_LABELS="$2"
             fi
             _cli_ADD_COMPLETION_LABELS="$ADD_COMPLETION_LABELS"
+            shift 2
+            ;;
+        --sandbox)
+            # Docker sandbox execution (Issue #74)
+            case "${2:-}" in
+                docker)
+                    SANDBOX_PROVIDER="docker"
+                    _cli_SANDBOX_PROVIDER="docker"
+                    ;;
+                e2b|daytona|cloudflare)
+                    echo "Error: --sandbox $2 is not yet implemented (see issues #75, #79, #80). Supported: docker"
+                    exit 1
+                    ;;
+                *)
+                    echo "Error: --sandbox requires a provider. Supported: docker"
+                    exit 1
+                    ;;
+            esac
+            shift 2
+            ;;
+        --sandbox-image)
+            if [[ -z "${2:-}" || ! "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$ ]]; then
+                echo "Error: --sandbox-image requires a valid image reference (e.g. node:20)"
+                exit 1
+            fi
+            SANDBOX_DOCKER_IMAGE="$2"
+            _cli_SANDBOX_IMAGE="$2"
+            shift 2
+            ;;
+        --sandbox-memory)
+            if [[ ! "${2:-}" =~ ^[0-9]+[bkmgBKMG]?$ ]]; then
+                echo "Error: --sandbox-memory must be a Docker memory limit (e.g. 4g, 512m)"
+                exit 1
+            fi
+            SANDBOX_DOCKER_MEMORY="$2"
+            _cli_SANDBOX_MEMORY="$2"
+            shift 2
+            ;;
+        --sandbox-cpus)
+            if [[ ! "${2:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                echo "Error: --sandbox-cpus must be numeric (e.g. 2 or 1.5)"
+                exit 1
+            fi
+            SANDBOX_DOCKER_CPUS="$2"
+            _cli_SANDBOX_CPUS="$2"
+            shift 2
+            ;;
+        --sandbox-network)
+            case "${2:-}" in
+                none|bridge|host)
+                    SANDBOX_DOCKER_NETWORK="$2"
+                    _cli_SANDBOX_NETWORK="$2"
+                    ;;
+                *)
+                    echo "Error: --sandbox-network must be none, bridge, or host"
+                    exit 1
+                    ;;
+            esac
             shift 2
             ;;
         --queue-status)

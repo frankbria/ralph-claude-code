@@ -1,0 +1,12 @@
+# Keep the sandbox image build context minimal (Issue #74)
+.git/
+node_modules/
+tests/
+docs/
+logs/
+examples/
+specs/
+tasks/
+*.log
+.ralph/
+.claude/

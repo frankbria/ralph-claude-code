@@ -740,6 +740,16 @@ CLAUDE_AUTO_UPDATE=true
 # variables or PATH entries defined in a non-bash shell config (e.g. ~/.zshrc).
 # Leave commented out unless needed.
 #RALPH_SHELL_INIT_FILE="~/.zshrc"
+
+# Docker sandbox execution (optional, Issue #74)
+# Run Claude Code inside an isolated Docker container instead of on the host.
+# Build the default image first: docker build -t ralph-sandbox ~/.ralph
+# Uncomment to enable; CLI flags (--sandbox, --sandbox-image, ...) override these.
+#SANDBOX_PROVIDER="docker"
+#SANDBOX_DOCKER_IMAGE="ralph-sandbox:latest"
+#SANDBOX_DOCKER_MEMORY="4g"
+#SANDBOX_DOCKER_CPUS="2"
+#SANDBOX_DOCKER_NETWORK="bridge"
 RALPHRCEOF
 }
 
