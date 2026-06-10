@@ -22,6 +22,12 @@ setup() {
     export DOCKER_SANDBOX_STATE_FILE="$RALPH_DIR/.docker_sandbox_state"
     mkdir -p "$RALPH_DIR"
 
+    # Credential artifacts live OUTSIDE the workspace (bind-mount safety);
+    # tests pin them to an inspectable location
+    export SANDBOX_RUNTIME_DIR="$TEST_DIR/runtime"
+    export SANDBOX_ENV_FILE="$SANDBOX_RUNTIME_DIR/env"
+    export SANDBOX_CLAUDE_HOME="$SANDBOX_RUNTIME_DIR/claude_home"
+
     # Isolate HOME so host ~/.claude never leaks into credential tests
     export HOME="$TEST_DIR/home"
     mkdir -p "$HOME"
@@ -68,6 +74,9 @@ case "\$1" in
         if [[ "$mode" == "run-fail" ]]; then
             echo "docker: Error response from daemon" >&2
             exit 125
+        fi
+        if [[ "$mode" == "run-warning" ]]; then
+            echo "WARNING: Your kernel does not support swap limit capabilities" >&2
         fi
         echo "abc123containerid"
         exit 0 ;;
@@ -285,7 +294,7 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     start_sandbox_container
     local run_line
     run_line=$(_docker_args | grep '^run ')
-    [[ "$run_line" == *"-v $RALPH_DIR/.docker_claude_home:/ralph-home"* ]]
+    [[ "$run_line" == *"-v $SANDBOX_CLAUDE_HOME:/ralph-home"* ]]
     [[ "$run_line" == *"-e HOME=/ralph-home"* ]]
 }
 
@@ -314,6 +323,22 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     assert_failure
 }
 
+@test "start_sandbox_container: daemon warnings on stderr do not contaminate the container id" {
+    _mock_docker run-warning
+    init_docker_sandbox
+    start_sandbox_container
+    assert_equal "$(jq -r '.container_id' "$DOCKER_SANDBOX_STATE_FILE")" "abc123containerid"
+}
+
+@test "credential artifacts default to a location outside the workspace" {
+    # Fresh shell without the test overrides: the lib's own defaults must not
+    # place secrets inside the bind-mounted project directory
+    run bash -c "cd '$TEST_DIR' && unset SANDBOX_RUNTIME_DIR SANDBOX_ENV_FILE SANDBOX_CLAUDE_HOME && source '$PROJECT_ROOT/lib/sandbox_docker.sh' && printf '%s\n%s\n' \"\$SANDBOX_ENV_FILE\" \"\$SANDBOX_CLAUDE_HOME\""
+    assert_success
+    [[ "${lines[0]}" != "$TEST_DIR"* ]]
+    [[ "${lines[1]}" != "$TEST_DIR"* ]]
+}
+
 # -----------------------------------------------------------------------------
 # setup_docker_credentials
 # -----------------------------------------------------------------------------
@@ -322,9 +347,9 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     _mock_docker ok
     export ANTHROPIC_API_KEY="sk-ant-secret123"
     setup_docker_credentials
-    [[ -f "$RALPH_DIR/.docker_sandbox_env" ]]
-    assert_equal "$(stat -c %a "$RALPH_DIR/.docker_sandbox_env" 2>/dev/null || stat -f %Lp "$RALPH_DIR/.docker_sandbox_env")" "600"
-    grep -q "ANTHROPIC_API_KEY=sk-ant-secret123" "$RALPH_DIR/.docker_sandbox_env"
+    [[ -f "$SANDBOX_ENV_FILE" ]]
+    assert_equal "$(stat -c %a "$SANDBOX_ENV_FILE" 2>/dev/null || stat -f %Lp "$SANDBOX_ENV_FILE")" "600"
+    grep -q "ANTHROPIC_API_KEY=sk-ant-secret123" "$SANDBOX_ENV_FILE"
 }
 
 @test "setup_docker_credentials: env-file is passed to docker run" {
@@ -335,7 +360,7 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     start_sandbox_container
     local run_line
     run_line=$(_docker_args | grep '^run ')
-    [[ "$run_line" == *"--env-file $RALPH_DIR/.docker_sandbox_env"* ]]
+    [[ "$run_line" == *"--env-file $SANDBOX_ENV_FILE"* ]]
 }
 
 @test "setup_docker_credentials: never logs the API key value" {
@@ -351,8 +376,8 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     mkdir -p "$HOME/.claude"
     echo '{"token":"oauth-secret"}' > "$HOME/.claude/.credentials.json"
     setup_docker_credentials
-    [[ -f "$RALPH_DIR/.docker_claude_home/.claude/.credentials.json" ]]
-    assert_equal "$(stat -c %a "$RALPH_DIR/.docker_claude_home/.claude/.credentials.json" 2>/dev/null || stat -f %Lp "$RALPH_DIR/.docker_claude_home/.claude/.credentials.json")" "600"
+    [[ -f "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json" ]]
+    assert_equal "$(stat -c %a "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json" 2>/dev/null || stat -f %Lp "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json")" "600"
 }
 
 @test "setup_docker_credentials: claude home is mounted with HOME override" {
@@ -364,7 +389,7 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     start_sandbox_container
     local run_line
     run_line=$(_docker_args | grep '^run ')
-    [[ "$run_line" == *"-v $RALPH_DIR/.docker_claude_home:/ralph-home"* ]]
+    [[ "$run_line" == *"-v $SANDBOX_CLAUDE_HOME:/ralph-home"* ]]
     [[ "$run_line" == *"-e HOME=/ralph-home"* ]]
 }
 
@@ -378,14 +403,14 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
 @test "setup_docker_credentials: creates the sandbox home even without credentials" {
     _mock_docker ok
     setup_docker_credentials
-    [[ -d "$RALPH_DIR/.docker_claude_home/.claude" ]]
+    [[ -d "$SANDBOX_CLAUDE_HOME/.claude" ]]
 }
 
 @test "setup_docker_credentials: seeds gitconfig so in-container commits work" {
     _mock_docker ok
     printf '[user]\n\temail = t@t.io\n\tname = T\n' > "$HOME/.gitconfig"
     setup_docker_credentials
-    grep -q "t@t.io" "$RALPH_DIR/.docker_claude_home/.gitconfig"
+    grep -q "t@t.io" "$SANDBOX_CLAUDE_HOME/.gitconfig"
 }
 
 # -----------------------------------------------------------------------------
@@ -500,8 +525,8 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     setup_docker_credentials
     start_sandbox_container
     cleanup_docker_sandbox
-    [[ ! -f "$RALPH_DIR/.docker_sandbox_env" ]]
-    [[ ! -d "$RALPH_DIR/.docker_claude_home" ]]
+    [[ ! -f "$SANDBOX_ENV_FILE" ]]
+    [[ ! -d "$SANDBOX_CLAUDE_HOME" ]]
     _docker_args | grep -q '^rm .*abc123containerid'
     assert_equal "$(jq -r '.status' "$DOCKER_SANDBOX_STATE_FILE")" "cleaned"
 }

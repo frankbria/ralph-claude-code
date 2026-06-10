@@ -32,8 +32,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
 # Use RALPH_DIR if set by the main script, otherwise default to .ralph
 RALPH_DIR="${RALPH_DIR:-.ralph}"
 DOCKER_SANDBOX_STATE_FILE="${DOCKER_SANDBOX_STATE_FILE:-$RALPH_DIR/.docker_sandbox_state}"
-SANDBOX_ENV_FILE="${SANDBOX_ENV_FILE:-$RALPH_DIR/.docker_sandbox_env}"
-SANDBOX_CLAUDE_HOME="${SANDBOX_CLAUDE_HOME:-$RALPH_DIR/.docker_claude_home}"
+# Credential artifacts must live OUTSIDE the project directory: the project is
+# bind-mounted read-write into the container, so anything under it would be
+# readable by the sandboxed process as workspace files and could be swept into
+# a commit. Only the (secret-free) state file stays in $RALPH_DIR.
+SANDBOX_RUNTIME_DIR="${SANDBOX_RUNTIME_DIR:-${TMPDIR:-/tmp}/ralph-sandbox-$$}"
+SANDBOX_ENV_FILE="${SANDBOX_ENV_FILE:-$SANDBOX_RUNTIME_DIR/env}"
+SANDBOX_CLAUDE_HOME="${SANDBOX_CLAUDE_HOME:-$SANDBOX_RUNTIME_DIR/claude_home}"
 
 # Sandbox configuration defaults (overridable via .ralphrc, env, or CLI flags)
 SANDBOX_PROVIDER="${SANDBOX_PROVIDER:-}"
@@ -213,6 +218,8 @@ init_docker_sandbox() {
 # The host ~/.gitconfig is also seeded (when present) so autonomous commits
 # inside the container have an identity. The API key value is never logged.
 setup_docker_credentials() {
+    mkdir -p "$SANDBOX_RUNTIME_DIR" || return 1
+    chmod 700 "$SANDBOX_RUNTIME_DIR"
     rm -rf "$SANDBOX_CLAUDE_HOME"
     mkdir -p "$SANDBOX_CLAUDE_HOME/.claude" || return 1
     chmod 700 "$SANDBOX_CLAUDE_HOME" "$SANDBOX_CLAUDE_HOME/.claude"
@@ -276,9 +283,24 @@ start_sandbox_container() {
 
     run_args+=("$SANDBOX_DOCKER_IMAGE" sleep infinity)
 
-    local container_id
-    if ! container_id=$(docker "${run_args[@]}" 2>&1); then
-        _sandbox_log "ERROR" "Failed to start sandbox container: $container_id"
+    # Capture stderr separately: a successful `docker run -d` can still emit
+    # warnings (e.g. "kernel does not support swap limit capabilities"), and
+    # merging them into stdout would corrupt the recorded container id.
+    local container_id run_stderr
+    run_stderr=$(mktemp) || return 1
+    if ! container_id=$(docker "${run_args[@]}" 2>"$run_stderr"); then
+        _sandbox_log "ERROR" "Failed to start sandbox container: $(cat "$run_stderr" 2>/dev/null)"
+        rm -f "$run_stderr"
+        return 1
+    fi
+    if [[ -s "$run_stderr" ]]; then
+        _sandbox_log "WARN" "docker run warning: $(head -1 "$run_stderr")"
+    fi
+    rm -f "$run_stderr"
+    # The id is the last stdout line (defensive against future docker chatter)
+    container_id=$(printf '%s\n' "$container_id" | tail -1)
+    if [[ -z "$container_id" ]]; then
+        _sandbox_log "ERROR" "docker run returned no container id"
         return 1
     fi
 
@@ -385,6 +407,7 @@ cleanup_docker_sandbox() {
     fi
     rm -f "$SANDBOX_ENV_FILE" 2>/dev/null
     rm -rf "$SANDBOX_CLAUDE_HOME" 2>/dev/null
+    rmdir "$SANDBOX_RUNTIME_DIR" 2>/dev/null || true
     if [[ -f "$DOCKER_SANDBOX_STATE_FILE" ]]; then
         _sandbox_apply '.container_id = "" | .status = "cleaned"' || true
     fi

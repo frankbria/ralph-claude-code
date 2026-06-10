@@ -80,15 +80,17 @@ Environment variables of the same names take precedence over `.ralphrc`, and
 
 Handled by `setup_docker_credentials()` in `lib/sandbox_docker.sh`, in order:
 
-1. **`ANTHROPIC_API_KEY` set** — written to a `0600` env-file under `.ralph/`
-   and passed via `docker run --env-file`. The value is never logged; the file
-   is deleted on cleanup. (`docker secret` is not used — it requires Swarm
-   mode and does not work with plain `docker run`.)
+1. **`ANTHROPIC_API_KEY` set** — written to a `0600` env-file in a per-run
+   runtime directory under `/tmp` (deliberately **outside** the bind-mounted
+   project, so the sandboxed process cannot read it as a workspace file and it
+   can never be swept into a commit) and passed via `docker run --env-file`.
+   The value is never logged; the file is deleted on cleanup. (`docker secret`
+   is not used — it requires Swarm mode and does not work with plain
+   `docker run`.)
 2. **Host `~/.claude/.credentials.json` exists** — *copied* into a
-   container-scoped directory (`.ralph/.docker_claude_home`) that is mounted
-   as the container's `HOME`. The container can refresh its own session state
-   there without ever touching the host's real `~/.claude`. Removed on
-   cleanup.
+   container-scoped directory in the same runtime dir, mounted as the
+   container's `HOME`. The container can refresh its own session state there
+   without ever touching the host's real `~/.claude`. Removed on cleanup.
 3. **Neither** — a warning is logged and the loop continues (useful for
    custom images with authentication baked in).
 
