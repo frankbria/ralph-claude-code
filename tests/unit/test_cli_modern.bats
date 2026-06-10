@@ -2059,3 +2059,11 @@ EOF
     [[ "$output" == *"--sandbox-cpus"* ]]
     [[ "$output" == *"--sandbox-network"* ]]
 }
+
+@test "issue #74: unsupported provider from environment halts instead of host fallback" {
+    # SANDBOX_PROVIDER can arrive via env/.ralphrc, bypassing CLI validation —
+    # a typo or unimplemented provider must never silently execute on the host
+    SANDBOX_PROVIDER=e2b run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"nsupported sandbox provider"* ]]
+}

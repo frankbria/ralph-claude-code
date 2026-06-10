@@ -30,9 +30,10 @@ EOF
     cat >> "$E2E_DIR/bin/docker" << 'EOF'
 printf '%s\n' "$*" >> "$DOCKER_LOG"
 case "$1" in
-    info)  exit 0 ;;
-    image) exit 0 ;;
-    run)   echo "e2emockcontainer"; exit 0 ;;
+    info)    exit 0 ;;
+    image)   exit 0 ;;
+    inspect) echo "true"; exit 0 ;;
+    run)     echo "e2emockcontainer"; exit 0 ;;
     exec)
         # argv: exec -i -w /workspace <container-id> <claude-path> [args...]
         shift 5

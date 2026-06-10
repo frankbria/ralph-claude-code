@@ -44,7 +44,10 @@ docker build -t ralph-sandbox ~/.ralph
 ```
 
 The default image is `node:20-slim` plus git, jq, python3, and the Claude Code
-CLI, running as a non-root `ralph` user.
+CLI, with the base image's non-root `node` user as the default. At runtime the
+container is started with `--user "$(id -u):$(id -g)"`, so everything Claude
+writes to the bind-mounted workspace keeps your host ownership and the seeded
+`0600` credential files stay readable.
 
 ## CLI reference
 
@@ -124,7 +127,7 @@ Any image with the Claude CLI on `PATH` works:
 FROM ralph-sandbox:latest
 USER root
 RUN pip3 install --break-system-packages numpy pandas
-USER ralph
+USER node
 ```
 
 ```bash

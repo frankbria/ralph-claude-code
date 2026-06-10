@@ -1672,6 +1672,12 @@ rollback_to_backup() {
 # background mode) working unchanged. Returns 1 when no container is running —
 # callers must treat that as fatal rather than falling back to host execution.
 wrap_claude_command_for_sandbox() {
+    # Liveness + recovery first: the container can die between iterations
+    # (OOM kill under --memory, daemon restart) and exec against a dead
+    # container would burn loops until the circuit breaker opens.
+    if ! ensure_sandbox_container; then
+        return 1
+    fi
     if ! build_sandbox_exec_args "${CLAUDE_CMD_ARGS[@]}"; then
         return 1
     fi
@@ -2409,6 +2415,14 @@ main() {
     if [[ -z "$SANDBOX_PROVIDER" ]] && \
        [[ -n "${_cli_SANDBOX_IMAGE:-}${_cli_SANDBOX_MEMORY:-}${_cli_SANDBOX_CPUS:-}${_cli_SANDBOX_NETWORK:-}" ]]; then
         log_status "ERROR" "--sandbox-image/--sandbox-memory/--sandbox-cpus/--sandbox-network require --sandbox docker"
+        exit 1
+    fi
+
+    # SANDBOX_PROVIDER can arrive via env/.ralphrc, bypassing the CLI's parse-time
+    # validation. An unsupported value (typo, not-yet-implemented provider) must
+    # halt — silently executing on the host would defeat the requested isolation.
+    if [[ -n "$SANDBOX_PROVIDER" && "$SANDBOX_PROVIDER" != "docker" ]]; then
+        log_status "ERROR" "Unsupported sandbox provider '$SANDBOX_PROVIDER' (supported: docker). Refusing host execution."
         exit 1
     fi
 

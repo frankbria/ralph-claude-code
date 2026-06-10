@@ -201,15 +201,25 @@ init_docker_sandbox() {
 # --- credentials ---------------------------------------------------------------
 
 # setup_docker_credentials
-# Prepares credential handoff for the container, preferring an explicit API key:
+# Prepares the container-scoped home directory (always mounted as the
+# container's HOME — the container runs as the host uid, which usually has no
+# passwd entry in the image, so it needs a writable home regardless of
+# credential mode) and the credential handoff:
 #   1. ANTHROPIC_API_KEY set       → 0600 env-file passed via --env-file
-#   2. host ~/.claude credentials  → copied into a container-scoped claude home
-#                                    (mounted as $HOME/.claude inside the
-#                                    container; host credentials never mounted)
+#   2. host ~/.claude credentials  → copied into the container-scoped home
+#                                    (the host's real ~/.claude is never mounted)
 #   3. neither                     → warn and continue (the image may have its
 #                                    own auth baked in)
-# The API key value is never logged.
+# The host ~/.gitconfig is also seeded (when present) so autonomous commits
+# inside the container have an identity. The API key value is never logged.
 setup_docker_credentials() {
+    rm -rf "$SANDBOX_CLAUDE_HOME"
+    mkdir -p "$SANDBOX_CLAUDE_HOME/.claude" || return 1
+    chmod 700 "$SANDBOX_CLAUDE_HOME" "$SANDBOX_CLAUDE_HOME/.claude"
+    if [[ -f "$HOME/.gitconfig" ]]; then
+        cp "$HOME/.gitconfig" "$SANDBOX_CLAUDE_HOME/.gitconfig" 2>/dev/null || true
+    fi
+
     if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
         rm -f "$SANDBOX_ENV_FILE"
         # Create with restrictive permissions BEFORE writing the secret
@@ -222,9 +232,6 @@ setup_docker_credentials() {
     fi
 
     if [[ -f "$HOME/.claude/.credentials.json" ]]; then
-        rm -rf "$SANDBOX_CLAUDE_HOME"
-        mkdir -p "$SANDBOX_CLAUDE_HOME/.claude" || return 1
-        chmod 700 "$SANDBOX_CLAUDE_HOME" "$SANDBOX_CLAUDE_HOME/.claude"
         cp "$HOME/.claude/.credentials.json" "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json" || return 1
         chmod 600 "$SANDBOX_CLAUDE_HOME/.claude/.credentials.json"
         _sandbox_log "INFO" "Sandbox credentials: seeded container claude home from host credentials"
@@ -247,7 +254,12 @@ start_sandbox_container() {
     project_dir="$(pwd)"
     local name="ralph-sandbox-$$-$(date +%s)"
 
+    # Run as the HOST uid:gid — otherwise files the container writes into the
+    # bind-mounted /workspace are owned by the image's user (uid 1000), and a
+    # host uid ≠ 1000 cannot read the 0600 seeded credentials. The host uid has
+    # no passwd entry in most images, hence the explicit HOME mount below.
     local -a run_args=(run -d --init --name "$name"
+        --user "$(id -u):$(id -g)"
         -v "$project_dir:/workspace"
         -w /workspace
         --memory "$SANDBOX_DOCKER_MEMORY"
@@ -258,8 +270,7 @@ start_sandbox_container() {
         run_args+=(--env-file "$SANDBOX_ENV_FILE")
     fi
     if [[ -d "$SANDBOX_CLAUDE_HOME" ]]; then
-        # Mount the container-scoped claude home and point HOME at it so the
-        # Claude CLI finds credentials regardless of the image's user setup.
+        # Writable container HOME (credentials, claude session state, gitconfig)
         run_args+=(-v "$SANDBOX_CLAUDE_HOME:/ralph-home" -e HOME=/ralph-home)
     fi
 
@@ -277,11 +288,47 @@ start_sandbox_container() {
     return 0
 }
 
+# ensure_sandbox_container
+# Liveness probe + recovery, called before each exec. A container can die
+# between iterations (OOM kill under --memory, daemon restart, manual rm):
+#   running        → no-op
+#   stopped        → docker start (state and exec env are preserved)
+#   gone entirely  → start a fresh container (state file gets the new id)
+# Returns 1 only when no container was ever started or recovery failed.
+ensure_sandbox_container() {
+    local container_id
+    container_id=$(sandbox_state_get '.container_id')
+    if [[ -z "$container_id" ]]; then
+        _sandbox_log "ERROR" "No sandbox container recorded (start_sandbox_container first)"
+        return 1
+    fi
+
+    # `|| running=""` keeps the probe safe under errexit callers — a missing
+    # container makes docker inspect exit 1, which must mean "recover", not "abort"
+    local running
+    running=$(docker inspect -f '{{.State.Running}}' "$container_id" 2>/dev/null) || running=""
+    if [[ "$running" == "true" ]]; then
+        return 0
+    fi
+
+    _sandbox_log "WARN" "Sandbox container not running (possible OOM kill or daemon restart) — attempting recovery"
+    if docker start "$container_id" >/dev/null 2>&1; then
+        _sandbox_log "INFO" "Sandbox container restarted: ${container_id:0:12}"
+        return 0
+    fi
+
+    _sandbox_log "WARN" "Sandbox container is gone — starting a replacement"
+    _sandbox_apply '.container_id = "" | .status = "lost"' || true
+    start_sandbox_container
+}
+
 # build_sandbox_exec_args <command> [args...]
 # Populates the global SANDBOX_EXEC_ARGS array with the docker exec wrapping of
 # the given command (same global-array convention as CLAUDE_CMD_ARGS).
 # Environment from `docker run` (--env-file, HOME) is part of the container
-# config and is inherited by exec'd processes.
+# config and is inherited by exec'd processes; host-only env vars are NOT
+# forwarded — anything the in-container CLI needs must arrive via argv, the
+# env-file, or the image itself.
 build_sandbox_exec_args() {
     local container_id
     container_id=$(sandbox_state_get '.container_id')
@@ -366,6 +413,7 @@ export -f validate_sandbox_config
 export -f init_docker_sandbox
 export -f setup_docker_credentials
 export -f start_sandbox_container
+export -f ensure_sandbox_container
 export -f build_sandbox_exec_args
 export -f handle_sandbox_timeout
 export -f stop_sandbox_container

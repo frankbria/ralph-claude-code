@@ -72,7 +72,22 @@ case "\$1" in
         echo "abc123containerid"
         exit 0 ;;
     inspect)
-        echo "running"
+        # docker inspect -f '{{.State.Running}}' <cid>
+        if [[ "$mode" == "container-stopped" ]]; then
+            echo "false"
+            exit 0
+        fi
+        if [[ "$mode" == "container-gone" ]]; then
+            echo "Error: No such object" >&2
+            exit 1
+        fi
+        echo "true"
+        exit 0 ;;
+    start)
+        if [[ "$mode" == "container-gone" ]]; then
+            echo "Error: No such container" >&2
+            exit 1
+        fi
         exit 0 ;;
 esac
 exit 0
@@ -254,6 +269,26 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     [[ "$run_line" == *"sleep infinity"* ]]
 }
 
+@test "start_sandbox_container: runs as the host uid:gid (bind-mount ownership)" {
+    _mock_docker ok
+    init_docker_sandbox
+    start_sandbox_container
+    local run_line
+    run_line=$(_docker_args | grep '^run ')
+    [[ "$run_line" == *"--user $(id -u):$(id -g)"* ]]
+}
+
+@test "start_sandbox_container: always mounts a writable sandbox home with HOME override" {
+    _mock_docker ok
+    init_docker_sandbox
+    setup_docker_credentials   # no API key, no host credentials → still creates the home
+    start_sandbox_container
+    local run_line
+    run_line=$(_docker_args | grep '^run ')
+    [[ "$run_line" == *"-v $RALPH_DIR/.docker_claude_home:/ralph-home"* ]]
+    [[ "$run_line" == *"-e HOME=/ralph-home"* ]]
+}
+
 @test "start_sandbox_container: records container id and running status" {
     _mock_docker ok
     init_docker_sandbox
@@ -338,6 +373,59 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     run setup_docker_credentials
     assert_success
     [[ "$output" == *"WARN"* || "$output" == *"credential"* ]]
+}
+
+@test "setup_docker_credentials: creates the sandbox home even without credentials" {
+    _mock_docker ok
+    setup_docker_credentials
+    [[ -d "$RALPH_DIR/.docker_claude_home/.claude" ]]
+}
+
+@test "setup_docker_credentials: seeds gitconfig so in-container commits work" {
+    _mock_docker ok
+    printf '[user]\n\temail = t@t.io\n\tname = T\n' > "$HOME/.gitconfig"
+    setup_docker_credentials
+    grep -q "t@t.io" "$RALPH_DIR/.docker_claude_home/.gitconfig"
+}
+
+# -----------------------------------------------------------------------------
+# ensure_sandbox_container (liveness + recovery)
+# -----------------------------------------------------------------------------
+
+@test "ensure_sandbox_container: no-op when the container is running" {
+    _mock_docker ok
+    init_docker_sandbox
+    start_sandbox_container
+    run ensure_sandbox_container
+    assert_success
+    ! _docker_args | grep -q '^start '
+}
+
+@test "ensure_sandbox_container: restarts a stopped container (OOM kill recovery)" {
+    _mock_docker container-stopped
+    init_docker_sandbox
+    start_sandbox_container
+    run ensure_sandbox_container
+    assert_success
+    _docker_args | grep -q '^start .*abc123containerid'
+}
+
+@test "ensure_sandbox_container: replaces a container that no longer exists" {
+    _mock_docker container-gone
+    init_docker_sandbox
+    start_sandbox_container
+    : > "$TEST_DIR/docker_args"   # only observe recovery calls
+    ensure_sandbox_container
+    # Fresh docker run replaced the lost container
+    _docker_args | grep -q '^run '
+    assert_equal "$(jq -r '.container_id' "$DOCKER_SANDBOX_STATE_FILE")" "abc123containerid"
+}
+
+@test "ensure_sandbox_container: fails when no container was ever started" {
+    _mock_docker ok
+    init_docker_sandbox
+    run ensure_sandbox_container
+    assert_failure
 }
 
 # -----------------------------------------------------------------------------

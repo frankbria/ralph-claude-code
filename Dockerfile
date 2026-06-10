@@ -27,10 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Claude Code CLI — the execution engine the sandbox runs
 RUN npm install -g @anthropic-ai/claude-code
 
-# Non-root user: autonomous code execution should not run as root even inside
-# the container (defense in depth alongside resource/network limits)
-RUN useradd -m -s /bin/bash ralph
-USER ralph
+# Non-root default user: reuse the base image's `node` user (uid 1000) rather
+# than useradd-ing a new one, which would land at uid 1001 and break writes to
+# bind mounts owned by a uid-1000 host user. At runtime ralph_loop.sh overrides
+# this anyway with `--user "$(id -u):$(id -g)"` so workspace files keep host
+# ownership; this USER is the safe default for manual `docker run` usage.
+USER node
 
 WORKDIR /workspace
 
