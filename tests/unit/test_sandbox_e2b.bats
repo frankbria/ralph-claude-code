@@ -129,7 +129,16 @@ case "\$1" in
         mkdir -p "\$tmpd/.git" "\$tmpd/src"
         echo "from-sandbox" > "\$tmpd/src/synced.txt"
         echo "evil" > "\$tmpd/.git/config"
-        tar -czf - -C "\$tmpd" src/synced.txt .git/config
+        # Manifest member: the sandbox's CURRENT file list (deletion sync).
+        # Faithful default = everything previously synced plus the new file
+        # (the real helper lists the whole workspace, a superset of uploads).
+        # Deletion tests narrow it via \$TEST_DIR/manifest_override.
+        if [[ -f "$TEST_DIR/manifest_override" ]]; then
+            cp "$TEST_DIR/manifest_override" "\$tmpd/.ralph_e2b_manifest"
+        else
+            { sed 's|^|./|' "$RALPH_DIR/.e2b_synced_files" 2>/dev/null; echo "./src/synced.txt"; } > "\$tmpd/.ralph_e2b_manifest"
+        fi
+        tar -czf - -C "\$tmpd" src/synced.txt .git/config .ralph_e2b_manifest
         rm -rf "\$tmpd"
         exit 0 ;;
     write-file)
@@ -543,6 +552,80 @@ EOF
     _mock_e2b ok
     run sync_e2b_artifacts_down
     assert_success
+}
+
+@test "sync_e2b_artifacts_down: never extracts the manifest member into the project" {
+    _started_sandbox
+    sync_e2b_artifacts_down
+    [[ ! -f ".ralph_e2b_manifest" ]]
+}
+
+@test "sync_e2b_artifacts_down: deletes host files removed in the sandbox" {
+    _started_sandbox
+    # src/obsolete.txt was previously synced/uploaded but is gone from the
+    # sandbox manifest — a sandbox-side deletion must propagate to the host
+    mkdir -p src && echo "stale" > src/obsolete.txt
+    printf '%s\n' "src/obsolete.txt" "src/synced.txt" > "$RALPH_DIR/.e2b_synced_files"
+    printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
+    sync_e2b_artifacts_down
+    [[ ! -f "src/obsolete.txt" ]]
+    assert_file_exists "src/synced.txt"
+}
+
+@test "sync_e2b_artifacts_down: rename leaves no stale file behind" {
+    _started_sandbox
+    # The sandbox renamed old_name.txt -> synced.txt: manifest only lists the
+    # new name, so the host copy of the old name must be removed
+    mkdir -p src && echo "old" > src/old_name.txt
+    printf '%s\n' "src/old_name.txt" > "$RALPH_DIR/.e2b_synced_files"
+    printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
+    sync_e2b_artifacts_down
+    [[ ! -f "src/old_name.txt" ]]
+    assert_equal "$(cat src/synced.txt)" "from-sandbox"
+}
+
+@test "sync_e2b_artifacts_down: host-only files are never deleted" {
+    _started_sandbox
+    mkdir -p src && echo "host work" > src/host_only.txt   # never synced
+    printf '%s\n' "src/something_else.txt" > "$RALPH_DIR/.e2b_synced_files"
+    sync_e2b_artifacts_down
+    assert_file_exists "src/host_only.txt"
+}
+
+@test "sync_e2b_artifacts_down: refuses to delete .git or .ralph paths even if state is poisoned" {
+    _started_sandbox
+    mkdir -p .git
+    echo "ref: refs/heads/main" > .git/HEAD
+    echo "keep" > "$RALPH_DIR/fix_plan.md"
+    printf '%s\n' ".git/HEAD" ".ralph/fix_plan.md" "/etc/passwd" "../escape.txt" > "$RALPH_DIR/.e2b_synced_files"
+    printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
+    sync_e2b_artifacts_down
+    assert_file_exists ".git/HEAD"
+    assert_file_exists "$RALPH_DIR/fix_plan.md"
+}
+
+@test "sync_e2b_artifacts_down: updates the synced-files state to the manifest" {
+    _started_sandbox
+    sync_e2b_artifacts_down
+    grep -qxF "src/synced.txt" "$RALPH_DIR/.e2b_synced_files"
+}
+
+@test "sync_e2b_artifacts_down: tolerates archives without a manifest (no deletions)" {
+    _mock_e2b download-empty
+    init_e2b_sandbox
+    start_e2b_sandbox
+    mkdir -p src && echo "keep" > src/keep.txt
+    printf '%s\n' "src/keep.txt" > "$RALPH_DIR/.e2b_synced_files"
+    run sync_e2b_artifacts_down
+    assert_success
+    assert_file_exists "src/keep.txt"
+}
+
+@test "upload_project_to_e2b: initializes the synced-files state from the upload list" {
+    echo "content" > "$TEST_DIR/tracked.txt"
+    _started_sandbox
+    assert_file_exists "$RALPH_DIR/.e2b_synced_files"
+    grep -qxF "tracked.txt" "$RALPH_DIR/.e2b_synced_files"
 }
 
 # -----------------------------------------------------------------------------

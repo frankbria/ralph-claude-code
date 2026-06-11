@@ -32,7 +32,10 @@ ralph_loop.sh ── lib/e2b_helper.py exec ───▶  claude -p "..." (per i
   non-ignored files, plus the `.ralph` control files) is uploaded once at
   startup; files changed in the sandbox are downloaded back after every
   iteration, so progress detection, the circuit breaker, and `ralph-monitor`
-  all keep working host-side.
+  all keep working host-side. Deletions and renames propagate too: each
+  download carries a manifest of the sandbox's current files, and host files
+  that were previously synced but left the manifest are removed (host-only
+  files, `.git`, and `.ralph` are never deletion candidates).
 - **No silent fallback**: if sandbox setup fails (missing SDK, bad API key,
   unreachable API), Ralph exits with an error rather than running Claude on
   the host you asked it to protect.
@@ -141,7 +144,9 @@ dashboard for actual usage.
   SIGINT/SIGTERM. With `--sandbox-keep-alive` the sandbox is left running and
   its id is logged for reuse. Cleanup is idempotent.
 - **State**: `.ralph/.e2b_sandbox_state` (JSON, atomic temp+`mv` writes)
-  tracks template, sandbox id, status, and the cost estimate.
+  tracks template, sandbox id, status, and the cost estimate;
+  `.ralph/.e2b_synced_files` is the deletion-sync baseline (the set of
+  project paths known to exist in the sandbox).
 
 ## Known limitations
 

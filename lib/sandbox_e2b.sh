@@ -36,6 +36,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
 RALPH_DIR="${RALPH_DIR:-.ralph}"
 LOG_DIR="${LOG_DIR:-$RALPH_DIR/logs}"
 E2B_SANDBOX_STATE_FILE="${E2B_SANDBOX_STATE_FILE:-$RALPH_DIR/.e2b_sandbox_state}"
+# Newline list of project-relative paths that exist in the sandbox workspace
+# (initialized from the upload, refreshed from each download's manifest) —
+# the deletion-sync baseline: only paths on this list may ever be deleted.
+E2B_SYNCED_FILES_FILE="${E2B_SYNCED_FILES_FILE:-$RALPH_DIR/.e2b_synced_files}"
+# Archive member name carrying the sandbox's current file list (must match
+# MANIFEST_NAME in lib/e2b_helper.py)
+E2B_SYNC_MANIFEST_NAME=".ralph_e2b_manifest"
 
 # Transport: the Python helper that wraps the official E2B SDK
 _E2B_LIB_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -437,8 +444,35 @@ upload_project_to_e2b() {
         rm -f "$tarball"
         return 1
     fi
+    # Deletion-sync baseline: what the sandbox workspace now contains
+    tar -tzf "$tarball" 2>/dev/null | grep -v '/$' | sed 's|^\./||' > "$E2B_SYNCED_FILES_FILE" 2>/dev/null
     rm -f "$tarball"
     _e2b_log "INFO" "Uploaded $file_count file(s) to E2B workspace $SANDBOX_E2B_WORKDIR"
+    return 0
+}
+
+# _apply_e2b_deletions <manifest-content>
+# Deletes host files that were previously synced with the sandbox but are
+# absent from the sandbox's current manifest (sandbox-side rm / rename).
+# Only paths recorded in E2B_SYNCED_FILES_FILE are candidates — host-only
+# files are untouchable — and .git/.ralph paths are refused outright even if
+# the state file is corrupted or poisoned.
+_apply_e2b_deletions() {
+    local manifest=$1
+    [[ -f "$E2B_SYNCED_FILES_FILE" ]] || return 0
+    local deleted=0 old
+    while IFS= read -r old; do
+        [[ -z "$old" ]] && continue
+        case "$old" in
+            /*|*..*|.git|.git/*|*/.git/*|.ralph|.ralph/*) continue ;;
+        esac
+        if [[ -f "$old" ]] && ! grep -qxF "$old" <<<"$manifest"; then
+            rm -f "$old" && deleted=$((deleted + 1))
+        fi
+    done < "$E2B_SYNCED_FILES_FILE"
+    if (( deleted > 0 )); then
+        _e2b_log "INFO" "Removed $deleted file(s) deleted in the E2B sandbox"
+    fi
     return 0
 }
 
@@ -471,21 +505,32 @@ sync_e2b_artifacts_down() {
         return 1
     fi
 
+    # The manifest member lists ALL current sandbox files — read it out (it is
+    # never extracted into the project) and use it to propagate deletions.
+    local manifest=""
+    manifest=$(tar -xzOf "$tarball" "$E2B_SYNC_MANIFEST_NAME" 2>/dev/null | sed 's|^\./||') || manifest=""
+
     local file_count
-    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -cv '/$')
-    if [[ "$file_count" -eq 0 ]]; then
-        rm -f "$tarball"
-        return 0
-    fi
-    if ! tar -xzf "$tarball" -C . \
-        --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \
-        --exclude=".ralph/logs" --exclude=".ralph/logs/*" 2>/dev/null; then
-        _e2b_log "WARN" "Failed to extract some synced files from the E2B sandbox"
-        rm -f "$tarball"
-        return 1
+    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -v '/$' | grep -cv "^${E2B_SYNC_MANIFEST_NAME}$")
+    if [[ "$file_count" -gt 0 ]]; then
+        if ! tar -xzf "$tarball" -C . \
+            --exclude="$E2B_SYNC_MANIFEST_NAME" \
+            --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \
+            --exclude=".ralph/logs" --exclude=".ralph/logs/*" 2>/dev/null; then
+            _e2b_log "WARN" "Failed to extract some synced files from the E2B sandbox"
+            rm -f "$tarball"
+            return 1
+        fi
+        _e2b_log "INFO" "Synced $file_count changed file(s) from the E2B sandbox"
     fi
     rm -f "$tarball"
-    _e2b_log "INFO" "Synced $file_count changed file(s) from the E2B sandbox"
+
+    # Deletion sync: archives without a manifest (older helper, empty download)
+    # skip this pass — content sync alone, never speculative deletion.
+    if [[ -n "$manifest" ]]; then
+        _apply_e2b_deletions "$manifest"
+        printf '%s\n' "$manifest" > "$E2B_SYNCED_FILES_FILE" 2>/dev/null
+    fi
     return 0
 }
 

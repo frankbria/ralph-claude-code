@@ -35,6 +35,9 @@ except ImportError as exc:  # pragma: no cover - depends on environment
 UPLOAD_STAGING = "/tmp/ralph_upload.tgz"
 DOWNLOAD_STAGING = "/tmp/ralph_download.tgz"
 CHANGED_LIST = "/tmp/ralph_changed.list"
+# Archive member carrying the sandbox's CURRENT file list, so the host can
+# propagate sandbox-side deletions/renames (stale-file divergence otherwise)
+MANIFEST_NAME = ".ralph_e2b_manifest"
 
 
 def _emit(obj):
@@ -178,21 +181,27 @@ def cmd_download(args):
     _require_sdk()
     sandbox = _connect(args.sandbox_id)
     marker = _sync_marker(args.src)
+    # Besides the changed files, every download carries a manifest of ALL
+    # current workspace files (minus .git) so the host can delete files that
+    # disappeared in the sandbox. The sandbox is always Linux/GNU.
     script = (
         "cd {src} && "
         "if [ -f {marker} ]; then find . -type f -newer {marker} -print0; else : ; fi > {changed} && "
-        "tar -czf {staging} --null -T {changed} && "
+        "find . -type f ! -path './.git/*' > /tmp/{manifest} && "
+        "tar -czf {staging} --null -T {changed} -C /tmp {manifest} && "
         "touch {marker}"
     ).format(
         src=shlex.quote(args.src),
         marker=shlex.quote(marker),
         changed=shlex.quote(CHANGED_LIST),
         staging=shlex.quote(DOWNLOAD_STAGING),
+        manifest=shlex.quote(MANIFEST_NAME),
     )
     try:
         sandbox.commands.run(script)
         data = sandbox.files.read(DOWNLOAD_STAGING, format="bytes")
-        sandbox.commands.run("rm -f %s %s" % (shlex.quote(DOWNLOAD_STAGING), shlex.quote(CHANGED_LIST)))
+        sandbox.commands.run("rm -f %s %s /tmp/%s" % (
+            shlex.quote(DOWNLOAD_STAGING), shlex.quote(CHANGED_LIST), shlex.quote(MANIFEST_NAME)))
     except Exception as exc:
         # NOT _die(): download's stdout carries raw tar bytes; JSON on stdout
         # would corrupt the archive. Errors must stay on stderr.
