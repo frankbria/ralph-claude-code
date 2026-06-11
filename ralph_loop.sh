@@ -600,9 +600,14 @@ setup_tmux_session() {
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
-    # Sync filter flags (Issue #76) — same non-default forwarding rule
-    [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
-    [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
+    # Sync filter flags (Issue #76) — forwarded unless the provider is
+    # already known to be docker (the child rejects --sync-* with docker, so
+    # env-supplied SYNC_* would break monitor startup; an empty provider may
+    # still become e2b via the child's .ralphrc, so it forwards)
+    if [[ "${SANDBOX_PROVIDER:-}" != "docker" ]]; then
+        [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
+        [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
+    fi
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,

@@ -174,9 +174,12 @@ setup_tmux_session() {
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
-    # Sync filter flags (Issue #76) — same non-default forwarding rule
-    [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
-    [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
+    # Sync filter flags (Issue #76) — forwarded unless the provider is
+    # already known to be docker (the child rejects --sync-* with docker)
+    if [[ "${SANDBOX_PROVIDER:-}" != "docker" ]]; then
+        [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
+        [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
+    fi
 
     tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
@@ -618,6 +621,24 @@ assert_tmux_called_with() {
     pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--sync-include 'src/**,*.md'"* ]]
     [[ "$pane0_line" == *"--sync-exclude '*.log,node_modules'"* ]]
+}
+
+@test "setup_tmux_session never forwards sync flags to a docker child (codex P2 round 2)" {
+    # Env-supplied SYNC_* must not become CLI --sync-* flags when the
+    # provider is explicitly docker — the child rejects that pairing and
+    # monitor mode would fail to start
+    export SANDBOX_PROVIDER=docker
+    export SYNC_INCLUDE="src/**"
+    export SYNC_EXCLUDE="*.log"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--sandbox docker"* ]]
+    [[ "$pane0_line" != *"--sync-include"* ]]
+    [[ "$pane0_line" != *"--sync-exclude"* ]]
 }
 
 @test "setup_tmux_session omits sync filter flags when unset" {
