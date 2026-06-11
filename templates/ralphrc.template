@@ -127,3 +127,20 @@ RALPH_VERBOSE=false
 # SANDBOX_DOCKER_MEMORY="4g"
 # SANDBOX_DOCKER_CPUS="2"
 # SANDBOX_DOCKER_NETWORK="bridge"   # none | bridge | host ('none' blocks the Claude API)
+
+# =============================================================================
+# E2B CLOUD SANDBOX EXECUTION (optional, Issue #75)
+# =============================================================================
+
+# Run Claude Code inside an E2B cloud sandbox (e2b.dev) instead of on the host.
+# Needs: pip install e2b, plus an API key via the E2B_API_KEY environment
+# variable or ~/.ralph/e2b_api_key (chmod 600) — never store the key here.
+# CLI flags (--sandbox e2b, --sandbox-template, ...) override these values.
+# SANDBOX_PROVIDER="e2b"
+# SANDBOX_E2B_TEMPLATE="base"       # custom templates can preinstall the claude CLI
+# SANDBOX_E2B_SANDBOX_ID=""         # reconnect to an existing sandbox
+# SANDBOX_E2B_TIMEOUT="3600"        # sandbox session timeout (seconds)
+# SANDBOX_E2B_KEEP_ALIVE="false"    # leave the sandbox running on exit
+# SANDBOX_E2B_MAX_COST=""           # stop gracefully at this estimated USD spend
+# SANDBOX_E2B_COST_ALERT=""         # warn once at this estimated USD spend
+# SANDBOX_E2B_COST_PER_HOUR="0.10"  # $/h estimate used for cost tracking (see e2b.dev/pricing)

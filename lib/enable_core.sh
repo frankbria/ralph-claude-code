@@ -750,6 +750,19 @@ CLAUDE_AUTO_UPDATE=true
 #SANDBOX_DOCKER_MEMORY="4g"
 #SANDBOX_DOCKER_CPUS="2"
 #SANDBOX_DOCKER_NETWORK="bridge"
+
+# E2B cloud sandbox execution (optional, Issue #75)
+# Run Claude Code inside an E2B cloud sandbox (e2b.dev) instead of on the host.
+# Needs: pip install e2b, plus an API key via E2B_API_KEY or
+# ~/.ralph/e2b_api_key (chmod 600) — never store the key in this file.
+# Uncomment to enable; CLI flags (--sandbox e2b, --sandbox-template, ...) override these.
+#SANDBOX_PROVIDER="e2b"
+#SANDBOX_E2B_TEMPLATE="base"
+#SANDBOX_E2B_TIMEOUT="3600"
+#SANDBOX_E2B_KEEP_ALIVE="false"
+#SANDBOX_E2B_MAX_COST=""
+#SANDBOX_E2B_COST_ALERT=""
+#SANDBOX_E2B_COST_PER_HOUR="0.10"
 RALPHRCEOF
 }
 

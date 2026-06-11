@@ -17,6 +17,15 @@ _env_SANDBOX_DOCKER_IMAGE="${SANDBOX_DOCKER_IMAGE:-}"
 _env_SANDBOX_DOCKER_MEMORY="${SANDBOX_DOCKER_MEMORY:-}"
 _env_SANDBOX_DOCKER_CPUS="${SANDBOX_DOCKER_CPUS:-}"
 _env_SANDBOX_DOCKER_NETWORK="${SANDBOX_DOCKER_NETWORK:-}"
+# Issue #75: E2B sandbox environment state (lib/sandbox_e2b.sh sets defaults
+# at source time, so these must be captured before the source block too)
+_env_SANDBOX_E2B_TEMPLATE="${SANDBOX_E2B_TEMPLATE:-}"
+_env_SANDBOX_E2B_SANDBOX_ID="${SANDBOX_E2B_SANDBOX_ID:-}"
+_env_SANDBOX_E2B_TIMEOUT="${SANDBOX_E2B_TIMEOUT:-}"
+_env_SANDBOX_E2B_KEEP_ALIVE="${SANDBOX_E2B_KEEP_ALIVE:-}"
+_env_SANDBOX_E2B_MAX_COST="${SANDBOX_E2B_MAX_COST:-}"
+_env_SANDBOX_E2B_COST_ALERT="${SANDBOX_E2B_COST_ALERT:-}"
+_env_SANDBOX_E2B_COST_PER_HOUR="${SANDBOX_E2B_COST_PER_HOUR:-}"
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -28,6 +37,7 @@ source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source l
 source "$SCRIPT_DIR/lib/log_utils.sh" || { echo "FATAL: Failed to source lib/log_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/github_lifecycle.sh" || { echo "FATAL: Failed to source lib/github_lifecycle.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_docker.sh" || { echo "FATAL: Failed to source lib/sandbox_docker.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/sandbox_e2b.sh" || { echo "FATAL: Failed to source lib/sandbox_e2b.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -123,6 +133,15 @@ SANDBOX_DOCKER_IMAGE="${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}"  # Containe
 SANDBOX_DOCKER_MEMORY="${SANDBOX_DOCKER_MEMORY:-4g}"              # Container memory limit
 SANDBOX_DOCKER_CPUS="${SANDBOX_DOCKER_CPUS:-2}"                   # Container CPU limit
 SANDBOX_DOCKER_NETWORK="${SANDBOX_DOCKER_NETWORK:-bridge}"        # none | bridge | host (bridge: Claude API reachable)
+# Issue #75: E2B cloud sandbox execution (lib/sandbox_e2b.sh sets the same
+# defaults at source time; repeated here so the configuration surface is visible)
+SANDBOX_E2B_TEMPLATE="${SANDBOX_E2B_TEMPLATE:-base}"              # E2B template (custom templates can preinstall claude)
+SANDBOX_E2B_SANDBOX_ID="${SANDBOX_E2B_SANDBOX_ID:-}"              # Reconnect to an existing sandbox instead of creating one
+SANDBOX_E2B_TIMEOUT="${SANDBOX_E2B_TIMEOUT:-3600}"                # Sandbox session timeout in seconds
+SANDBOX_E2B_KEEP_ALIVE="${SANDBOX_E2B_KEEP_ALIVE:-false}"         # Leave the sandbox running on exit (reuse via --sandbox-id)
+SANDBOX_E2B_MAX_COST="${SANDBOX_E2B_MAX_COST:-}"                  # Stop gracefully once estimated cost reaches this USD amount
+SANDBOX_E2B_COST_ALERT="${SANDBOX_E2B_COST_ALERT:-}"              # Warn once when estimated cost reaches this USD amount
+SANDBOX_E2B_COST_PER_HOUR="${SANDBOX_E2B_COST_PER_HOUR:-0.10}"    # Estimated $/h used for cost tracking (see e2b.dev/pricing)
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -315,6 +334,13 @@ load_ralphrc() {
     [[ -n "$_env_SANDBOX_DOCKER_MEMORY" ]] && SANDBOX_DOCKER_MEMORY="$_env_SANDBOX_DOCKER_MEMORY"
     [[ -n "$_env_SANDBOX_DOCKER_CPUS" ]] && SANDBOX_DOCKER_CPUS="$_env_SANDBOX_DOCKER_CPUS"
     [[ -n "$_env_SANDBOX_DOCKER_NETWORK" ]] && SANDBOX_DOCKER_NETWORK="$_env_SANDBOX_DOCKER_NETWORK"
+    [[ -n "$_env_SANDBOX_E2B_TEMPLATE" ]] && SANDBOX_E2B_TEMPLATE="$_env_SANDBOX_E2B_TEMPLATE"
+    [[ -n "$_env_SANDBOX_E2B_SANDBOX_ID" ]] && SANDBOX_E2B_SANDBOX_ID="$_env_SANDBOX_E2B_SANDBOX_ID"
+    [[ -n "$_env_SANDBOX_E2B_TIMEOUT" ]] && SANDBOX_E2B_TIMEOUT="$_env_SANDBOX_E2B_TIMEOUT"
+    [[ -n "$_env_SANDBOX_E2B_KEEP_ALIVE" ]] && SANDBOX_E2B_KEEP_ALIVE="$_env_SANDBOX_E2B_KEEP_ALIVE"
+    [[ -n "$_env_SANDBOX_E2B_MAX_COST" ]] && SANDBOX_E2B_MAX_COST="$_env_SANDBOX_E2B_MAX_COST"
+    [[ -n "$_env_SANDBOX_E2B_COST_ALERT" ]] && SANDBOX_E2B_COST_ALERT="$_env_SANDBOX_E2B_COST_ALERT"
+    [[ -n "$_env_SANDBOX_E2B_COST_PER_HOUR" ]] && SANDBOX_E2B_COST_PER_HOUR="$_env_SANDBOX_E2B_COST_PER_HOUR"
 
     RALPHRC_LOADED=true
     return 0
@@ -548,6 +574,13 @@ setup_tmux_session() {
     [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
     [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
     [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
+    # E2B sandbox flags (Issue #75) — same non-default forwarding rule
+    [[ "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
+    [[ -n "${SANDBOX_E2B_SANDBOX_ID:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-id '$SANDBOX_E2B_SANDBOX_ID'"
+    [[ "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
+    [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
+    [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
+    [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,
@@ -1665,27 +1698,40 @@ rollback_to_backup() {
     return 0
 }
 
-# wrap_claude_command_for_sandbox - Route CLAUDE_CMD_ARGS through the sandbox (Issue #74)
+# wrap_claude_command_for_sandbox - Route CLAUDE_CMD_ARGS through the sandbox (Issues #74/#75)
 #
-# Replaces the global CLAUDE_CMD_ARGS array with its `docker exec` wrapping so
-# the Claude CLI runs inside the persistent sandbox container. The array-in/
-# array-out shape keeps both execution paths (live stream-json pipeline and
-# background mode) working unchanged. Returns 1 when no container is running —
-# callers must treat that as fatal rather than falling back to host execution.
+# Replaces the global CLAUDE_CMD_ARGS array with its sandbox wrapping (`docker
+# exec` or the E2B helper exec) so the Claude CLI runs inside the sandbox. The
+# array-in/array-out shape keeps both execution paths (live stream-json
+# pipeline and background mode) working unchanged. Returns 1 when no sandbox
+# is running — callers must treat that as fatal rather than falling back to
+# host execution.
 wrap_claude_command_for_sandbox() {
-    # Liveness + recovery first: the container can die between iterations
-    # (OOM kill under --memory, daemon restart) and exec against a dead
-    # container would burn loops until the circuit breaker opens.
-    if ! ensure_sandbox_container; then
-        return 1
-    fi
-    # Inside the container the CLI is always `claude` on PATH. Host-specific
+    # Liveness + recovery first: a container can die between iterations (OOM
+    # kill under --memory, daemon restart) and an E2B sandbox expires at its
+    # session timeout — exec against a dead sandbox would burn loops until
+    # the circuit breaker opens.
+    case "$SANDBOX_PROVIDER" in
+        docker)
+            ensure_sandbox_container || return 1
+            ;;
+        e2b)
+            ensure_e2b_sandbox || return 1
+            ;;
+        *)
+            log_status "ERROR" "wrap_claude_command_for_sandbox: unsupported provider '$SANDBOX_PROVIDER'"
+            return 1
+            ;;
+    esac
+    # Inside the sandbox the CLI is always `claude` on PATH. Host-specific
     # CLAUDE_CODE_CMD values (absolute paths like /opt/homebrew/bin/claude,
-    # npx wrappers) don't exist in the image, so argv[0] is rewritten.
-    local -a container_cmd=("${CLAUDE_CMD_ARGS[@]}")
-    container_cmd[0]="claude"
-    if ! build_sandbox_exec_args "${container_cmd[@]}"; then
-        return 1
+    # npx wrappers) don't exist there, so argv[0] is rewritten.
+    local -a sandbox_cmd=("${CLAUDE_CMD_ARGS[@]}")
+    sandbox_cmd[0]="claude"
+    if [[ "$SANDBOX_PROVIDER" == "e2b" ]]; then
+        build_e2b_exec_args "${sandbox_cmd[@]}" || return 1
+    else
+        build_sandbox_exec_args "${sandbox_cmd[@]}" || return 1
     fi
     CLAUDE_CMD_ARGS=("${SANDBOX_EXEC_ARGS[@]}")
     return 0
@@ -1755,10 +1801,10 @@ execute_claude_code() {
         fi
     fi
 
-    # Issue #74: route execution through the Docker sandbox. The user asked for
+    # Issues #74/#75: route execution through the sandbox. The user asked for
     # isolation, so a failure here is fatal — NEVER silently fall back to
     # executing Claude on the host.
-    if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+    if [[ "$SANDBOX_PROVIDER" == "docker" || "$SANDBOX_PROVIDER" == "e2b" ]]; then
         if [[ "$use_modern_cli" != "true" ]]; then
             log_status "ERROR" "Sandbox mode requires the modern CLI command; refusing host-side legacy fallback"
             return 1
@@ -1767,7 +1813,11 @@ execute_claude_code() {
             log_status "ERROR" "Failed to wrap Claude command for sandbox execution"
             return 1
         fi
-        log_status "INFO" "🐳 Executing in Docker sandbox (image: $SANDBOX_DOCKER_IMAGE)"
+        if [[ "$SANDBOX_PROVIDER" == "e2b" ]]; then
+            log_status "INFO" "☁️  Executing in E2B sandbox (template: $SANDBOX_E2B_TEMPLATE)"
+        else
+            log_status "INFO" "🐳 Executing in Docker sandbox (image: $SANDBOX_DOCKER_IMAGE)"
+        fi
     fi
 
     # Execute Claude Code
@@ -2091,6 +2141,14 @@ EOF
         exit_code=$?
     fi
 
+    # Issue #75: pull changed files back from the cloud sandbox BEFORE the
+    # analysis and git-based progress detection below, so sandbox-side work
+    # counts as progress on the host. Runs on every exit path (success,
+    # failure, timeout) — partial work must never be stranded in the cloud.
+    if [[ "$SANDBOX_PROVIDER" == "e2b" ]]; then
+        sync_e2b_artifacts_down || log_status "WARN" "E2B artifact sync failed for this iteration"
+    fi
+
     if [ $exit_code -eq 0 ]; then
         # Check for is_error:true — API error despite exit code 0 (Issue #134, #199)
         # Claude CLI can return exit code 0 with is_error:true for API 400 errors,
@@ -2225,10 +2283,13 @@ EOF
         if [[ $exit_code -eq 124 ]]; then
             log_status "WARN" "⏱️ Claude Code execution timed out (not an API limit)"
 
-            # Issue #74: a host-side timeout kills only the docker exec client;
-            # restart the container so orphaned in-container processes are reaped
+            # Issues #74/#75: a host-side timeout kills only the local exec
+            # client; reap the orphaned process inside the sandbox (container
+            # restart / remote pkill) so the next iteration starts clean
             if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
                 handle_sandbox_timeout
+            elif [[ "$SANDBOX_PROVIDER" == "e2b" ]]; then
+                handle_e2b_sandbox_timeout
             fi
 
             # Check git for actual changes made during the timed-out execution
@@ -2344,11 +2405,14 @@ cleanup() {
     if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
     _CLEANUP_DONE=true
 
-    # Tear down the Docker sandbox on any exit path so no orphaned containers
-    # or credential files are left behind (Issue #74). cleanup_docker_sandbox
-    # is idempotent, so running here AND after the main loop is safe.
+    # Tear down the sandbox on any exit path so no orphaned containers, cloud
+    # sandboxes (billing!), or credential files are left behind (Issues
+    # #74/#75). Both cleanups are idempotent, so running here AND after the
+    # main loop is safe.
     if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]] && declare -F cleanup_docker_sandbox >/dev/null 2>&1; then
         cleanup_docker_sandbox
+    elif [[ "${SANDBOX_PROVIDER:-}" == "e2b" ]] && declare -F cleanup_e2b_sandbox >/dev/null 2>&1; then
+        cleanup_e2b_sandbox
     fi
 
     # Only record "interrupted" status for abnormal exits (non-zero exit code)
@@ -2414,21 +2478,39 @@ main() {
     [[ -n "${_cli_SANDBOX_MEMORY:-}" ]] && SANDBOX_DOCKER_MEMORY="$_cli_SANDBOX_MEMORY"
     [[ -n "${_cli_SANDBOX_CPUS:-}" ]] && SANDBOX_DOCKER_CPUS="$_cli_SANDBOX_CPUS"
     [[ -n "${_cli_SANDBOX_NETWORK:-}" ]] && SANDBOX_DOCKER_NETWORK="$_cli_SANDBOX_NETWORK"
+    # E2B sandbox flags (Issue #75) — CLI overrides .ralphrc
+    [[ -n "${_cli_SANDBOX_E2B_TEMPLATE:-}" ]] && SANDBOX_E2B_TEMPLATE="$_cli_SANDBOX_E2B_TEMPLATE"
+    [[ -n "${_cli_SANDBOX_E2B_SANDBOX_ID:-}" ]] && SANDBOX_E2B_SANDBOX_ID="$_cli_SANDBOX_E2B_SANDBOX_ID"
+    [[ -n "${_cli_SANDBOX_E2B_TIMEOUT:-}" ]] && SANDBOX_E2B_TIMEOUT="$_cli_SANDBOX_E2B_TIMEOUT"
+    [[ "${_cli_SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && SANDBOX_E2B_KEEP_ALIVE=true
+    [[ -n "${_cli_SANDBOX_E2B_MAX_COST:-}" ]] && SANDBOX_E2B_MAX_COST="$_cli_SANDBOX_E2B_MAX_COST"
+    [[ -n "${_cli_SANDBOX_E2B_COST_ALERT:-}" ]] && SANDBOX_E2B_COST_ALERT="$_cli_SANDBOX_E2B_COST_ALERT"
 
-    # Sandbox sub-flags are meaningless without a provider (Issue #74). Checked
-    # here (not at parse time) because .ralphrc may legitimately supply
-    # SANDBOX_PROVIDER while the CLI only overrides e.g. the image.
-    if [[ -z "$SANDBOX_PROVIDER" ]] && \
-       [[ -n "${_cli_SANDBOX_IMAGE:-}${_cli_SANDBOX_MEMORY:-}${_cli_SANDBOX_CPUS:-}${_cli_SANDBOX_NETWORK:-}" ]]; then
+    # Sandbox sub-flags are meaningless without a provider, and each sub-flag
+    # belongs to exactly one provider (Issues #74/#75). Checked here (not at
+    # parse time) because .ralphrc may legitimately supply SANDBOX_PROVIDER
+    # while the CLI only overrides e.g. the image or template.
+    local _cli_docker_subflags="${_cli_SANDBOX_IMAGE:-}${_cli_SANDBOX_MEMORY:-}${_cli_SANDBOX_CPUS:-}${_cli_SANDBOX_NETWORK:-}"
+    local _cli_e2b_subflags="${_cli_SANDBOX_E2B_TEMPLATE:-}${_cli_SANDBOX_E2B_SANDBOX_ID:-}${_cli_SANDBOX_E2B_TIMEOUT:-}${_cli_SANDBOX_E2B_MAX_COST:-}${_cli_SANDBOX_E2B_COST_ALERT:-}"
+    [[ "${_cli_SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && _cli_e2b_subflags+="keep-alive"
+    if [[ -z "$SANDBOX_PROVIDER" && -n "${_cli_docker_subflags}${_cli_e2b_subflags}" ]]; then
+        log_status "ERROR" "Sandbox sub-flags (--sandbox-image/--sandbox-template/...) require --sandbox <provider>"
+        exit 1
+    fi
+    if [[ "$SANDBOX_PROVIDER" == "e2b" && -n "$_cli_docker_subflags" ]]; then
         log_status "ERROR" "--sandbox-image/--sandbox-memory/--sandbox-cpus/--sandbox-network require --sandbox docker"
+        exit 1
+    fi
+    if [[ "$SANDBOX_PROVIDER" == "docker" && -n "$_cli_e2b_subflags" ]]; then
+        log_status "ERROR" "--sandbox-template/--sandbox-id/--sandbox-timeout/--sandbox-keep-alive/--sandbox-max-cost/--sandbox-cost-alert require --sandbox e2b"
         exit 1
     fi
 
     # SANDBOX_PROVIDER can arrive via env/.ralphrc, bypassing the CLI's parse-time
     # validation. An unsupported value (typo, not-yet-implemented provider) must
     # halt — silently executing on the host would defeat the requested isolation.
-    if [[ -n "$SANDBOX_PROVIDER" && "$SANDBOX_PROVIDER" != "docker" ]]; then
-        log_status "ERROR" "Unsupported sandbox provider '$SANDBOX_PROVIDER' (supported: docker). Refusing host execution."
+    if [[ -n "$SANDBOX_PROVIDER" && "$SANDBOX_PROVIDER" != "docker" && "$SANDBOX_PROVIDER" != "e2b" ]]; then
+        log_status "ERROR" "Unsupported sandbox provider '$SANDBOX_PROVIDER' (supported: docker, e2b). Refusing host execution."
         exit 1
     fi
 
@@ -2446,10 +2528,10 @@ main() {
     fi
 
     # Validate Claude Code CLI is available before starting. In sandbox mode
-    # Claude runs inside the container (the image pins its own CLI), so host
-    # validation/version checks are skipped (Issue #74).
-    if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
-        log_status "INFO" "Sandbox mode: skipping host Claude CLI validation (container provides the CLI)"
+    # Claude runs inside the container/cloud sandbox (which provides its own
+    # CLI), so host validation/version checks are skipped (Issues #74/#75).
+    if [[ "$SANDBOX_PROVIDER" == "docker" || "$SANDBOX_PROVIDER" == "e2b" ]]; then
+        log_status "INFO" "Sandbox mode: skipping host Claude CLI validation (the sandbox provides the CLI)"
     else
         if ! validate_claude_command; then
             log_status "ERROR" "Claude Code CLI not found: $CLAUDE_CODE_CMD"
@@ -2507,6 +2589,18 @@ main() {
         if ! init_docker_sandbox || ! setup_docker_credentials || ! start_sandbox_container; then
             log_status "ERROR" "Docker sandbox setup failed — refusing to fall back to host execution"
             cleanup_docker_sandbox
+            exit 1
+        fi
+    fi
+
+    # Start the E2B cloud sandbox before entering the loop (Issue #75). One
+    # sandbox serves every iteration; the project is uploaded once and changed
+    # files sync back after each loop. Failure is fatal — no host fallback.
+    if [[ "$SANDBOX_PROVIDER" == "e2b" ]]; then
+        log_status "INFO" "☁️  E2B sandbox mode enabled (template: $SANDBOX_E2B_TEMPLATE, session timeout: ${SANDBOX_E2B_TIMEOUT}s)"
+        if ! init_e2b_sandbox || ! start_e2b_sandbox; then
+            log_status "ERROR" "E2B sandbox setup failed — refusing to fall back to host execution"
+            cleanup_e2b_sandbox
             exit 1
         fi
     fi
@@ -2731,13 +2825,25 @@ main() {
             sleep 30
         fi
         
+        # Enforce the E2B cost budget between iterations (Issue #75): once the
+        # estimated spend reaches --sandbox-max-cost, stop gracefully (artifacts
+        # are already synced; cleanup below kills the sandbox to stop billing).
+        if [[ "$SANDBOX_PROVIDER" == "e2b" ]] && ! check_e2b_cost_limits; then
+            log_status "WARN" "💸 E2B cost limit reached — exiting gracefully"
+            send_notification "Ralph - Cost Limit" "E2B sandbox cost limit reached. Loop stopped."
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0)" "cost_limit" "stopped" "e2b_cost_limit"
+            break
+        fi
+
         log_status "LOOP" "=== Completed Loop #$loop_count ==="
     done
 
     # Tear down the sandbox on every normal loop exit (break paths). The
-    # SIGINT/SIGTERM trap covers interrupts; cleanup is idempotent (Issue #74).
+    # SIGINT/SIGTERM trap covers interrupts; cleanup is idempotent (Issues #74/#75).
     if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
         cleanup_docker_sandbox
+    elif [[ "$SANDBOX_PROVIDER" == "e2b" ]]; then
+        cleanup_e2b_sandbox
     fi
 }
 
@@ -2792,15 +2898,26 @@ GitHub issue lifecycle (Issue #73; all opt-in, require --github-issue):
     --followup-label LABEL  Label for follow-up issues (default: $FOLLOWUP_LABEL)
     --add-label LABEL       Label to add to the issue on close (repeatable)
 
-Sandbox execution (Issue #74; isolates Claude in a Docker container):
-    --sandbox PROVIDER      Run Claude Code inside a sandbox: docker
-                            (e2b, daytona, cloudflare planned — see issues #75/#79/#80)
+Sandbox execution (Issues #74/#75; isolates Claude in a sandbox):
+    --sandbox PROVIDER      Run Claude Code inside a sandbox: docker, e2b
+                            (daytona, cloudflare planned — see issues #79/#80)
+
+  Docker provider sub-flags (--sandbox docker):
     --sandbox-image IMAGE   Container image (default: $SANDBOX_DOCKER_IMAGE)
                             Build the default: docker build -t ralph-sandbox .
     --sandbox-memory SIZE   Container memory limit (default: $SANDBOX_DOCKER_MEMORY)
     --sandbox-cpus NUM      Container CPU limit (default: $SANDBOX_DOCKER_CPUS)
     --sandbox-network MODE  Container network: none, bridge, host (default: $SANDBOX_DOCKER_NETWORK)
                             Note: 'none' blocks the Claude API — only for pre-authenticated images
+
+  E2B cloud provider sub-flags (--sandbox e2b; needs E2B_API_KEY or ~/.ralph/e2b_api_key):
+    --sandbox-template T    E2B template (default: $SANDBOX_E2B_TEMPLATE; custom templates can preinstall claude)
+    --sandbox-id ID         Reconnect to an existing E2B sandbox instead of creating one
+    --sandbox-timeout SECS  E2B session timeout in seconds (default: $SANDBOX_E2B_TIMEOUT)
+    --sandbox-keep-alive    Leave the sandbox running on exit (reuse via --sandbox-id)
+    --sandbox-max-cost USD  Stop gracefully once estimated cost reaches this amount
+    --sandbox-cost-alert USD  Warn once when estimated cost reaches this amount
+                            (rate via SANDBOX_E2B_COST_PER_HOUR in .ralphrc, default $SANDBOX_E2B_COST_PER_HOUR/h)
 
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
@@ -3030,18 +3147,18 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --sandbox)
-            # Docker sandbox execution (Issue #74)
+            # Sandbox execution (Issues #74/#75)
             case "${2:-}" in
-                docker)
-                    SANDBOX_PROVIDER="docker"
-                    _cli_SANDBOX_PROVIDER="docker"
+                docker|e2b)
+                    SANDBOX_PROVIDER="$2"
+                    _cli_SANDBOX_PROVIDER="$2"
                     ;;
-                e2b|daytona|cloudflare)
-                    echo "Error: --sandbox $2 is not yet implemented (see issues #75, #79, #80). Supported: docker"
+                daytona|cloudflare)
+                    echo "Error: --sandbox $2 is not yet implemented (see issues #79, #80). Supported: docker, e2b"
                     exit 1
                     ;;
                 *)
-                    echo "Error: --sandbox requires a provider. Supported: docker"
+                    echo "Error: --sandbox requires a provider. Supported: docker, e2b"
                     exit 1
                     ;;
             esac
@@ -3085,6 +3202,57 @@ while [[ $# -gt 0 ]]; do
                     exit 1
                     ;;
             esac
+            shift 2
+            ;;
+        --sandbox-template)
+            # E2B sandbox sub-flags (Issue #75)
+            if [[ -z "${2:-}" || ! "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+                echo "Error: --sandbox-template requires a valid E2B template name (e.g. base)"
+                exit 1
+            fi
+            SANDBOX_E2B_TEMPLATE="$2"
+            _cli_SANDBOX_E2B_TEMPLATE="$2"
+            shift 2
+            ;;
+        --sandbox-id)
+            if [[ -z "${2:-}" || ! "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+                echo "Error: --sandbox-id requires a valid E2B sandbox id (e.g. sbx_abc123)"
+                exit 1
+            fi
+            SANDBOX_E2B_SANDBOX_ID="$2"
+            _cli_SANDBOX_E2B_SANDBOX_ID="$2"
+            shift 2
+            ;;
+        --sandbox-timeout)
+            if [[ ! "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: --sandbox-timeout must be a positive number of seconds (e.g. 3600)"
+                exit 1
+            fi
+            SANDBOX_E2B_TIMEOUT="$2"
+            _cli_SANDBOX_E2B_TIMEOUT="$2"
+            shift 2
+            ;;
+        --sandbox-keep-alive)
+            SANDBOX_E2B_KEEP_ALIVE=true
+            _cli_SANDBOX_E2B_KEEP_ALIVE=true
+            shift
+            ;;
+        --sandbox-max-cost)
+            if [[ ! "${2:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                echo "Error: --sandbox-max-cost must be a dollar amount (e.g. 5.00)"
+                exit 1
+            fi
+            SANDBOX_E2B_MAX_COST="$2"
+            _cli_SANDBOX_E2B_MAX_COST="$2"
+            shift 2
+            ;;
+        --sandbox-cost-alert)
+            if [[ ! "${2:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                echo "Error: --sandbox-cost-alert must be a dollar amount (e.g. 2.00)"
+                exit 1
+            fi
+            SANDBOX_E2B_COST_ALERT="$2"
+            _cli_SANDBOX_E2B_COST_ALERT="$2"
             shift 2
             ;;
         --queue-status)

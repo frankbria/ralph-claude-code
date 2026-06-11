@@ -2002,8 +2002,15 @@ EOF
     [[ "$output" != *"Error"* ]]
 }
 
-@test "issue #74: --sandbox e2b is rejected as not yet implemented" {
-    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b 2>&1"
+@test "issue #75: --sandbox e2b is accepted" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --help 2>&1 || true"
+    [[ "$output" != *"Unknown option"* ]]
+    [[ "$output" != *"not yet implemented"* ]]
+    [[ "$output" != *"Error"* ]]
+}
+
+@test "issue #75: --sandbox daytona is still rejected as not yet implemented" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox daytona 2>&1"
     [[ $status -ne 0 ]]
     [[ "$output" == *"not yet implemented"* ]]
 }
@@ -2063,7 +2070,76 @@ EOF
 @test "issue #74: unsupported provider from environment halts instead of host fallback" {
     # SANDBOX_PROVIDER can arrive via env/.ralphrc, bypassing CLI validation —
     # a typo or unimplemented provider must never silently execute on the host
-    SANDBOX_PROVIDER=e2b run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    SANDBOX_PROVIDER=daytona run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [ "$status" -ne 0 ]
     [[ "$output" == *"nsupported sandbox provider"* ]]
+}
+
+# ==============================================================================
+# Issue #75: --sandbox e2b CLI flags
+# ==============================================================================
+
+@test "issue #75: e2b sub-flags are accepted alongside --sandbox e2b" {
+    local flags="--sandbox e2b --sandbox-template python --sandbox-id sbx_abc123 --sandbox-timeout 7200 --sandbox-keep-alive --sandbox-max-cost 5.00 --sandbox-cost-alert 2.00"
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh $flags --help 2>&1 || true"
+    [[ "$output" != *"Unknown option"* ]]
+    [[ "$output" != *"Error"* ]]
+}
+
+@test "issue #75: --sandbox-template rejects shell metacharacters" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sandbox-template 'evil;rm -rf /' 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"template"* ]]
+}
+
+@test "issue #75: --sandbox-id rejects malformed sandbox ids" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sandbox-id 'bad id!' 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"sandbox-id"* ]]
+}
+
+@test "issue #75: --sandbox-timeout rejects non-numeric values" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sandbox-timeout soon 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"timeout"* ]]
+}
+
+@test "issue #75: --sandbox-max-cost rejects non-numeric values" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sandbox-max-cost 'five' 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"max-cost"* ]]
+}
+
+@test "issue #75: --sandbox-cost-alert rejects non-numeric values" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sandbox-cost-alert 'lots' 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"cost-alert"* ]]
+}
+
+@test "issue #75: e2b sub-flag without --sandbox errors at startup" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --sandbox-template python
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--sandbox"* ]]
+}
+
+@test "issue #75: e2b sub-flags with the docker provider error at startup" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --sandbox docker --sandbox-template python
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--sandbox e2b"* ]]
+}
+
+@test "issue #75: docker sub-flags with the e2b provider error at startup" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --sandbox e2b --sandbox-image node:20
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--sandbox docker"* ]]
+}
+
+@test "issue #75: help text documents the e2b sandbox flags" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --help 2>&1 || true"
+    [[ "$output" == *"--sandbox-template"* ]]
+    [[ "$output" == *"--sandbox-id"* ]]
+    [[ "$output" == *"--sandbox-timeout"* ]]
+    [[ "$output" == *"--sandbox-keep-alive"* ]]
+    [[ "$output" == *"--sandbox-max-cost"* ]]
+    [[ "$output" == *"--sandbox-cost-alert"* ]]
 }

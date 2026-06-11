@@ -167,6 +167,13 @@ setup_tmux_session() {
     [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
     [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
     [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
+    # E2B sandbox flags (Issue #75) — same non-default forwarding rule
+    [[ "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
+    [[ -n "${SANDBOX_E2B_SANDBOX_ID:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-id '$SANDBOX_E2B_SANDBOX_ID'"
+    [[ "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
+    [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
+    [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
+    [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
 
     tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
 
@@ -546,6 +553,50 @@ assert_tmux_called_with() {
     pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--sandbox-image 'node:20'"* ]]
     [[ "$pane0_line" != *"--sandbox docker"* ]]
+}
+
+# ==============================================================================
+# Issue #75: --monitor forwards E2B sandbox flags to the loop command
+# ==============================================================================
+
+@test "setup_tmux_session forwards e2b sandbox flags to loop command" {
+    export SANDBOX_PROVIDER=e2b
+    export SANDBOX_E2B_TEMPLATE="python"
+    export SANDBOX_E2B_SANDBOX_ID="sbx_abc123"
+    export SANDBOX_E2B_TIMEOUT="7200"
+    export SANDBOX_E2B_KEEP_ALIVE="true"
+    export SANDBOX_E2B_MAX_COST="5.00"
+    export SANDBOX_E2B_COST_ALERT="2.00"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--sandbox e2b"* ]]
+    [[ "$pane0_line" == *"--sandbox-template 'python'"* ]]
+    [[ "$pane0_line" == *"--sandbox-id 'sbx_abc123'"* ]]
+    [[ "$pane0_line" == *"--sandbox-timeout 7200"* ]]
+    [[ "$pane0_line" == *"--sandbox-keep-alive"* ]]
+    [[ "$pane0_line" == *"--sandbox-max-cost 5.00"* ]]
+    [[ "$pane0_line" == *"--sandbox-cost-alert 2.00"* ]]
+}
+
+@test "setup_tmux_session omits e2b flags at their defaults" {
+    export SANDBOX_PROVIDER=e2b
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--sandbox e2b"* ]]
+    [[ "$pane0_line" != *"--sandbox-template"* ]]
+    [[ "$pane0_line" != *"--sandbox-id"* ]]
+    [[ "$pane0_line" != *"--sandbox-timeout"* ]]
+    [[ "$pane0_line" != *"--sandbox-keep-alive"* ]]
+    [[ "$pane0_line" != *"--sandbox-max-cost"* ]]
+    [[ "$pane0_line" != *"--sandbox-cost-alert"* ]]
 }
 
 # ==============================================================================
