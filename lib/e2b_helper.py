@@ -143,6 +143,8 @@ def cmd_exec(args):
     except CommandExitException as exc:
         sys.exit(getattr(exc, "exit_code", 1) or 1)
     except Exception as exc:
+        # NOT _die(): exec's stdout carries the streamed remote output (it
+        # becomes Ralph's claude output file), so errors must stay on stderr.
         print("e2b exec failed: %s" % exc, file=sys.stderr)
         sys.exit(1)
     sys.exit(getattr(result, "exit_code", 0) or 0)
@@ -189,6 +191,8 @@ def cmd_download(args):
         data = sandbox.files.read(DOWNLOAD_STAGING, format="bytes")
         sandbox.commands.run("rm -f %s %s" % (shlex.quote(DOWNLOAD_STAGING), shlex.quote(CHANGED_LIST)))
     except Exception as exc:
+        # NOT _die(): download's stdout carries raw tar bytes; JSON on stdout
+        # would corrupt the archive. Errors must stay on stderr.
         print("e2b download failed: %s" % exc, file=sys.stderr)
         sys.exit(1)
     sys.stdout.buffer.write(bytes(data))
