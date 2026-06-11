@@ -38,6 +38,7 @@ CHANGED_LIST = "/tmp/ralph_changed.list"
 # Archive member carrying the sandbox's CURRENT file list, so the host can
 # propagate sandbox-side deletions/renames (stale-file divergence otherwise)
 MANIFEST_NAME = ".ralph_e2b_manifest"
+MANIFEST_STAGING = os.path.join("/tmp", MANIFEST_NAME)
 
 
 def _emit(obj):
@@ -147,13 +148,16 @@ def cmd_exec(args):
             on_stderr=_err,
         )
     except CommandExitException as exc:
-        sys.exit(getattr(exc, "exit_code", 1) or 1)
+        # None-check, not `or`: a hypothetical exit_code=0 must not become 1
+        code = getattr(exc, "exit_code", None)
+        sys.exit(code if code is not None else 1)
     except Exception as exc:
         # NOT _die(): exec's stdout carries the streamed remote output (it
         # becomes Ralph's claude output file), so errors must stay on stderr.
         print("e2b exec failed: %s" % exc, file=sys.stderr)
         sys.exit(1)
-    sys.exit(getattr(result, "exit_code", 0) or 0)
+    code = getattr(result, "exit_code", None)
+    sys.exit(code if code is not None else 0)
 
 
 def cmd_upload(args):
@@ -191,13 +195,15 @@ def cmd_download(args):
     script = (
         "cd {src} && "
         "if [ -f {marker} ]; then find . -type f -newer {marker} -print0; else : ; fi > {changed} && "
-        "find . -type f ! -path './.git/*' > /tmp/{manifest} && "
-        "tar -czf {staging} --null -T {changed} -C /tmp {manifest}"
+        "find . -type f ! -path './.git/*' > {manifest_staging} && "
+        "tar -czf {staging} --null -T {changed} -C {manifest_dir} {manifest}"
     ).format(
         src=shlex.quote(args.src),
         marker=shlex.quote(marker),
         changed=shlex.quote(CHANGED_LIST),
         staging=shlex.quote(DOWNLOAD_STAGING),
+        manifest_staging=shlex.quote(MANIFEST_STAGING),
+        manifest_dir=shlex.quote(os.path.dirname(MANIFEST_STAGING)),
         manifest=shlex.quote(MANIFEST_NAME),
     )
     try:
@@ -217,9 +223,9 @@ def cmd_ack_download(args):
     sandbox = _connect(args.sandbox_id)
     marker = _sync_marker(args.src)
     try:
-        sandbox.commands.run("touch %s && rm -f %s %s /tmp/%s" % (
+        sandbox.commands.run("touch %s && rm -f %s %s %s" % (
             shlex.quote(marker), shlex.quote(DOWNLOAD_STAGING),
-            shlex.quote(CHANGED_LIST), shlex.quote(MANIFEST_NAME)))
+            shlex.quote(CHANGED_LIST), shlex.quote(MANIFEST_STAGING)))
     except Exception as exc:
         _die("ack-download failed: %s" % exc)
     _emit({"ok": True})

@@ -476,16 +476,21 @@ upload_project_to_e2b() {
 _apply_e2b_deletions() {
     local manifest=$1
     [[ -f "$E2B_SYNCED_FILES_FILE" ]] || return 0
+    # comm needs both sides sorted; this keeps the pass O(n log n) instead of
+    # a per-line grep subshell over the whole manifest (O(n^2))
+    local candidates
+    candidates=$(comm -23 <(sort -u "$E2B_SYNCED_FILES_FILE") <(sort -u <<<"$manifest"))
+    [[ -z "$candidates" ]] && return 0
     local deleted=0 old
     while IFS= read -r old; do
         [[ -z "$old" ]] && continue
         case "$old" in
             /*|*..*|.git|.git/*|*/.git/*|.ralph|.ralph/*) continue ;;
         esac
-        if [[ -f "$old" ]] && ! grep -qxF "$old" <<<"$manifest"; then
+        if [[ -f "$old" ]]; then
             rm -f "$old" && deleted=$((deleted + 1))
         fi
-    done < "$E2B_SYNCED_FILES_FILE"
+    done <<<"$candidates"
     if (( deleted > 0 )); then
         _e2b_log "INFO" "Removed $deleted file(s) deleted in the E2B sandbox"
     fi
@@ -568,7 +573,12 @@ update_e2b_cost() {
     accrued=${accrued:-0}
     created=$(e2b_state_get '.created_epoch')
     if [[ -z "$created" || "$created" == "0" ]]; then
-        awk -v a="$accrued" 'BEGIN{printf "%.4f\n", a + 0}'
+        # No active sandbox: the estimate is the accrued total alone — still
+        # persisted so status.json/monitor never show 0 while accrued > 0
+        local idle_cost
+        idle_cost=$(awk -v a="$accrued" 'BEGIN{printf "%.4f", a + 0}')
+        _e2b_apply '.estimated_cost = $c' --arg c "$idle_cost" || true
+        echo "$idle_cost"
         return 0
     fi
     local now elapsed cost

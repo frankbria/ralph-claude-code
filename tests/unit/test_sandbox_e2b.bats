@@ -730,6 +730,21 @@ _age_sandbox() {
     assert_equal "$cost" "0.3000"
 }
 
+@test "update_e2b_cost: persists accrued-only cost while no sandbox is active" {
+    _started_sandbox
+    _age_sandbox 7200            # $0.20 on the first sandbox
+    start_e2b_sandbox            # folds $0.20 into accrued_cost
+    # Simulate the no-active-sandbox window (epoch cleared)
+    local tmp
+    tmp=$(mktemp)
+    jq '.created_epoch = 0' "$E2B_SANDBOX_STATE_FILE" > "$tmp"
+    mv "$tmp" "$E2B_SANDBOX_STATE_FILE"
+    local cost
+    cost=$(update_e2b_cost)
+    assert_equal "$cost" "0.2000"
+    assert_equal "$(jq -r '.estimated_cost' "$E2B_SANDBOX_STATE_FILE")" "0.2000"
+}
+
 @test "check_e2b_cost_limits: max-cost spans sandbox replacements" {
     export SANDBOX_E2B_MAX_COST="0.15"
     _started_sandbox
