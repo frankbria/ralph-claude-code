@@ -174,9 +174,15 @@ setup_tmux_session() {
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
-    # Sync filter flags (Issue #76) — forwarded unless the provider is
-    # already known to be docker (the child rejects --sync-* with docker)
-    if [[ "${SANDBOX_PROVIDER:-}" != "docker" ]]; then
+    # Sync filter flags (Issue #76) — CLI flags with docker are rejected
+    # here (main() never runs in monitor mode); env-only values are not
+    # forwarded for docker, matching the plain-run behavior
+    if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]]; then
+        if [[ -n "${_cli_SYNC_INCLUDE:-}${_cli_SYNC_EXCLUDE:-}" ]]; then
+            log_status "ERROR" "--sync-include/--sync-exclude do not apply to --sandbox docker (the bind mount shares the whole project in real time)"
+            exit 1
+        fi
+    else
         [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
         [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
     fi
@@ -639,6 +645,20 @@ assert_tmux_called_with() {
     [[ "$pane0_line" == *"--sandbox docker"* ]]
     [[ "$pane0_line" != *"--sync-include"* ]]
     [[ "$pane0_line" != *"--sync-exclude"* ]]
+}
+
+@test "setup_tmux_session rejects CLI sync flags with the docker provider (CodeRabbit, PR #305)" {
+    # Non-monitor runs reject --sync-* with --sandbox docker in main();
+    # monitor runs exit inside setup_tmux_session before main() ever runs,
+    # so the same validation must fire here instead of silently dropping
+    # the user's flags
+    export SANDBOX_PROVIDER=docker
+    export _cli_SYNC_EXCLUDE="*.log"
+    export SYNC_EXCLUDE="*.log"
+
+    run setup_tmux_session
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"bind mount"* ]]
 }
 
 @test "setup_tmux_session omits sync filter flags when unset" {

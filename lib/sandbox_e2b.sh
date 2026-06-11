@@ -471,7 +471,9 @@ upload_project_to_e2b() {
     fi
 
     local file_count tar_size
-    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -cv '/$')
+    # grep -c exits 1 on zero matches (everything filtered) — never let that
+    # abort an errexit caller
+    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -cv '/$' || true)
     tar_size=$(_sync_file_size "$tarball")
     _e2b_log "INFO" "Uploading $file_count file(s) ($(format_sync_size "$tar_size") compressed) to E2B sandbox..."
     if ! _e2b_helper upload --sandbox-id "$sandbox_id" --dest "$SANDBOX_E2B_WORKDIR" < "$tarball" >/dev/null; then
@@ -507,8 +509,9 @@ _apply_e2b_deletions() {
     [[ -z "$candidates" ]] && return 0
     # Paths the sync filter would never sync are never deletion candidates:
     # a host file matching SYNC_EXCLUDE/.ralphignore must survive even if a
-    # stale baseline entry says it once synced (Issue #76)
-    candidates=$(printf '%s\n' "$candidates" | sync_filter_download_list)
+    # stale baseline entry says it once synced (Issue #76). Control files
+    # stay candidates — what syncs may also be deletion-synced.
+    candidates=$(printf '%s\n' "$candidates" | _e2b_filter_download_members)
     [[ -z "$candidates" ]] && return 0
     local deleted=0 old
     while IFS= read -r old; do
@@ -540,6 +543,35 @@ _e2b_member_hard_excluded() {
         .ralph/logs|.ralph/logs/*) return 0 ;;
     esac
     return 1
+}
+
+# _e2b_member_control_file <member>
+# rc 0 for the .ralph control files (mirror of the upload allowlist): user
+# sync patterns never filter these on download — a broad pattern like *.md
+# must not silently drop Claude's plan/prompt updates.
+_e2b_member_control_file() {
+    case "${1#./}" in
+        .ralphrc|.ralph/PROMPT.md|.ralph/fix_plan.md|.ralph/AGENT.md|.ralph/specs/*) return 0 ;;
+    esac
+    return 1
+}
+
+# _e2b_filter_download_members
+# stdin: newline member paths; stdout: members that survive the user's sync
+# patterns, with .ralph control files force-included past them (deduped).
+_e2b_filter_download_members() {
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ralph-e2b-members.XXXXXX") || return 1
+    cat > "$tmp"
+    {
+        sync_filter_download_list < "$tmp"
+        local m
+        while IFS= read -r m; do
+            [[ -n "$m" ]] && _e2b_member_control_file "$m" && printf '%s\n' "$m"
+        done < "$tmp"
+    } | awk '!seen[$0]++'
+    rm -f "$tmp"
+    return 0
 }
 
 # sync_e2b_artifacts_down
@@ -577,20 +609,26 @@ sync_e2b_artifacts_down() {
     manifest=$(tar -xzOf "$tarball" "$E2B_SYNC_MANIFEST_NAME" 2>/dev/null | sed 's|^\./||') || manifest=""
 
     # Member selection: hard exclusions (host-owned state, .git) first, then
-    # the user's sync patterns (SYNC_EXCLUDE/.ralphignore, Issue #76). The
-    # surviving names are extracted explicitly via -T; the tar --exclude
-    # flags below stay as defense in depth.
-    local member kept="" file_count filtered_count
+    # the user's sync patterns (SYNC_EXCLUDE/.ralphignore, Issue #76) with
+    # .ralph control files exempt. The surviving names are extracted
+    # explicitly via -T; the tar --exclude flags below stay as defense in
+    # depth. Accumulate in a temp file — bash += in a loop is O(n^2).
+    local member kept_file file_count filtered_count
+    if ! kept_file=$(mktemp "${TMPDIR:-/tmp}/ralph-e2b-kept.XXXXXX"); then
+        rm -f "$tarball"
+        return 1
+    fi
     while IFS= read -r member; do
         [[ -z "$member" ]] && continue
         _e2b_member_hard_excluded "$member" && continue
-        kept+="$member"$'\n'
+        printf '%s\n' "$member" >> "$kept_file"
     done < <(tar -tzf "$tarball" 2>/dev/null | grep -v '/$')
     local selected kept_count
-    selected=$(printf '%s' "$kept" | sync_filter_download_list)
+    selected=$(_e2b_filter_download_members < "$kept_file")
     # grep -c exits 1 on zero matches — never let that abort an errexit caller
     file_count=$(printf '%s' "$selected" | grep -c . || true)
-    kept_count=$(printf '%s' "$kept" | grep -c . || true)
+    kept_count=$(grep -c . "$kept_file" || true)
+    rm -f "$kept_file"
     filtered_count=$(( kept_count - file_count ))
 
     if [[ "$file_count" -gt 0 ]]; then
@@ -619,7 +657,7 @@ sync_e2b_artifacts_down() {
         _e2b_log "INFO" "Synced $file_count changed file(s) ($(format_sync_size "$tar_size")) from the E2B sandbox"
     fi
     if [[ "$filtered_count" -gt 0 ]]; then
-        _e2b_log "INFO" "Filtered $filtered_count file(s) from sandbox download (sync exclude patterns)"
+        _e2b_log "INFO" "Filtered $filtered_count file(s) from sandbox download (SYNC_EXCLUDE / .ralphignore patterns)"
     fi
     rm -f "$tarball"
 
@@ -634,7 +672,7 @@ sync_e2b_artifacts_down() {
         # become a deletion candidate once the sandbox removes its copy
         # (Issue #76)
         local manifest_synced manifest_tmp
-        manifest_synced=$(printf '%s\n' "$manifest" | sync_filter_download_list)
+        manifest_synced=$(printf '%s\n' "$manifest" | _e2b_filter_download_members)
         if manifest_tmp=$(mktemp "${E2B_SYNCED_FILES_FILE}.XXXXXX" 2>/dev/null); then
             printf '%s\n' "$manifest_synced" > "$manifest_tmp" \
                 && mv "$manifest_tmp" "$E2B_SYNCED_FILES_FILE" || rm -f "$manifest_tmp"

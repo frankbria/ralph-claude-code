@@ -1048,3 +1048,35 @@ _age_sandbox() {
     assert_success
     [[ "$output" == *"Filtered 1 file(s)"* ]]
 }
+
+@test "issue #76: download force-includes .ralph control files past user patterns" {
+    # A broad user pattern (*.md) must not drop Claude's plan/prompt updates
+    # on download — mirror of the upload allowlist (claude-review P3)
+    _started_sandbox
+    export SYNC_EXCLUDE="*.md"
+    cat > "$TEST_DIR/mock_bin/e2b-python" << EOF
+#!/bin/bash
+shift
+printf '%s\n' "\$*" >> "$TEST_DIR/e2b_args"
+case "\$1" in
+    download)
+        tmpd=\$(mktemp -d); mkdir -p "\$tmpd/.ralph" "\$tmpd/docs"
+        echo 'updated plan' > "\$tmpd/.ralph/fix_plan.md"
+        echo 'generic doc' > "\$tmpd/docs/notes.md"
+        printf '%s\n' "./.ralph/fix_plan.md" "./docs/notes.md" > "\$tmpd/.ralph_e2b_manifest"
+        tar -czf - -C "\$tmpd" .ralph/fix_plan.md docs/notes.md .ralph_e2b_manifest
+        rm -rf "\$tmpd"; exit 0 ;;
+    ack-download) echo '{"ok": true}'; exit 0 ;;
+esac
+exit 0
+EOF
+    chmod +x "$TEST_DIR/mock_bin/e2b-python"
+    sync_e2b_artifacts_down
+    # Control file extracted despite matching *.md...
+    assert_equal "$(cat "$RALPH_DIR/fix_plan.md")" "updated plan"
+    # ...while the generic .md artifact is filtered as configured
+    [[ ! -f docs/notes.md ]]
+    # Baseline keeps the control file (it IS synced) but not the filtered doc
+    grep -qxF ".ralph/fix_plan.md" "$RALPH_DIR/.e2b_synced_files"
+    [[ $(grep -c "docs/notes.md" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+}

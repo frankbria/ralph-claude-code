@@ -33,7 +33,10 @@ never be able to starve itself of its own prompt and plan.
 ## What downloads (E2B)
 
 Files changed in the sandbox since the last sync, filtered through
-`SYNC_EXCLUDE` + `.ralphignore` only. Two asymmetries are deliberate:
+`SYNC_EXCLUDE` + `.ralphignore` only. The `.ralph` control files
+(`.ralphrc`, `PROMPT.md`, `fix_plan.md`, `AGENT.md`, `specs/`) bypass these
+patterns on download too — a broad pattern like `*.md` must not silently
+drop Claude's plan updates. Two asymmetries are deliberate:
 
 - **Include patterns are NOT applied on download** — an artifact Claude
   creates outside your include set (a build output, a report) still comes
@@ -93,11 +96,11 @@ One pattern per line in the project root (template:
 
 Sync operations log human-readable summaries to the loop output:
 
-```
+```text
 Uploading 412 file(s) (2.3MB compressed) to E2B sandbox...
 Uploaded 412 file(s) to E2B workspace /home/user/workspace
 Synced 7 changed file(s) (18.2KB) from the E2B sandbox
-Filtered 3 file(s) from sandbox download (sync exclude patterns)
+Filtered 3 file(s) from sandbox download (SYNC_EXCLUDE / .ralphignore patterns)
 Large file in sync: data/fixtures.bin (24.0MB > 10.0MB limit; SYNC_LARGE_FILE_ACTION=skip to drop)
 ```
 

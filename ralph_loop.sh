@@ -600,11 +600,19 @@ setup_tmux_session() {
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
-    # Sync filter flags (Issue #76) — forwarded unless the provider is
-    # already known to be docker (the child rejects --sync-* with docker, so
-    # env-supplied SYNC_* would break monitor startup; an empty provider may
-    # still become e2b via the child's .ralphrc, so it forwards)
-    if [[ "${SANDBOX_PROVIDER:-}" != "docker" ]]; then
+    # Sync filter flags (Issue #76). Monitor mode exits here before main()'s
+    # validation ever runs, so explicit CLI --sync-* flags with the docker
+    # provider must be rejected now — silently dropping them would make
+    # --monitor behave differently from a plain run (CodeRabbit, PR #305).
+    # Env-supplied SYNC_* with docker is merely not forwarded (a plain run
+    # ignores it the same way); an empty provider may still become e2b via
+    # the child's .ralphrc, so it forwards.
+    if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]]; then
+        if [[ -n "${_cli_SYNC_INCLUDE:-}${_cli_SYNC_EXCLUDE:-}" ]]; then
+            log_status "ERROR" "--sync-include/--sync-exclude do not apply to --sandbox docker (the bind mount shares the whole project in real time)"
+            exit 1
+        fi
+    else
         [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
         [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
     fi
