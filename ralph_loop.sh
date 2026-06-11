@@ -26,6 +26,12 @@ _env_SANDBOX_E2B_KEEP_ALIVE="${SANDBOX_E2B_KEEP_ALIVE:-}"
 _env_SANDBOX_E2B_MAX_COST="${SANDBOX_E2B_MAX_COST:-}"
 _env_SANDBOX_E2B_COST_ALERT="${SANDBOX_E2B_COST_ALERT:-}"
 _env_SANDBOX_E2B_COST_PER_HOUR="${SANDBOX_E2B_COST_PER_HOUR:-}"
+# Issue #76: sandbox sync filter environment state (lib/sync.sh sets defaults
+# at source time, so these must be captured before the source block too)
+_env_SYNC_INCLUDE="${SYNC_INCLUDE:-}"
+_env_SYNC_EXCLUDE="${SYNC_EXCLUDE:-}"
+_env_SYNC_MAX_FILE_SIZE="${SYNC_MAX_FILE_SIZE:-}"
+_env_SYNC_LARGE_FILE_ACTION="${SYNC_LARGE_FILE_ACTION:-}"
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -36,6 +42,7 @@ source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source l
 source "$SCRIPT_DIR/lib/file_protection.sh" || { echo "FATAL: Failed to source lib/file_protection.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/log_utils.sh" || { echo "FATAL: Failed to source lib/log_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/github_lifecycle.sh" || { echo "FATAL: Failed to source lib/github_lifecycle.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/sync.sh" || { echo "FATAL: Failed to source lib/sync.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_docker.sh" || { echo "FATAL: Failed to source lib/sandbox_docker.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_e2b.sh" || { echo "FATAL: Failed to source lib/sandbox_e2b.sh" >&2; exit 1; }
 
@@ -142,6 +149,14 @@ SANDBOX_E2B_KEEP_ALIVE="${SANDBOX_E2B_KEEP_ALIVE:-false}"         # Leave the sa
 SANDBOX_E2B_MAX_COST="${SANDBOX_E2B_MAX_COST:-}"                  # Stop gracefully once estimated cost reaches this USD amount
 SANDBOX_E2B_COST_ALERT="${SANDBOX_E2B_COST_ALERT:-}"              # Warn once when estimated cost reaches this USD amount
 SANDBOX_E2B_COST_PER_HOUR="${SANDBOX_E2B_COST_PER_HOUR:-0.10}"    # Estimated $/h used for cost tracking (see e2b.dev/pricing)
+# Issue #76: sandbox sync filtering (lib/sync.sh sets the same defaults at
+# source time; repeated here so the configuration surface is visible).
+# Applies to --sandbox e2b only — the Docker bind mount shares the whole
+# project in real time, so there is nothing to filter.
+SYNC_INCLUDE="${SYNC_INCLUDE:-}"                                  # Comma-separated patterns; only matches upload (.ralph control files always go)
+SYNC_EXCLUDE="${SYNC_EXCLUDE:-}"                                  # Comma-separated patterns excluded from upload AND download
+SYNC_MAX_FILE_SIZE="${SYNC_MAX_FILE_SIZE:-10485760}"              # Upload size threshold in bytes (0 = unlimited)
+SYNC_LARGE_FILE_ACTION="${SYNC_LARGE_FILE_ACTION:-warn}"          # warn (keep) or skip (drop) files over the threshold
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -341,6 +356,10 @@ load_ralphrc() {
     [[ -n "$_env_SANDBOX_E2B_MAX_COST" ]] && SANDBOX_E2B_MAX_COST="$_env_SANDBOX_E2B_MAX_COST"
     [[ -n "$_env_SANDBOX_E2B_COST_ALERT" ]] && SANDBOX_E2B_COST_ALERT="$_env_SANDBOX_E2B_COST_ALERT"
     [[ -n "$_env_SANDBOX_E2B_COST_PER_HOUR" ]] && SANDBOX_E2B_COST_PER_HOUR="$_env_SANDBOX_E2B_COST_PER_HOUR"
+    [[ -n "$_env_SYNC_INCLUDE" ]] && SYNC_INCLUDE="$_env_SYNC_INCLUDE"
+    [[ -n "$_env_SYNC_EXCLUDE" ]] && SYNC_EXCLUDE="$_env_SYNC_EXCLUDE"
+    [[ -n "$_env_SYNC_MAX_FILE_SIZE" ]] && SYNC_MAX_FILE_SIZE="$_env_SYNC_MAX_FILE_SIZE"
+    [[ -n "$_env_SYNC_LARGE_FILE_ACTION" ]] && SYNC_LARGE_FILE_ACTION="$_env_SYNC_LARGE_FILE_ACTION"
 
     RALPHRC_LOADED=true
     return 0
@@ -581,6 +600,9 @@ setup_tmux_session() {
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
+    # Sync filter flags (Issue #76) — same non-default forwarding rule
+    [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
+    [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
 
     # Chain tmux kill-session after the loop command so the entire tmux
     # session is torn down when the Ralph loop exits (graceful completion,
@@ -2485,6 +2507,9 @@ main() {
     [[ "${_cli_SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && SANDBOX_E2B_KEEP_ALIVE=true
     [[ -n "${_cli_SANDBOX_E2B_MAX_COST:-}" ]] && SANDBOX_E2B_MAX_COST="$_cli_SANDBOX_E2B_MAX_COST"
     [[ -n "${_cli_SANDBOX_E2B_COST_ALERT:-}" ]] && SANDBOX_E2B_COST_ALERT="$_cli_SANDBOX_E2B_COST_ALERT"
+    # Sync filter flags (Issue #76) — CLI overrides .ralphrc
+    [[ -n "${_cli_SYNC_INCLUDE:-}" ]] && SYNC_INCLUDE="$_cli_SYNC_INCLUDE"
+    [[ -n "${_cli_SYNC_EXCLUDE:-}" ]] && SYNC_EXCLUDE="$_cli_SYNC_EXCLUDE"
 
     # Sandbox sub-flags are meaningless without a provider, and each sub-flag
     # belongs to exactly one provider (Issues #74/#75). Checked here (not at
@@ -2503,6 +2528,24 @@ main() {
     fi
     if [[ "$SANDBOX_PROVIDER" == "docker" && -n "$_cli_e2b_subflags" ]]; then
         log_status "ERROR" "--sandbox-template/--sandbox-id/--sandbox-timeout/--sandbox-keep-alive/--sandbox-max-cost/--sandbox-cost-alert require --sandbox e2b"
+        exit 1
+    fi
+    # Sync filter flags only make sense where files are actually synced
+    # (Issue #76): E2B uploads/downloads; the Docker rw bind mount shares the
+    # whole project in real time, so there is nothing to filter there.
+    local _cli_sync_subflags="${_cli_SYNC_INCLUDE:-}${_cli_SYNC_EXCLUDE:-}"
+    if [[ -n "$_cli_sync_subflags" ]]; then
+        if [[ "$SANDBOX_PROVIDER" == "docker" ]]; then
+            log_status "ERROR" "--sync-include/--sync-exclude do not apply to --sandbox docker (the bind mount shares the whole project in real time)"
+            exit 1
+        elif [[ "$SANDBOX_PROVIDER" != "e2b" ]]; then
+            log_status "ERROR" "--sync-include/--sync-exclude require --sandbox e2b"
+            exit 1
+        fi
+    fi
+    # Sync filter config can also arrive via env/.ralphrc — validate whenever
+    # a provider that syncs files is active.
+    if [[ "$SANDBOX_PROVIDER" == "e2b" ]] && ! validate_sync_config; then
         exit 1
     fi
 
@@ -2919,6 +2962,15 @@ Sandbox execution (Issues #74/#75; isolates Claude in a sandbox):
     --sandbox-cost-alert USD  Warn once when estimated cost reaches this amount
                             (rate via SANDBOX_E2B_COST_PER_HOUR in .ralphrc, default $SANDBOX_E2B_COST_PER_HOUR/h)
 
+  Sync filter sub-flags (--sandbox e2b; Docker's bind mount syncs everything in real time):
+    --sync-include PATTERNS Comma-separated patterns; only matching files upload
+                            (.ralph control files always go), e.g. 'src/**,*.md'
+    --sync-exclude PATTERNS Comma-separated patterns excluded from upload AND
+                            download, e.g. '*.log,node_modules'
+                            A .ralphignore file in the project root adds exclude
+                            patterns; large-file policy via SYNC_MAX_FILE_SIZE /
+                            SYNC_LARGE_FILE_ACTION in .ralphrc (default: warn at 10MB)
+
 Modern CLI Options (Phase 1.1):
     --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
                             Note: --live mode requires JSON and will auto-switch
@@ -3253,6 +3305,25 @@ while [[ $# -gt 0 ]]; do
             fi
             SANDBOX_E2B_COST_ALERT="$2"
             _cli_SANDBOX_E2B_COST_ALERT="$2"
+            shift 2
+            ;;
+        --sync-include)
+            # Sandbox sync filter flags (Issue #76)
+            if [[ -z "${2:-}" || "$2" == -* ]]; then
+                echo "Error: --sync-include requires comma-separated patterns (e.g. 'src/**,*.md')"
+                exit 1
+            fi
+            SYNC_INCLUDE="$2"
+            _cli_SYNC_INCLUDE="$2"
+            shift 2
+            ;;
+        --sync-exclude)
+            if [[ -z "${2:-}" || "$2" == -* ]]; then
+                echo "Error: --sync-exclude requires comma-separated patterns (e.g. '*.log,node_modules')"
+                exit 1
+            fi
+            SYNC_EXCLUDE="$2"
+            _cli_SYNC_EXCLUDE="$2"
             shift 2
             ;;
         --queue-status)
