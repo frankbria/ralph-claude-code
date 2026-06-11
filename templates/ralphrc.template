@@ -144,3 +144,17 @@ RALPH_VERBOSE=false
 # SANDBOX_E2B_MAX_COST=""           # stop gracefully at this estimated USD spend
 # SANDBOX_E2B_COST_ALERT=""         # warn once at this estimated USD spend
 # SANDBOX_E2B_COST_PER_HOUR="0.10"  # $/h estimate used for cost tracking (see e2b.dev/pricing)
+
+# =============================================================================
+# SANDBOX FILE SYNC FILTERING (optional, Issue #76 — applies to --sandbox e2b)
+# =============================================================================
+
+# Filter which files sync between the host and the E2B sandbox. Patterns are
+# comma-separated globs ("src/**", "*.log", "node_modules", "dist/").
+# A .ralphignore file in the project root adds exclude patterns (one per
+# line, gitignore-like subset — no negation). Docker needs none of this:
+# its bind mount shares the whole project in real time.
+# SYNC_INCLUDE=""                   # only matching files upload (.ralph control files always go)
+# SYNC_EXCLUDE=""                   # excluded from upload AND download
+# SYNC_MAX_FILE_SIZE="10485760"     # upload size threshold in bytes (0 = unlimited)
+# SYNC_LARGE_FILE_ACTION="warn"     # warn (keep) or skip (drop) files over the threshold

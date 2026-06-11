@@ -652,11 +652,14 @@ ralph --sandbox e2b --sandbox-timeout 7200            # 2h session timeout (expi
 ralph --sandbox e2b --sandbox-max-cost 5.00 --sandbox-cost-alert 2.00   # budget controls
 ralph --sandbox e2b --sandbox-keep-alive              # leave it running; reuse with --sandbox-id <id>
 ralph --monitor --sandbox e2b                         # works with tmux monitoring (cost shown in the dashboard)
+
+# Sync filtering (Issue #76): control what uploads/downloads
+ralph --sandbox e2b --sync-include "src/**,tests/**,*.md" --sync-exclude "*.log,node_modules"
 ```
 
 Equivalent `.ralphrc` settings: `SANDBOX_E2B_TEMPLATE`, `SANDBOX_E2B_TIMEOUT`, `SANDBOX_E2B_KEEP_ALIVE`, `SANDBOX_E2B_MAX_COST`, `SANDBOX_E2B_COST_ALERT`, `SANDBOX_E2B_COST_PER_HOUR` (CLI flags override; the API key itself never goes in `.ralphrc`).
 
-Claude auth reaches the sandbox via `ANTHROPIC_API_KEY` (passed as a sandbox env var) or a copy of your host `~/.claude/.credentials.json`. Cost is estimated as cumulative runtime × `SANDBOX_E2B_COST_PER_HOUR` (cost accrues across sandbox replacements, so `--sandbox-max-cost` spans the whole run) and surfaced in `status.json`, the monitor, and `.ralph/logs/e2b_cost.log`. File sync includes deletion propagation — files removed or renamed in the sandbox are deleted from the host after each iteration. Note: commits made *inside* the sandbox are not synced back — changes arrive as uncommitted modifications on the host (`.git` is excluded from sync in both directions). Daytona and Cloudflare providers are planned (#79, #80). See [docs/E2B_SANDBOX.md](docs/E2B_SANDBOX.md) for details.
+Claude auth reaches the sandbox via `ANTHROPIC_API_KEY` (passed as a sandbox env var) or a copy of your host `~/.claude/.credentials.json`. Cost is estimated as cumulative runtime × `SANDBOX_E2B_COST_PER_HOUR` (cost accrues across sandbox replacements, so `--sandbox-max-cost` spans the whole run) and surfaced in `status.json`, the monitor, and `.ralph/logs/e2b_cost.log`. File sync includes deletion propagation — files removed or renamed in the sandbox are deleted from the host after each iteration. What syncs is filterable: `--sync-include`/`--sync-exclude` patterns, a `.ralphignore` file (gitignore-like subset), and a large-file policy (`SYNC_MAX_FILE_SIZE`/`SYNC_LARGE_FILE_ACTION`); upload and download log file-count + size summaries. Note: commits made *inside* the sandbox are not synced back — changes arrive as uncommitted modifications on the host (`.git` is excluded from sync in both directions). Daytona and Cloudflare providers are planned (#79, #80). See [docs/E2B_SANDBOX.md](docs/E2B_SANDBOX.md) and [docs/SANDBOX_SYNC.md](docs/SANDBOX_SYNC.md) for details.
 
 ## Configuration
 
