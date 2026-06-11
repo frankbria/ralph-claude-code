@@ -59,9 +59,11 @@ writes to the bind-mounted workspace keeps your host ownership and the seeded
 | `--sandbox-cpus NUM` | `2` | CPU limit (decimals allowed, e.g. `1.5`) |
 | `--sandbox-network MODE` | `bridge` | `none`, `bridge`, or `host` |
 
-`e2b`, `daytona`, and `cloudflare` providers are planned (issues #75, #79,
-#80) and currently rejected with a clear error. The sub-flags require a
-provider (either `--sandbox docker` or `SANDBOX_PROVIDER` in `.ralphrc`).
+The `e2b` cloud provider is also available — see
+[E2B_SANDBOX.md](E2B_SANDBOX.md). `daytona` and `cloudflare` are planned
+(issues #79, #80) and currently rejected with a clear error. The sub-flags
+require their provider (either via `--sandbox` or `SANDBOX_PROVIDER` in
+`.ralphrc`).
 
 `.ralphrc` equivalents (CLI flags override):
 
