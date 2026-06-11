@@ -548,6 +548,8 @@ sync_e2b_artifacts_down() {
 
     # Deletion sync: archives without a manifest (older helper, empty download)
     # skip this pass — content sync alone, never speculative deletion.
+    # Deliberately gated on the manifest, NOT on file_count: a deletion-only
+    # iteration carries a manifest but zero changed files and must still run.
     if [[ -n "$manifest" ]]; then
         _apply_e2b_deletions "$manifest"
         printf '%s\n' "$manifest" > "$E2B_SYNCED_FILES_FILE" 2>/dev/null

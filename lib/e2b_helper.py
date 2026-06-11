@@ -78,8 +78,8 @@ def cmd_check(_args):
     try:
         from importlib.metadata import version as _pkg_version
         version = _pkg_version("e2b")
-    except Exception:
-        pass
+    except Exception as exc:
+        print("e2b check: could not determine SDK version: %s" % exc, file=sys.stderr)
     _emit({"ok": True, "sdk_version": version})
 
 

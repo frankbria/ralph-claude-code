@@ -10,7 +10,7 @@ or keep autonomous execution entirely off the host.
 Ralph's orchestration stays on the host; only Claude's execution moves to the
 cloud:
 
-```
+```text
 HOST                                          E2B CLOUD SANDBOX (one per run)
 ralph_loop.sh ── lib/e2b_helper.py exec ───▶  claude -p "..." (per iteration)
   ├─ rate limiting / circuit breaker            │ runs in /home/user/workspace

@@ -79,8 +79,9 @@ e2b_calls() { cat "$MOCK_DIR/e2b_calls.log" 2>/dev/null; }
     # One sandbox for the whole run, project uploaded once
     [[ $(e2b_calls | grep -c '^create ') -eq 1 ]]
     [[ $(e2b_calls | grep -c '^upload ') -eq 1 ]]
-    # One claude exec per iteration (plus the claude --version bootstrap probe)
-    [[ $(e2b_calls | grep -c -- '-- claude --version$') -ge 1 ]]
+    # One claude exec per iteration (plus exactly one claude --version
+    # bootstrap probe — more would mean the bootstrap re-runs per iteration)
+    [[ $(e2b_calls | grep -c -- '-- claude --version$') -eq 1 ]]
     [[ $(e2b_calls | grep '^exec ' | grep -v -- '-- claude --version$' | grep -c -- '-- claude ') -eq 2 ]]
     # Changed files are pulled back after each iteration
     [[ $(e2b_calls | grep -c '^download ') -ge 2 ]]

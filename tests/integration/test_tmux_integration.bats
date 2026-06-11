@@ -592,9 +592,11 @@ assert_tmux_called_with() {
     pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
     [[ "$pane0_line" == *"--sandbox e2b"* ]]
     [[ "$pane0_line" != *"--sandbox-template"* ]]
+    [[ "$pane0_line" != *"--sandbox-id"* ]]
     [[ "$pane0_line" != *"--sandbox-timeout"* ]]
     [[ "$pane0_line" != *"--sandbox-keep-alive"* ]]
     [[ "$pane0_line" != *"--sandbox-max-cost"* ]]
+    [[ "$pane0_line" != *"--sandbox-cost-alert"* ]]
 }
 
 # ==============================================================================
