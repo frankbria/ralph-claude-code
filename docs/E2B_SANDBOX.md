@@ -109,9 +109,14 @@ mirroring the Docker provider):
 
 ## Cost tracking
 
-E2B bills per second of sandbox runtime. Ralph estimates spend as
-`elapsed runtime × SANDBOX_E2B_COST_PER_HOUR` (default `$0.10/h` — adjust to
-your template size using [e2b.dev/pricing](https://e2b.dev/pricing)):
+E2B bills per second of sandbox runtime. Ralph estimates spend as the sum of
+all sandbox segments (active runtime + any prior segments from sandboxes that
+were recreated after session expiry) × `SANDBOX_E2B_COST_PER_HOUR` (default
+`$0.10/h` — adjust to your template size using
+[e2b.dev/pricing](https://e2b.dev/pricing)). Cost accrued by a replaced
+sandbox is folded into `accrued_cost` in `.ralph/.e2b_sandbox_state` before
+the epoch resets, so `--sandbox-max-cost` spans the entire run, not just the
+current sandbox segment:
 
 - The running estimate appears in `status.json` (`sandbox.estimated_cost`)
   and the `ralph-monitor` Sandbox panel.
@@ -132,7 +137,11 @@ dashboard for actual usage.
 - **Per iteration**: the built Claude command array is wrapped as
   `python3 lib/e2b_helper.py exec --sandbox-id <id> --cwd /home/user/workspace
   -- claude ...`; after every iteration (success, failure, or timeout) changed
-  files are downloaded before progress detection runs.
+  files are downloaded and the deletion pass runs before progress detection.
+  The sandbox-side sync marker is advanced only after host extraction and the
+  deletion pass both succeed (`ack-download` subcommand) — a missed ack simply
+  re-delivers the same changes on the next iteration (idempotent overwrite,
+  at-least-once delivery).
 - **Session expiry**: E2B kills sandboxes at their session timeout. The
   pre-exec liveness probe detects this and starts a replacement (fresh create
   + re-upload) automatically.
@@ -144,7 +153,8 @@ dashboard for actual usage.
   SIGINT/SIGTERM. With `--sandbox-keep-alive` the sandbox is left running and
   its id is logged for reuse. Cleanup is idempotent.
 - **State**: `.ralph/.e2b_sandbox_state` (JSON, atomic temp+`mv` writes)
-  tracks template, sandbox id, status, and the cost estimate;
+  tracks template, sandbox id, status, `estimated_cost`, and `accrued_cost`
+  (cost folded in from prior sandbox segments on recreation);
   `.ralph/.e2b_synced_files` is the deletion-sync baseline (the set of
   project paths known to exist in the sandbox).
 
