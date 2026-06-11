@@ -86,11 +86,14 @@ load_ralphignore_patterns() {
 }
 
 # _sync_split_patterns <comma-separated>
-# Print one trimmed pattern per line.
+# Print one trimmed pattern per line. Split via read (NOT an unquoted for
+# loop, whose pathname expansion would rewrite "*.log" to "debug.log"
+# whenever a matching file sits in cwd — codex P2, issue #76).
 _sync_split_patterns() {
-    local IFS=','
+    local -a parts=()
     local p
-    for p in $1; do
+    IFS=',' read -ra parts <<< "$1"
+    for p in "${parts[@]}"; do
         p="${p#"${p%%[![:space:]]*}"}"
         p="${p%"${p##*[![:space:]]}"}"
         [[ -n "$p" ]] && printf '%s\n' "$p"

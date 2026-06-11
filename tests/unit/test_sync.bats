@@ -166,6 +166,25 @@ docs/b.md"
 README.md"
 }
 
+@test "upload filter: glob patterns survive a matching file in cwd (codex P2)" {
+    # Pathname expansion during pattern splitting would turn "*.log" into
+    # "debug.log" whenever a matching file exists in the project root,
+    # silently un-filtering every other .log file
+    echo "bait" > debug.log
+    SYNC_EXCLUDE="*.log"
+    run _filter "src/app.log" "src/keep.sh"
+    assert_success
+    assert_equal "$output" "src/keep.sh"
+}
+
+@test "download filter: glob patterns survive a matching file in cwd (codex P2)" {
+    echo "bait" > debug.log
+    SYNC_EXCLUDE="*.log"
+    run _filter_download "src/app.log" "src/keep.sh"
+    assert_success
+    assert_equal "$output" "src/keep.sh"
+}
+
 @test "upload filter: exclude patterns drop matches" {
     SYNC_EXCLUDE="*.log,node_modules"
     run _filter "src/a.sh" "debug.log" "node_modules/x/y.js"
