@@ -274,6 +274,7 @@ init_e2b_sandbox() {
             status: "initialized",
             created_epoch: 0,
             estimated_cost: "0.0000",
+            accrued_cost: "0.0000",
             cost_alerted: false,
             created_at: $now,
             updated_at: $now
@@ -311,6 +312,21 @@ start_e2b_sandbox() {
     if [[ -z "$sandbox_id" ]]; then
         _e2b_log "ERROR" "E2B helper returned no sandbox id"
         return 1
+    fi
+
+    # Fold the previous sandbox's runtime cost into the accrued total BEFORE
+    # resetting the epoch, so --sandbox-max-cost spans replacements — a run
+    # that keeps expiring/recreating must not restart its budget from zero.
+    local prev_epoch
+    prev_epoch=$(e2b_state_get '.created_epoch')
+    if [[ -n "$prev_epoch" && "$prev_epoch" != "0" ]]; then
+        local segment_s accrued
+        segment_s=$(( $(get_epoch_seconds) - prev_epoch ))
+        (( segment_s < 0 )) && segment_s=0
+        accrued=$(e2b_state_get '.accrued_cost')
+        accrued=$(awk -v a="${accrued:-0}" -v s="$segment_s" -v r="$SANDBOX_E2B_COST_PER_HOUR" \
+            'BEGIN{printf "%.4f", a + s / 3600 * r}')
+        _e2b_apply '.accrued_cost = $a' --arg a "$accrued" || true
     fi
 
     _e2b_apply '.sandbox_id = $sid | .status = "running" | .created_epoch = ($epoch | tonumber)' \
@@ -537,20 +553,24 @@ sync_e2b_artifacts_down() {
 # --- cost tracking ----------------------------------------------------------------
 
 # update_e2b_cost
-# Recomputes the estimated cost (elapsed runtime x hourly rate), persists it
-# in the state file, and prints it.
+# Recomputes the estimated cost — cost accrued by previous (replaced)
+# sandboxes plus the active sandbox's elapsed runtime x hourly rate —
+# persists it in the state file, and prints it.
 update_e2b_cost() {
-    local created
+    local accrued created
+    accrued=$(e2b_state_get '.accrued_cost')
+    accrued=${accrued:-0}
     created=$(e2b_state_get '.created_epoch')
     if [[ -z "$created" || "$created" == "0" ]]; then
-        echo "0.0000"
+        awk -v a="$accrued" 'BEGIN{printf "%.4f\n", a + 0}'
         return 0
     fi
     local now elapsed cost
     now=$(get_epoch_seconds)
     elapsed=$((now - created))
     (( elapsed < 0 )) && elapsed=0
-    cost=$(awk -v s="$elapsed" -v r="$SANDBOX_E2B_COST_PER_HOUR" 'BEGIN{printf "%.4f", s / 3600 * r}')
+    cost=$(awk -v a="$accrued" -v s="$elapsed" -v r="$SANDBOX_E2B_COST_PER_HOUR" \
+        'BEGIN{printf "%.4f", a + s / 3600 * r}')
     _e2b_apply '.estimated_cost = $c' --arg c "$cost" || true
     echo "$cost"
 }

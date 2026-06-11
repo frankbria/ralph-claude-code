@@ -694,6 +694,26 @@ _age_sandbox() {
     assert_success
 }
 
+@test "update_e2b_cost: cost accrued before a sandbox recreation is preserved" {
+    _started_sandbox
+    _age_sandbox 7200            # $0.20 spent on the first sandbox
+    start_e2b_sandbox            # replacement (e.g. after expiry) resets the epoch
+    _age_sandbox 3600            # $0.10 on the replacement
+    local cost
+    cost=$(update_e2b_cost)
+    assert_equal "$cost" "0.3000"
+}
+
+@test "check_e2b_cost_limits: max-cost spans sandbox replacements" {
+    export SANDBOX_E2B_MAX_COST="0.15"
+    _started_sandbox
+    _age_sandbox 7200            # $0.20 already spent
+    start_e2b_sandbox            # fresh sandbox: runtime resets, spend must not
+    run check_e2b_cost_limits
+    assert_failure
+    [[ "$output" == *"cost limit"* ]]
+}
+
 # -----------------------------------------------------------------------------
 # handle_e2b_sandbox_timeout
 # -----------------------------------------------------------------------------
