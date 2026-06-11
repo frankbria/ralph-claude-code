@@ -547,6 +547,12 @@ sync_e2b_artifacts_down() {
         _apply_e2b_deletions "$manifest"
         printf '%s\n' "$manifest" > "$E2B_SYNCED_FILES_FILE" 2>/dev/null
     fi
+
+    # Everything landed on the host — advance the sandbox-side sync marker.
+    # An ack failure is non-fatal: the next download simply re-delivers the
+    # same changes and re-extraction is an idempotent overwrite.
+    _e2b_helper ack-download --sandbox-id "$sandbox_id" --src "$SANDBOX_E2B_WORKDIR" >/dev/null 2>&1 || \
+        _e2b_log "WARN" "Failed to ack E2B download (changes will be re-synced next iteration)"
     return 0
 }
 

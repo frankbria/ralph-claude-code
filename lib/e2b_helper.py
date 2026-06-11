@@ -184,12 +184,15 @@ def cmd_download(args):
     # Besides the changed files, every download carries a manifest of ALL
     # current workspace files (minus .git) so the host can delete files that
     # disappeared in the sandbox. The sandbox is always Linux/GNU.
+    # The sync marker is NOT advanced here: the host calls ack-download after
+    # it has successfully extracted the archive, so a failure anywhere in
+    # between leaves the changes re-downloadable (at-least-once delivery;
+    # re-extraction is an idempotent overwrite).
     script = (
         "cd {src} && "
         "if [ -f {marker} ]; then find . -type f -newer {marker} -print0; else : ; fi > {changed} && "
         "find . -type f ! -path './.git/*' > /tmp/{manifest} && "
-        "tar -czf {staging} --null -T {changed} -C /tmp {manifest} && "
-        "touch {marker}"
+        "tar -czf {staging} --null -T {changed} -C /tmp {manifest}"
     ).format(
         src=shlex.quote(args.src),
         marker=shlex.quote(marker),
@@ -200,8 +203,6 @@ def cmd_download(args):
     try:
         sandbox.commands.run(script)
         data = sandbox.files.read(DOWNLOAD_STAGING, format="bytes")
-        sandbox.commands.run("rm -f %s %s /tmp/%s" % (
-            shlex.quote(DOWNLOAD_STAGING), shlex.quote(CHANGED_LIST), shlex.quote(MANIFEST_NAME)))
     except Exception as exc:
         # NOT _die(): download's stdout carries raw tar bytes; JSON on stdout
         # would corrupt the archive. Errors must stay on stderr.
@@ -209,6 +210,19 @@ def cmd_download(args):
         sys.exit(1)
     sys.stdout.buffer.write(bytes(data))
     sys.stdout.buffer.flush()
+
+
+def cmd_ack_download(args):
+    _require_sdk()
+    sandbox = _connect(args.sandbox_id)
+    marker = _sync_marker(args.src)
+    try:
+        sandbox.commands.run("touch %s && rm -f %s %s /tmp/%s" % (
+            shlex.quote(marker), shlex.quote(DOWNLOAD_STAGING),
+            shlex.quote(CHANGED_LIST), shlex.quote(MANIFEST_NAME)))
+    except Exception as exc:
+        _die("ack-download failed: %s" % exc)
+    _emit({"ok": True})
 
 
 def cmd_write_file(args):
@@ -272,6 +286,11 @@ def build_parser():
     p.add_argument("--sandbox-id", required=True)
     p.add_argument("--src", required=True)
     p.set_defaults(func=cmd_download)
+
+    p = sub.add_parser("ack-download")
+    p.add_argument("--sandbox-id", required=True)
+    p.add_argument("--src", required=True)
+    p.set_defaults(func=cmd_ack_download)
 
     p = sub.add_parser("write-file")
     p.add_argument("--sandbox-id", required=True)

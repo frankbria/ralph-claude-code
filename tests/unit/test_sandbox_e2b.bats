@@ -621,6 +621,32 @@ EOF
     assert_file_exists "src/keep.txt"
 }
 
+@test "sync_e2b_artifacts_down: acks the download only after successful extraction" {
+    _started_sandbox
+    rm -f "$TEST_DIR/e2b_args"
+    sync_e2b_artifacts_down
+    # ack-download must follow the download (marker advances only post-extract)
+    local calls
+    calls=$(grep -oE "^(download|ack-download)" "$TEST_DIR/e2b_args" | paste -sd, -)
+    assert_equal "$calls" "download,ack-download"
+}
+
+@test "sync_e2b_artifacts_down: failed download is never acked (retry stays possible)" {
+    _mock_e2b download-fail
+    init_e2b_sandbox
+    start_e2b_sandbox
+    rm -f "$TEST_DIR/e2b_args"
+    run sync_e2b_artifacts_down
+    assert_failure
+    ! _e2b_args | grep -q '^ack-download '
+}
+
+@test "e2b_helper.py: ack-download requires a sandbox id" {
+    command -v python3 > /dev/null || skip "python3 not available"
+    run python3 "$PROJECT_ROOT/lib/e2b_helper.py" ack-download
+    assert_failure
+}
+
 @test "upload_project_to_e2b: initializes the synced-files state from the upload list" {
     echo "content" > "$TEST_DIR/tracked.txt"
     _started_sandbox
