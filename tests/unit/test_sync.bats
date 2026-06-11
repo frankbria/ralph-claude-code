@@ -37,7 +37,6 @@ _filter() {
     printf '%s\0' "$@" | sync_filter_file_list | tr '\0' '\n'
 }
 
-# Same for the download-side newline filter.
 _filter_download() {
     printf '%s\n' "$@" | sync_filter_download_list
 }
