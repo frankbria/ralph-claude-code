@@ -418,17 +418,37 @@ cleanup_docker_sandbox() {
 
 # --- status -----------------------------------------------------------------
 
-# get_sandbox_status
+# get_docker_sandbox_status
 # Emits a JSON object for embedding in status.json:
 #   {"provider": "docker", "container_id": "...", "status": "running"}
 # Prints {"provider": "none"} when the sandbox was never initialized.
-get_sandbox_status() {
+get_docker_sandbox_status() {
     if [[ ! -f "$DOCKER_SANDBOX_STATE_FILE" ]]; then
         echo '{"provider": "none"}'
         return 0
     fi
     jq -c '{provider, container_id, status}' "$DOCKER_SANDBOX_STATE_FILE" 2>/dev/null \
         || echo '{"provider": "none"}'
+    return 0
+}
+
+# get_sandbox_status
+# Provider router used by update_status(): dispatches to the active provider's
+# status function. Lives here (not in ralph_loop.sh) so the libs stay usable
+# standalone; lib/sandbox_e2b.sh is sourced after this lib by ralph_loop.sh.
+get_sandbox_status() {
+    case "${SANDBOX_PROVIDER:-}" in
+        e2b)
+            if declare -F get_e2b_sandbox_status >/dev/null 2>&1; then
+                get_e2b_sandbox_status
+            else
+                echo '{"provider": "none"}'
+            fi
+            ;;
+        *)
+            get_docker_sandbox_status
+            ;;
+    esac
     return 0
 }
 
@@ -443,5 +463,6 @@ export -f build_sandbox_exec_args
 export -f handle_sandbox_timeout
 export -f stop_sandbox_container
 export -f cleanup_docker_sandbox
+export -f get_docker_sandbox_status
 export -f get_sandbox_status
 export -f sandbox_state_get
