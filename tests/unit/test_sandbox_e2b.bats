@@ -42,6 +42,13 @@ setup() {
     export E2B_API_KEY="test-key-12345"
     unset ANTHROPIC_API_KEY
 
+    # Clean sync filter configuration (Issue #76)
+    export SYNC_INCLUDE=""
+    export SYNC_EXCLUDE=""
+    export SYNC_MAX_FILE_SIZE="10485760"
+    export SYNC_LARGE_FILE_ACTION="warn"
+    export RALPHIGNORE_FILE=".ralphignore"
+
     # Transport boundary: helper path must exist (availability check); the
     # python interpreter is the mock that intercepts every helper call.
     export SANDBOX_E2B_HELPER="$PROJECT_ROOT/lib/e2b_helper.py"
@@ -928,4 +935,116 @@ _age_sandbox() {
     command -v python3 > /dev/null || skip "python3 not available"
     run python3 "$PROJECT_ROOT/lib/e2b_helper.py" frobnicate
     assert_failure
+}
+
+# -----------------------------------------------------------------------------
+# Issue #76: sync filtering (lib/sync.sh integration)
+# -----------------------------------------------------------------------------
+
+@test "issue #76: upload respects .ralphignore patterns" {
+    printf '*.secret\n' > .ralphignore
+    echo "keep" > keep.txt
+    echo "creds" > probe.secret
+    _started_sandbox
+    grep -qxF "keep.txt" "$RALPH_DIR/.e2b_synced_files"
+    [[ $(grep -c "probe.secret" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+}
+
+@test "issue #76: upload respects SYNC_EXCLUDE patterns" {
+    export SYNC_EXCLUDE="*.log,vendor"
+    echo "keep" > keep.txt
+    echo "noise" > debug.log
+    mkdir -p vendor && echo "dep" > vendor/dep.js
+    _started_sandbox
+    grep -qxF "keep.txt" "$RALPH_DIR/.e2b_synced_files"
+    [[ $(grep -c "debug.log" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+    [[ $(grep -c "vendor/dep.js" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+}
+
+@test "issue #76: SYNC_INCLUDE restricts the upload but control files still go" {
+    export SYNC_INCLUDE="src/**"
+    mkdir -p src && echo "code" > src/a.sh
+    echo "stray" > other.txt
+    echo "plan" > "$RALPH_DIR/fix_plan.md"
+    _started_sandbox
+    grep -qxF "src/a.sh" "$RALPH_DIR/.e2b_synced_files"
+    [[ $(grep -c "other.txt" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+    # .ralph control files are force-included past any include filter
+    grep -q "fix_plan.md" "$RALPH_DIR/.e2b_synced_files"
+}
+
+@test "issue #76: upload skips oversized files with SYNC_LARGE_FILE_ACTION=skip" {
+    export SYNC_MAX_FILE_SIZE="1024"
+    export SYNC_LARGE_FILE_ACTION="skip"
+    head -c 4096 /dev/zero > huge.bin
+    echo "small" > small.txt
+    _started_sandbox
+    grep -qxF "small.txt" "$RALPH_DIR/.e2b_synced_files"
+    [[ $(grep -c "huge.bin" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+}
+
+@test "issue #76: upload logs a progress summary with file count and size" {
+    echo "content" > tracked.txt
+    _started_sandbox
+    run upload_project_to_e2b
+    assert_success
+    [[ "$output" == *"Uploading"* ]]
+    [[ "$output" == *"file(s)"* ]]
+    [[ "$output" =~ [0-9](\.[0-9])?(B|KB|MB|GB) ]]
+}
+
+@test "issue #76: download extraction filters SYNC_EXCLUDE patterns" {
+    _started_sandbox
+    export SYNC_EXCLUDE="*.txt"
+    sync_e2b_artifacts_down
+    # default ok-mock download delivers src/synced.txt — must be filtered out
+    [[ ! -f src/synced.txt ]]
+}
+
+@test "issue #76: download extraction filters .ralphignore patterns" {
+    _started_sandbox
+    printf 'synced.txt\n' > .ralphignore
+    sync_e2b_artifacts_down
+    [[ ! -f src/synced.txt ]]
+}
+
+@test "issue #76: download-filtered files never enter the deletion baseline" {
+    _started_sandbox
+    export SYNC_EXCLUDE="*.txt"
+    sync_e2b_artifacts_down
+    # src/synced.txt is in the sandbox manifest but was filtered from
+    # extraction — recording it would make a same-named host file a
+    # deletion candidate the moment the sandbox removes its copy
+    [[ $(grep -c "src/synced.txt" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+}
+
+@test "issue #76: excluded host files are never deleted by deletion sync" {
+    _started_sandbox
+    # Manifest = everything currently synced plus the new sandbox file,
+    # but WITHOUT noise.log (the sandbox no longer has it)
+    { sed 's|^|./|' "$RALPH_DIR/.e2b_synced_files"; echo "./src/synced.txt"; } > "$TEST_DIR/manifest_override"
+    # Poisoned baseline: noise.log was synced before the user added *.log
+    # to SYNC_EXCLUDE
+    echo "noise.log" >> "$RALPH_DIR/.e2b_synced_files"
+    echo "host data" > noise.log
+    export SYNC_EXCLUDE="*.log"
+    sync_e2b_artifacts_down
+    [[ -f noise.log ]]
+    assert_equal "$(cat noise.log)" "host data"
+}
+
+@test "issue #76: download logs a sync summary with file count and size" {
+    _started_sandbox
+    run sync_e2b_artifacts_down
+    assert_success
+    [[ "$output" == *"Synced 1 changed file(s)"* ]]
+    [[ "$output" =~ [0-9](\.[0-9])?(B|KB|MB|GB) ]]
+}
+
+@test "issue #76: download logs how many files the sync patterns filtered" {
+    _started_sandbox
+    export SYNC_EXCLUDE="*.txt"
+    run sync_e2b_artifacts_down
+    assert_success
+    [[ "$output" == *"Filtered 1 file(s)"* ]]
 }
