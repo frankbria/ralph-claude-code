@@ -20,14 +20,16 @@ setup() {
 
     # Load all monitor functions without calling main().
     # head -n -1 strips the bare `main` call on the final line.
+    # The `trap cleanup ...` line is filtered out: sourcing it would REPLACE
+    # bats' own EXIT trap, silently swallowing failing tests (the file then
+    # reports "Executed N-1 instead of expected N" with no `not ok` line).
     # shellcheck disable=SC1090
-    source <(head -n -1 "$MONITOR_SCRIPT")
+    source <(head -n -1 "$MONITOR_SCRIPT" | grep -v '^trap cleanup ')
 
     # Override clear_screen to suppress terminal-escape side-effects in tests.
     clear_screen() { :; }
-    # Override cleanup so the EXIT trap does not produce output after each test.
+    # Override cleanup in case a test invokes it directly.
     cleanup() { :; }
-    trap - SIGINT SIGTERM EXIT
 }
 
 teardown() {
@@ -272,5 +274,51 @@ _write_queue() {
     local output
     output=$(monitor_output)
     echo "$output" | grep -q "Issue Queue" && { echo "queue section shown for empty queue"; return 1; }
+    return 0
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sandbox section (Issue #75) — driven by status.json's sandbox field
+# ──────────────────────────────────────────────────────────────────────────────
+
+_write_status_with_sandbox() {
+    mkdir -p .ralph
+    cat > .ralph/status.json << JSONEOF
+{
+    "loop_count": 3,
+    "calls_made_this_hour": 5,
+    "max_calls_per_hour": 100,
+    "status": "running",
+    "sandbox": $1
+}
+JSONEOF
+}
+
+@test "ralph_monitor.sh shows e2b sandbox section with estimated cost" {
+    _write_status_with_sandbox '{"provider": "e2b", "sandbox_id": "sbx_mon123", "status": "running", "estimated_cost": "0.1234"}'
+    local output
+    output=$(monitor_output)
+    echo "$output" | grep -q "Sandbox" || { echo "missing Sandbox header: $output"; return 1; }
+    echo "$output" | grep -q "e2b" || { echo "missing provider: $output"; return 1; }
+    echo "$output" | grep -q "sbx_mon123" || { echo "missing sandbox id: $output"; return 1; }
+    echo "$output" | grep -q '\$0.1234' || { echo "missing estimated cost: $output"; return 1; }
+}
+
+@test "ralph_monitor.sh shows docker sandbox section without cost line" {
+    _write_status_with_sandbox '{"provider": "docker", "container_id": "abc123containerid", "status": "running"}'
+    local output
+    output=$(monitor_output)
+    echo "$output" | grep -q "Sandbox" || { echo "missing Sandbox header: $output"; return 1; }
+    echo "$output" | grep -q "docker" || { echo "missing provider: $output"; return 1; }
+    echo "$output" | grep -q "abc123contai" || { echo "missing container id: $output"; return 1; }
+    echo "$output" | grep -q "Est. Cost" && { echo "cost line shown for docker: $output"; return 1; }
+    return 0
+}
+
+@test "ralph_monitor.sh hides sandbox section when provider is none" {
+    _write_status_with_sandbox '{"provider": "none"}'
+    local output
+    output=$(monitor_output)
+    echo "$output" | grep -q "┌─ Sandbox" && { echo "sandbox section shown for provider none"; return 1; }
     return 0
 }

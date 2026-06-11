@@ -96,6 +96,9 @@ display_status() {
         fi
     fi
     
+    # Sandbox section (Issues #74/#75) - only shown when a sandbox is active
+    display_sandbox_status
+
     # Issue queue section (Issue #72) - only shown when a queue exists
     display_queue_status
 
@@ -113,6 +116,34 @@ display_status() {
     # Footer
     echo
     echo -e "${YELLOW}Controls: Ctrl+C to exit | Refreshes every ${REFRESH_INTERVAL}s | $(date '+%H:%M:%S')${NC}"
+}
+
+# Sandbox state (Issues #74/#75). No-op unless status.json reports an active
+# sandbox provider. Shows the container/sandbox id and, for cloud providers,
+# the estimated cost so far.
+display_sandbox_status() {
+    [[ -f "$STATUS_FILE" ]] || return 0
+
+    local provider
+    provider=$(jq -r '.sandbox.provider // "none"' "$STATUS_FILE" 2>/dev/null)
+    [[ -z "$provider" || "$provider" == "none" || "$provider" == "null" ]] && return 0
+
+    local sandbox_id status cost
+    sandbox_id=$(jq -r '.sandbox.sandbox_id // .sandbox.container_id // ""' "$STATUS_FILE" 2>/dev/null)
+    status=$(jq -r '.sandbox.status // "unknown"' "$STATUS_FILE" 2>/dev/null)
+    cost=$(jq -r '.sandbox.estimated_cost // ""' "$STATUS_FILE" 2>/dev/null)
+
+    echo -e "${PURPLE}┌─ Sandbox ───────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${PURPLE}│${NC} Provider:       ${WHITE}$provider${NC}"
+    if [[ -n "$sandbox_id" ]]; then
+        echo -e "${PURPLE}│${NC} Sandbox:        ${sandbox_id:0:24}"
+    fi
+    echo -e "${PURPLE}│${NC} Status:         $status"
+    if [[ -n "$cost" && "$cost" != "null" ]]; then
+        echo -e "${PURPLE}│${NC} Est. Cost:      \$$cost"
+    fi
+    echo -e "${PURPLE}└─────────────────────────────────────────────────────────────────────────┘${NC}"
+    echo
 }
 
 # Issue queue progress (Issue #72). No-op unless .ralph/queue.json exists.
