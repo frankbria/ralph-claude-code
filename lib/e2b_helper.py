@@ -104,12 +104,15 @@ def cmd_connect(args):
 def cmd_info(args):
     _require_sdk()
     sandbox = _connect(args.sandbox_id)
-    state = "unknown"
     try:
         info = sandbox.get_info()
-        state = str(getattr(info, "state", "unknown")).rsplit(".", 1)[-1].lower()
+        state = str(getattr(info, "state", "running")).rsplit(".", 1)[-1].lower()
     except Exception as exc:
-        _die("failed to query sandbox %s: %s" % (args.sandbox_id, exc))
+        # connect() above succeeded, so the sandbox is reachable — degrade to
+        # "running" rather than failing: a hard failure here would make the
+        # caller recreate + re-upload a perfectly live sandbox every iteration.
+        print("e2b info: get_info failed, assuming running: %s" % exc, file=sys.stderr)
+        state = "running"
     _emit({"ok": True, "sandbox_id": args.sandbox_id, "state": state})
 
 

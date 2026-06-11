@@ -332,10 +332,14 @@ _ensure_claude_in_e2b() {
         return 0
     fi
     _e2b_log "WARN" "Claude CLI not found in the sandbox — attempting: npm install -g @anthropic-ai/claude-code"
-    _e2b_helper exec --sandbox-id "$sandbox_id" --cwd "$SANDBOX_E2B_WORKDIR" -- npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || true
+    local npm_output
+    npm_output=$(_e2b_helper exec --sandbox-id "$sandbox_id" --cwd "$SANDBOX_E2B_WORKDIR" -- npm install -g @anthropic-ai/claude-code 2>&1) || true
     if _e2b_helper exec --sandbox-id "$sandbox_id" --cwd "$SANDBOX_E2B_WORKDIR" -- claude --version >/dev/null 2>&1; then
         return 0
     fi
+    # Surface why the bootstrap failed (registry unreachable vs missing npm)
+    # so a broken install is distinguishable from a missing-template case.
+    [[ -n "$npm_output" ]] && _e2b_log "WARN" "npm bootstrap output: $(tail -3 <<<"$npm_output" | tr '\n' ' ')"
     _e2b_log "ERROR" "Claude Code CLI is unavailable in the E2B sandbox. Build a custom E2B template with it preinstalled and pass it via --sandbox-template (see docs/E2B_SANDBOX.md)"
     return 1
 }
