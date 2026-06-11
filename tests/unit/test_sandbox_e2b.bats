@@ -362,7 +362,7 @@ _started_sandbox() {
     run start_e2b_sandbox
     assert_success
     _e2b_args | grep -q '^connect --sandbox-id sbx_user42$'
-    ! _e2b_args | grep -q '^create '
+    [[ $(_e2b_args | grep -c '^create ') -eq 0 ]]
 }
 
 @test "start_e2b_sandbox: uploads the project after creation" {
@@ -409,10 +409,10 @@ _started_sandbox() {
     mkdir -p "$HOME/.claude"
     echo '{"token": "host-secret"}' > "$HOME/.claude/.credentials.json"
     _started_sandbox
-    ! _e2b_args | grep -q '^write-file '
+    [[ $(_e2b_args | grep -c '^write-file ') -eq 0 ]]
     # the helper saw the key via environment (never via argv)
     [[ -f "$TEST_DIR/saw_anthropic_env" ]]
-    ! _e2b_args | grep -q "sk-ant-test"
+    [[ $(_e2b_args | grep -c "sk-ant-test") -eq 0 ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -450,7 +450,7 @@ _started_sandbox() {
     run ensure_e2b_sandbox
     assert_success
     _e2b_args | grep -q '^info '
-    ! _e2b_args | grep -q '^create '
+    [[ $(_e2b_args | grep -c '^create ') -eq 0 ]]
 }
 
 @test "ensure_e2b_sandbox: recreates and re-uploads when sandbox expired" {
@@ -638,7 +638,7 @@ EOF
     rm -f "$TEST_DIR/e2b_args"
     run sync_e2b_artifacts_down
     assert_failure
-    ! _e2b_args | grep -q '^ack-download '
+    [[ $(_e2b_args | grep -c '^ack-download ') -eq 0 ]]
 }
 
 @test "e2b_helper.py: ack-download requires a sandbox id" {
@@ -652,6 +652,53 @@ EOF
     _started_sandbox
     assert_file_exists "$RALPH_DIR/.e2b_synced_files"
     grep -qxF "tracked.txt" "$RALPH_DIR/.e2b_synced_files"
+}
+
+@test "upload_project_to_e2b: never uploads ralph state files" {
+    # Internal state must not reach the sandbox: a sandbox-side write could
+    # otherwise sync back over the host's control state
+    echo '{"provider":"e2b"}' > "$RALPH_DIR/.fake_state_probe"
+    echo '{"status":"x"}' > "$RALPH_DIR/status.json"
+    echo "keep me" > "$RALPH_DIR/fix_plan.md"
+    _started_sandbox
+    [[ $(grep -c "fake_state_probe" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+    [[ $(grep -c "status.json" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
+    # ...while the allowlisted control files still upload
+    grep -q "fix_plan.md" "$RALPH_DIR/.e2b_synced_files"
+}
+
+@test "sync_e2b_artifacts_down: never overwrites ralph state files from the sandbox" {
+    _started_sandbox
+    # Malicious/buggy sandbox content targeting host control state
+    cat > "$TEST_DIR/mock_bin/e2b-python" << EOF
+#!/bin/bash
+shift
+printf '%s\n' "\$*" >> "$TEST_DIR/e2b_args"
+case "\$1" in
+    download)
+        tmpd=\$(mktemp -d); mkdir -p "\$tmpd/.ralph"
+        echo '{"provider":"evil"}' > "\$tmpd/.ralph/.e2b_sandbox_state"
+        echo 'evil-status' > "\$tmpd/.ralph/status.json"
+        printf '%s\n' "./.ralph/.e2b_sandbox_state" "./.ralph/status.json" > "\$tmpd/.ralph_e2b_manifest"
+        tar -czf - -C "\$tmpd" .ralph/.e2b_sandbox_state .ralph/status.json .ralph_e2b_manifest
+        rm -rf "\$tmpd"; exit 0 ;;
+    ack-download) echo '{"ok": true}'; exit 0 ;;
+esac
+exit 0
+EOF
+    chmod +x "$TEST_DIR/mock_bin/e2b-python"
+    sync_e2b_artifacts_down
+    # The host state file still names the real provider, not "evil"
+    assert_equal "$(jq -r '.provider' "$E2B_SANDBOX_STATE_FILE")" "e2b"
+    [[ ! -f "$RALPH_DIR/status.json" || "$(cat "$RALPH_DIR/status.json")" != "evil-status" ]]
+}
+
+@test "cleanup_e2b_sandbox: warns when the sandbox kill fails" {
+    _started_sandbox
+    _mock_e2b kill-fail
+    run cleanup_e2b_sandbox
+    assert_success
+    [[ "$output" == *"Failed to kill"* ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -794,7 +841,7 @@ _age_sandbox() {
     rm -f "$TEST_DIR/e2b_args"
     run cleanup_e2b_sandbox
     assert_success
-    ! _e2b_args | grep -q '^kill '
+    [[ $(_e2b_args | grep -c '^kill ') -eq 0 ]]
 }
 
 @test "cleanup_e2b_sandbox: keep-alive skips the kill and reports reuse hint" {
@@ -802,7 +849,7 @@ _age_sandbox() {
     _started_sandbox
     run cleanup_e2b_sandbox
     assert_success
-    ! _e2b_args | grep -q '^kill '
+    [[ $(_e2b_args | grep -c '^kill ') -eq 0 ]]
     [[ "$output" == *"sbx_mock123"* ]]
     assert_equal "$(jq -r '.status' "$E2B_SANDBOX_STATE_FILE")" "kept_alive"
 }

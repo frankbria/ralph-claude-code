@@ -417,21 +417,29 @@ build_e2b_exec_args() {
 # NUL-separated list of project files to upload: tracked + untracked
 # non-ignored files (so .git internals, node_modules etc. follow .gitignore),
 # plus the .ralph control files Claude needs even when .ralph/ is gitignored.
-# Logs, sandbox state, and git history never leave the host.
+# The generic lists exclude .ralph/ ENTIRELY — internal state (.e2b_*,
+# status.json, counters) must never reach the sandbox, where a write could
+# sync back over the host's control state. Only the explicit allowlist below
+# re-adds the control files.
 _build_e2b_upload_list() {
+    local ralph_base="${RALPH_DIR##*/}"
     if git rev-parse --git-dir &>/dev/null; then
-        git ls-files -coz --exclude-standard 2>/dev/null
+        git ls-files -coz --exclude-standard -- . ":(exclude)$ralph_base" 2>/dev/null
     else
         find . -type f \
             ! -path './.git/*' ! -path './node_modules/*' \
-            ! -path "./${RALPH_DIR##*/}/logs/*" -print0 2>/dev/null
+            ! -path "./$ralph_base/*" -print0 2>/dev/null
     fi
-    local f
+    # Allowlist entries must be cwd-relative: an absolute RALPH_DIR would
+    # otherwise become a wrong member path in the tar (leading / stripped).
+    local f rel
     for f in .ralphrc "$RALPH_DIR/PROMPT.md" "$RALPH_DIR/fix_plan.md" "$RALPH_DIR/AGENT.md"; do
-        [[ -f "$f" ]] && printf '%s\0' "$f"
+        rel="${f#"$PWD"/}"
+        [[ -f "$rel" ]] && printf '%s\0' "$rel"
     done
-    if [[ -d "$RALPH_DIR/specs" ]]; then
-        find "$RALPH_DIR/specs" -type f -print0 2>/dev/null
+    rel="${RALPH_DIR#"$PWD"/}"
+    if [[ -d "$rel/specs" ]]; then
+        find "$rel/specs" -type f -print0 2>/dev/null
     fi
 }
 
@@ -461,7 +469,12 @@ upload_project_to_e2b() {
         return 1
     fi
     # Deletion-sync baseline: what the sandbox workspace now contains
-    tar -tzf "$tarball" 2>/dev/null | grep -v '/$' | sed 's|^\./||' > "$E2B_SYNCED_FILES_FILE" 2>/dev/null
+    # (atomic temp+mv — a torn baseline would corrupt deletion propagation)
+    local baseline_tmp
+    if baseline_tmp=$(mktemp "${E2B_SYNCED_FILES_FILE}.XXXXXX" 2>/dev/null); then
+        tar -tzf "$tarball" 2>/dev/null | grep -v '/$' | sed 's|^\./||' > "$baseline_tmp" \
+            && mv "$baseline_tmp" "$E2B_SYNCED_FILES_FILE" || rm -f "$baseline_tmp"
+    fi
     rm -f "$tarball"
     _e2b_log "INFO" "Uploaded $file_count file(s) to E2B workspace $SANDBOX_E2B_WORKDIR"
     return 0
@@ -534,9 +547,14 @@ sync_e2b_artifacts_down() {
     local file_count
     file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -v '/$' | grep -cv "^${E2B_SYNC_MANIFEST_NAME}$")
     if [[ "$file_count" -gt 0 ]]; then
+        # .ralph control files (fix_plan.md, PROMPT.md, specs/) sync back —
+        # Claude updates them — but state dotfiles, status.json, progress.json,
+        # live.log and logs/ are host-owned and must never be overwritten.
         if ! tar -xzf "$tarball" -C . \
             --exclude="$E2B_SYNC_MANIFEST_NAME" \
             --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \
+            --exclude='.ralph/.*' --exclude='.ralph/status.json' \
+            --exclude='.ralph/progress.json' --exclude='.ralph/live.log' \
             --exclude=".ralph/logs" --exclude=".ralph/logs/*" 2>/dev/null; then
             _e2b_log "WARN" "Failed to extract some synced files from the E2B sandbox"
             rm -f "$tarball"
@@ -552,7 +570,11 @@ sync_e2b_artifacts_down() {
     # iteration carries a manifest but zero changed files and must still run.
     if [[ -n "$manifest" ]]; then
         _apply_e2b_deletions "$manifest"
-        printf '%s\n' "$manifest" > "$E2B_SYNCED_FILES_FILE" 2>/dev/null
+        local manifest_tmp
+        if manifest_tmp=$(mktemp "${E2B_SYNCED_FILES_FILE}.XXXXXX" 2>/dev/null); then
+            printf '%s\n' "$manifest" > "$manifest_tmp" \
+                && mv "$manifest_tmp" "$E2B_SYNCED_FILES_FILE" || rm -f "$manifest_tmp"
+        fi
     fi
 
     # Everything landed on the host — advance the sandbox-side sync marker.

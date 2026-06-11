@@ -252,9 +252,15 @@ def cmd_kill(args):
     try:
         sandbox = Sandbox.connect(args.sandbox_id)
         sandbox.kill()
-    except Exception:
-        # Already dead/expired sandboxes count as killed — kill is idempotent
-        pass
+    except Exception as exc:
+        # Only an already-dead/expired sandbox counts as killed (idempotent).
+        # Auth/network/API failures must propagate — reporting them as
+        # success would leave a sandbox running (and billing) silently.
+        name = type(exc).__name__
+        if "NotFound" in name or "404" in str(exc):
+            _emit({"ok": True, "note": "sandbox already gone"})
+            return
+        _die("kill failed for %s: %s" % (args.sandbox_id, exc))
     _emit({"ok": True})
 
 
