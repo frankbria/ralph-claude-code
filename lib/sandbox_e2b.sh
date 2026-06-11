@@ -535,12 +535,15 @@ _apply_e2b_deletions() {
 # (mirrors the tar --exclude list in sync_e2b_artifacts_down).
 _e2b_member_hard_excluded() {
     local m="${1#./}"
+    # Same control-dir derivation as _build_e2b_upload_list — honors a
+    # non-default RALPH_DIR (absolute or relative)
+    local rb="${RALPH_DIR##*/}"
     case "$m" in
         "$E2B_SYNC_MANIFEST_NAME") return 0 ;;
         .git|.git/*|*/.git|*/.git/*) return 0 ;;
-        .ralph/.*) return 0 ;;
-        .ralph/status.json|.ralph/progress.json|.ralph/live.log) return 0 ;;
-        .ralph/logs|.ralph/logs/*) return 0 ;;
+        "$rb"/.*) return 0 ;;
+        "$rb"/status.json|"$rb"/progress.json|"$rb"/live.log) return 0 ;;
+        "$rb"/logs|"$rb"/logs/*) return 0 ;;
     esac
     return 1
 }
@@ -550,8 +553,10 @@ _e2b_member_hard_excluded() {
 # sync patterns never filter these on download — a broad pattern like *.md
 # must not silently drop Claude's plan/prompt updates.
 _e2b_member_control_file() {
+    local rb="${RALPH_DIR##*/}"
+    # .ralphrc lives at the project root, not under RALPH_DIR
     case "${1#./}" in
-        .ralphrc|.ralph/PROMPT.md|.ralph/fix_plan.md|.ralph/AGENT.md|.ralph/specs/*) return 0 ;;
+        .ralphrc|"$rb"/PROMPT.md|"$rb"/fix_plan.md|"$rb"/AGENT.md|"$rb"/specs/*) return 0 ;;
     esac
     return 1
 }
@@ -641,12 +646,13 @@ sync_e2b_artifacts_down() {
             return 1
         fi
         printf '%s' "$selected" > "$list_file"
+        local rb="${RALPH_DIR##*/}"
         if ! tar -xzf "$tarball" -C . -T "$list_file" \
             --exclude="$E2B_SYNC_MANIFEST_NAME" \
             --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \
-            --exclude='.ralph/.*' --exclude='.ralph/status.json' \
-            --exclude='.ralph/progress.json' --exclude='.ralph/live.log' \
-            --exclude=".ralph/logs" --exclude=".ralph/logs/*" 2>/dev/null; then
+            --exclude="$rb/.*" --exclude="$rb/status.json" \
+            --exclude="$rb/progress.json" --exclude="$rb/live.log" \
+            --exclude="$rb/logs" --exclude="$rb/logs/*" 2>/dev/null; then
             _e2b_log "WARN" "Failed to extract some synced files from the E2B sandbox"
             rm -f "$tarball" "$list_file"
             return 1

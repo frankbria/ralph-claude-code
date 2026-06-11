@@ -1049,6 +1049,22 @@ _age_sandbox() {
     [[ "$output" == *"Filtered 1 file(s)"* ]]
 }
 
+@test "issue #76: member classification honors a non-default RALPH_DIR" {
+    # The upload side derives the control-dir basename from RALPH_DIR;
+    # the download-side classifiers must do the same (claude-review, PR #305)
+    export RALPH_DIR="$TEST_DIR/.customralph"
+    _e2b_member_hard_excluded ".customralph/status.json"
+    _e2b_member_hard_excluded "./.customralph/.e2b_sandbox_state"
+    _e2b_member_control_file ".customralph/fix_plan.md"
+    _e2b_member_control_file "./.customralph/specs/feature.md"
+    # With a custom control dir, a plain .ralph path is ordinary project
+    # content — neither protected nor force-included
+    run _e2b_member_hard_excluded ".ralph/status.json"
+    assert_failure
+    run _e2b_member_control_file ".ralph/fix_plan.md"
+    assert_failure
+}
+
 @test "issue #76: download force-includes .ralph control files past user patterns" {
     # A broad user pattern (*.md) must not drop Claude's plan/prompt updates
     # on download — mirror of the upload allowlist (claude-review P3)
