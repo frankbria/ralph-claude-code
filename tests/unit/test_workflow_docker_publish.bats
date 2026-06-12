@@ -26,8 +26,9 @@ WORKFLOW="$BATS_TEST_DIRNAME/../../.github/workflows/docker-publish.yml"
     grep -qE "packages:\s*write" "$WORKFLOW"
     grep -qE "contents:\s*read" "$WORKFLOW"
     # Registry auth rides on the ephemeral workflow GITHUB_TOKEN — no other
-    # secret may be referenced anywhere in the workflow
-    [[ $(grep -o 'secrets\.[A-Za-z_]*' "$WORKFLOW" | grep -cv '^secrets\.GITHUB_TOKEN$') -eq 0 ]]
+    # secret may be referenced anywhere in the workflow. The identifier must
+    # be non-empty ('+'), or prose like "secrets." in comments matches too.
+    [[ $(grep -oE 'secrets\.[A-Za-z_]+' "$WORKFLOW" | grep -cv '^secrets\.GITHUB_TOKEN$') -eq 0 ]]
 }
 
 @test "docker-publish smoke test runs before the multi-arch push" {
@@ -36,7 +37,9 @@ WORKFLOW="$BATS_TEST_DIRNAME/../../.github/workflows/docker-publish.yml"
     # file than the push step.
     local smoke_line push_line
     smoke_line=$(grep -n "claude --version" "$WORKFLOW" | head -1 | cut -d: -f1)
-    push_line=$(grep -n "push:" "$WORKFLOW" | tail -1 | cut -d: -f1)
+    # Target the gated push expression specifically — a bare 'push:' grep
+    # would also match the on: trigger block (claude-review, PR #308)
+    push_line=$(grep -n 'push:.*github\.event_name' "$WORKFLOW" | head -1 | cut -d: -f1)
     [ -n "$smoke_line" ]
     [ -n "$push_line" ]
     [ "$smoke_line" -lt "$push_line" ]

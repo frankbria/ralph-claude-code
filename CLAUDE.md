@@ -130,7 +130,9 @@ ralph --resume-queue             # continue remaining pending items
 
 ### Docker Sandbox Execution (Issue #74)
 ```bash
-docker pull ghcr.io/frankbria/ralph-sandbox:latest && docker tag ghcr.io/frankbria/ralph-sandbox:latest ralph-sandbox:latest   # One time (or: docker build -t ralph-sandbox .)
+docker pull ghcr.io/frankbria/ralph-sandbox:latest          # One time: official image (published on v* tags)
+docker tag ghcr.io/frankbria/ralph-sandbox:latest ralph-sandbox:latest
+# ...or build locally: docker build -t ralph-sandbox .  (or ~/.ralph post-install)
 
 ralph --sandbox docker                   # Run Claude in an isolated container
 ralph --sandbox docker --sandbox-image node:20 --sandbox-memory 8g --sandbox-cpus 4
