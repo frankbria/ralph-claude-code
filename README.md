@@ -607,7 +607,11 @@ Run Claude Code inside an isolated Docker container instead of directly on your 
 ### Setup
 
 ```bash
-# One time: build the default sandbox image (from a source checkout, or ~/.ralph after install)
+# One time: pull the official image (published on release tags)...
+docker pull ghcr.io/frankbria/ralph-sandbox:latest
+docker tag ghcr.io/frankbria/ralph-sandbox:latest ralph-sandbox:latest
+
+# ...or build it yourself (from a source checkout, or ~/.ralph after install)
 docker build -t ralph-sandbox .
 ```
 

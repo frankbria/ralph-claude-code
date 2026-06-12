@@ -163,7 +163,10 @@ init_docker_sandbox() {
     if ! docker image inspect "$SANDBOX_DOCKER_IMAGE" >/dev/null 2>&1; then
         if [[ "$SANDBOX_DOCKER_IMAGE" == "$SANDBOX_DEFAULT_IMAGE" ]]; then
             _sandbox_log "ERROR" "Sandbox image '$SANDBOX_DOCKER_IMAGE' not found."
-            echo "Build the default Ralph sandbox image first:" >&2
+            echo "Pull the official image (published on release tags, Issue #298):" >&2
+            echo "  docker pull ghcr.io/frankbria/ralph-sandbox:latest" >&2
+            echo "  docker tag ghcr.io/frankbria/ralph-sandbox:latest ralph-sandbox:latest" >&2
+            echo "Or build it locally:" >&2
             echo "  docker build -t ralph-sandbox \"\${RALPH_HOME:-\$HOME/.ralph}\"" >&2
             echo "(or from a Ralph source checkout: docker build -t ralph-sandbox .)" >&2
         else
