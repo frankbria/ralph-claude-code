@@ -11,7 +11,7 @@
 load '../helpers/test_helper'
 
 WORKFLOWS_DIR="$BATS_TEST_DIRNAME/../../.github/workflows"
-HARDENED_WORKFLOWS=(test.yml claude.yml claude-code-review.yml)
+HARDENED_WORKFLOWS=(test.yml claude.yml claude-code-review.yml docker-publish.yml)
 
 # Count checkout steps lacking persist-credentials: false WITHIN their own
 # step block (from the checkout `uses:` line to the next `- ` list item).

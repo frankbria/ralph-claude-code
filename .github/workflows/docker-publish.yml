@@ -1,0 +1,87 @@
+# Publish the default ralph-sandbox image to GHCR (Issue #298)
+#
+# Triggers on release tags (v*) and builds the repo Dockerfile multi-arch
+# (linux/amd64 + linux/arm64), tagging with the release version and `latest`.
+# The amd64 image is smoke-tested (`claude --version` as a non-root user —
+# ralph runs sandbox containers with --user "$(id -u):$(id -g)") BEFORE
+# anything is pushed.
+#
+# workflow_dispatch provides a dry-run: with push=false (the default) the
+# image is built and smoke-tested but never published, so the pipeline can be
+# validated from any branch. Setting push=true manually publishes `latest`
+# only (no semver tag exists outside tag builds) — an escape hatch, not the
+# normal release path.
+#
+# Supply-chain policy: all actions SHA-pinned with tag comments (#275);
+# checkout never persists credentials (#282); registry auth rides on the
+# ephemeral workflow GITHUB_TOKEN — no long-lived secrets.
+
+name: Publish Sandbox Image
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push to GHCR (false = build + smoke test only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/ralph-sandbox
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GHCR
+        # Skipped in dry-run mode — a push=false dispatch never touches
+        # registry auth at all
+        if: github.event_name == 'push' || inputs.push == true
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (version + latest tags)
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Build amd64 image for the smoke test
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE }}:smoke
+
+      - name: Smoke test — claude --version as non-root
+        run: docker run --rm --user 1000:1000 "$IMAGE:smoke" claude --version
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || inputs.push == true }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

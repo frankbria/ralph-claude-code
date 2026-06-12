@@ -10,7 +10,7 @@
 load '../helpers/test_helper'
 
 WORKFLOWS_DIR="$BATS_TEST_DIRNAME/../../.github/workflows"
-PINNED_WORKFLOWS=(test.yml claude.yml claude-code-review.yml)
+PINNED_WORKFLOWS=(test.yml claude.yml claude-code-review.yml docker-publish.yml)
 
 # Extract all `uses:` lines referencing external actions (owner/repo@ref).
 # Skips local actions (./) and docker:// references, which have no SHA to pin.
