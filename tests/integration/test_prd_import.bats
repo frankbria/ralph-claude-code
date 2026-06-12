@@ -1248,7 +1248,7 @@ MOCK_GH_EOF
     grep -q '^# Add User Login' "$prd"
     grep -q 'Build login form' "$prd"
     # Comments are excluded by default (untrusted input; opt in via --include-comments)
-    ! grep -q '## Discussion' "$prd"
+    [[ $(grep -c '## Discussion' "$prd") -eq 0 ]]
 
     # No temp conversion artifacts left behind in the project
     [[ ! -f "add-user-login/.ralph_conversion_output.json" ]]
@@ -1399,7 +1399,7 @@ MOCK_CLAUDE_EOF
     # Only the conversion call happened
     [[ -f "$TEST_DIR/claude_stdin_1" ]]
     [[ ! -f "$TEST_DIR/claude_stdin_2" ]]
-    ! grep -q "Implementation Plan Generation Task" "$TEST_DIR/claude_stdin_1"
+    [[ $(grep -c "Implementation Plan Generation Task" "$TEST_DIR/claude_stdin_1") -eq 0 ]]
 
     # No generated plan artifact
     [[ ! -f "add-user-login/.ralph/specs/implementation-plan.md" ]]
@@ -1458,7 +1458,7 @@ MOCK_CLAUDE_EOF
     # Call-specific assertions: --model goes to the plan-generation call
     # (line 1) only — the conversion call (line 2) must not inherit it
     sed -n '1p' "$TEST_DIR/claude_args.log" | grep -q -- "--model opus"
-    ! sed -n '2p' "$TEST_DIR/claude_args.log" | grep -q -- "--model"
+    [[ $(sed -n '2p' "$TEST_DIR/claude_args.log" | grep -c -- "--model") -eq 0 ]]
 }
 
 # =============================================================================
@@ -1574,7 +1574,7 @@ MOCK_GH_EOF
     [[ "$output" == *"No issues match"* ]]
     # Nothing was imported
     [[ ! -d "new-bug-report" ]]
-    ! grep -q "issue view" "$TEST_DIR/gh_args.log"
+    [[ $(grep -c "issue view" "$TEST_DIR/gh_args.log") -eq 0 ]]
 }
 
 @test "ralph-import --dry-run previews matches without importing" {
@@ -1592,5 +1592,5 @@ MOCK_GH_EOF
 
     # No project was created and no issue was fetched for conversion
     [[ ! -d "old-bug" && ! -d "p0-critical-crash" && ! -d "new-bug-report" ]]
-    ! grep -q "issue view" "$TEST_DIR/gh_args.log"
+    [[ $(grep -c "issue view" "$TEST_DIR/gh_args.log") -eq 0 ]]
 }

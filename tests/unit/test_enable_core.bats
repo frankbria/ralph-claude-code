@@ -480,7 +480,7 @@ EOF
     assert_success
     # Should have template content, not old content
     grep -q ".ralph/.call_count" .gitignore
-    ! grep -q "my-custom-ignore" .gitignore
+    [[ $(grep -c "my-custom-ignore" .gitignore) -eq 0 ]]
 }
 
 @test "enable_ralph_in_directory succeeds when templates dir exists but .gitignore is missing" {

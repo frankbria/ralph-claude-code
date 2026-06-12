@@ -423,7 +423,7 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     start_sandbox_container
     run ensure_sandbox_container
     assert_success
-    ! _docker_args | grep -q '^start '
+    [[ $(_docker_args | grep -c '^start ') -eq 0 ]]
 }
 
 @test "ensure_sandbox_container: restarts a stopped container (OOM kill recovery)" {
@@ -498,7 +498,7 @@ _docker_args() { cat "$TEST_DIR/docker_args" 2>/dev/null; }
     init_docker_sandbox
     run handle_sandbox_timeout
     assert_success
-    ! _docker_args | grep -q '^restart'
+    [[ $(_docker_args | grep -c '^restart') -eq 0 ]]
 }
 
 # -----------------------------------------------------------------------------
