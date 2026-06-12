@@ -72,8 +72,8 @@ preinstalled and pass it via `--sandbox-template`.
 | `--sandbox-max-cost USD` | (none) | Stop the loop gracefully once the estimated cost reaches this amount |
 | `--sandbox-cost-alert USD` | (none) | Warn once when the estimated cost reaches this amount |
 
-`daytona` and `cloudflare` providers are planned (issues #79, #80) and
-currently rejected with a clear error. The Docker sub-flags
+`daytona` and `cloudflare` providers are not planned (issues #79, #80)
+and are rejected with a clear error. The Docker sub-flags
 (`--sandbox-image`, ...) pair only with `--sandbox docker`, and the E2B
 sub-flags only with `--sandbox e2b` — mixing them is a startup error.
 

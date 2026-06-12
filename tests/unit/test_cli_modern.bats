@@ -2009,10 +2009,13 @@ EOF
     [[ "$output" != *"Error"* ]]
 }
 
-@test "issue #75: --sandbox daytona is still rejected as not yet implemented" {
+@test "issue #75: --sandbox daytona is rejected as not supported" {
+    # Wording changed from "not yet implemented" when #79/#80 closed as
+    # not planned (Docker + E2B are the final provider set)
     run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox daytona 2>&1"
     [[ $status -ne 0 ]]
-    [[ "$output" == *"not yet implemented"* ]]
+    [[ "$output" == *"not supported"* ]]
+    [[ "$output" == *"docker, e2b"* ]]
 }
 
 @test "issue #74: --sandbox rejects unknown providers" {

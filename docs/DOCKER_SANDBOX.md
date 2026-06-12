@@ -60,8 +60,8 @@ writes to the bind-mounted workspace keeps your host ownership and the seeded
 | `--sandbox-network MODE` | `bridge` | `none`, `bridge`, or `host` |
 
 The `e2b` cloud provider is also available — see
-[E2B_SANDBOX.md](E2B_SANDBOX.md). `daytona` and `cloudflare` are planned
-(issues #79, #80) and currently rejected with a clear error. The sub-flags
+[E2B_SANDBOX.md](E2B_SANDBOX.md). `daytona` and `cloudflare` are not
+planned (issues #79, #80) and are rejected with a clear error. The sub-flags
 require their provider (either via `--sandbox` or `SANDBOX_PROVIDER` in
 `.ralphrc`).
 

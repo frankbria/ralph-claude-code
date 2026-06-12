@@ -2956,7 +2956,7 @@ GitHub issue lifecycle (Issue #73; all opt-in, require --github-issue):
 
 Sandbox execution (Issues #74/#75; isolates Claude in a sandbox):
     --sandbox PROVIDER      Run Claude Code inside a sandbox: docker, e2b
-                            (daytona, cloudflare planned — see issues #79/#80)
+                            (the supported provider set is final — see issues #79/#80)
 
   Docker provider sub-flags (--sandbox docker):
     --sandbox-image IMAGE   Container image (default: $SANDBOX_DOCKER_IMAGE)
@@ -3219,7 +3219,7 @@ while [[ $# -gt 0 ]]; do
                     _cli_SANDBOX_PROVIDER="$2"
                     ;;
                 daytona|cloudflare)
-                    echo "Error: --sandbox $2 is not yet implemented (see issues #79, #80). Supported: docker, e2b"
+                    echo "Error: --sandbox $2 is not supported (additional providers are not planned — see issues #79, #80). Supported: docker, e2b"
                     exit 1
                     ;;
                 *)
