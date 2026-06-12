@@ -2143,3 +2143,62 @@ EOF
     [[ "$output" == *"--sandbox-max-cost"* ]]
     [[ "$output" == *"--sandbox-cost-alert"* ]]
 }
+
+# =============================================================================
+# Issue #76: sandbox sync filter CLI flags
+# =============================================================================
+
+@test "issue #76: sync flags are accepted alongside --sandbox e2b" {
+    local flags="--sandbox e2b --sync-include 'src/**,*.md' --sync-exclude '*.log,node_modules'"
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh $flags --help 2>&1 || true"
+    [[ "$output" != *"Unknown option"* ]]
+    [[ "$output" != *"Error"* ]]
+}
+
+@test "issue #76: --sync-include requires a value" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sync-include 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"sync-include"* ]]
+}
+
+@test "issue #76: --sync-exclude rejects a flag in value position" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --sandbox e2b --sync-exclude --live 2>&1"
+    [[ $status -ne 0 ]]
+    [[ "$output" == *"sync-exclude"* ]]
+}
+
+@test "issue #76: sync flags without --sandbox error at startup" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --sync-include 'src/**'
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--sandbox"* ]]
+}
+
+@test "issue #76: sync flags with the docker provider explain the bind mount" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --sandbox docker --sync-exclude '*.log'
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"bind mount"* ]]
+}
+
+@test "issue #76: help text documents the sync flags" {
+    run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --help 2>&1 || true"
+    [[ "$output" == *"--sync-include"* ]]
+    [[ "$output" == *"--sync-exclude"* ]]
+    [[ "$output" == *".ralphignore"* ]]
+}
+
+@test "issue #76: sync env vars are captured before the lib source block" {
+    # lib/sync.sh sets defaults at source time — capture must come first
+    # (same reasoning as the sandbox _env_* block)
+    run grep '_env_SYNC_INCLUDE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [[ "$output" == *'${SYNC_INCLUDE:-}'* ]]
+    run grep '_env_SYNC_MAX_FILE_SIZE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [[ "$output" == *'${SYNC_MAX_FILE_SIZE:-}'* ]]
+}
+
+@test "issue #76: load_ralphrc restores sync env overrides" {
+    run grep '_env_SYNC_' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [[ "$output" == *'SYNC_INCLUDE="$_env_SYNC_INCLUDE"'* ]]
+    [[ "$output" == *'SYNC_EXCLUDE="$_env_SYNC_EXCLUDE"'* ]]
+    [[ "$output" == *'SYNC_MAX_FILE_SIZE="$_env_SYNC_MAX_FILE_SIZE"'* ]]
+    [[ "$output" == *'SYNC_LARGE_FILE_ACTION="$_env_SYNC_LARGE_FILE_ACTION"'* ]]
+}

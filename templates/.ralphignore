@@ -1,0 +1,38 @@
+# .ralphignore — extra exclude patterns for sandbox file sync (Issue #76)
+#
+# Applies when running `ralph --sandbox e2b`: matching files are excluded
+# from the upload to the sandbox AND from the artifact download back to the
+# host. Docker sandboxes ignore this file (the bind mount shares everything
+# in real time).
+#
+# Syntax is a gitignore-like SUBSET (see docs/SANDBOX_SYNC.md):
+#   name           matches the basename or any path segment, at any depth
+#   *.ext          glob against the basename, at any depth
+#   dir/           the directory and everything under it
+#   src/**         glob against the full relative path
+#   # comment      ignored; blank lines ignored
+#   !negation      NOT supported (lines starting with ! are dropped)
+#
+# Note: files ignored by .gitignore are already excluded from upload.
+
+# Dependencies (reinstall in the sandbox instead of uploading)
+node_modules/
+venv/
+.venv/
+__pycache__/
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Logs and caches
+*.log
+.cache/
+
+# Secrets — defense in depth (gitignore should already cover these)
+.env
+.env.*
+*.pem
+*.key
+credentials.json

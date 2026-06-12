@@ -31,6 +31,9 @@
 
 # Source date utilities for cross-platform timestamps
 source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
+# Sync filter layer: include/exclude/.ralphignore patterns + large-file
+# policy applied to upload and download (Issue #76)
+source "$(dirname "${BASH_SOURCE[0]}")/sync.sh"
 
 # Use RALPH_DIR if set by the main script, otherwise default to .ralph
 RALPH_DIR="${RALPH_DIR:-.ralph}"
@@ -423,13 +426,19 @@ build_e2b_exec_args() {
 # re-adds the control files.
 _build_e2b_upload_list() {
     local ralph_base="${RALPH_DIR##*/}"
-    if git rev-parse --git-dir &>/dev/null; then
-        git ls-files -coz --exclude-standard -- . ":(exclude)$ralph_base" 2>/dev/null
-    else
-        find . -type f \
-            ! -path './.git/*' ! -path './node_modules/*' \
-            ! -path "./$ralph_base/*" -print0 2>/dev/null
-    fi
+    # Generic list runs through the sync filter (SYNC_INCLUDE/SYNC_EXCLUDE/
+    # .ralphignore/large-file policy, Issue #76); the .ralph control-file
+    # allowlist below is appended unfiltered — the loop must never be able
+    # to starve itself of its own prompt and plan.
+    {
+        if git rev-parse --git-dir &>/dev/null; then
+            git ls-files -coz --exclude-standard -- . ":(exclude)$ralph_base" 2>/dev/null
+        else
+            find . -type f \
+                ! -path './.git/*' ! -path './node_modules/*' \
+                ! -path "./$ralph_base/*" -print0 2>/dev/null
+        fi
+    } | sync_filter_file_list
     # Allowlist entries must be cwd-relative: an absolute RALPH_DIR would
     # otherwise become a wrong member path in the tar (leading / stripped).
     local f rel
@@ -461,8 +470,12 @@ upload_project_to_e2b() {
         return 1
     fi
 
-    local file_count
-    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -cv '/$')
+    local file_count tar_size
+    # grep -c exits 1 on zero matches (everything filtered) — never let that
+    # abort an errexit caller
+    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -cv '/$' || true)
+    tar_size=$(_sync_file_size "$tarball")
+    _e2b_log "INFO" "Uploading $file_count file(s) ($(format_sync_size "$tar_size") compressed) to E2B sandbox..."
     if ! _e2b_helper upload --sandbox-id "$sandbox_id" --dest "$SANDBOX_E2B_WORKDIR" < "$tarball" >/dev/null; then
         _e2b_log "ERROR" "Failed to upload project to E2B sandbox"
         rm -f "$tarball"
@@ -494,6 +507,12 @@ _apply_e2b_deletions() {
     local candidates
     candidates=$(comm -23 <(sort -u "$E2B_SYNCED_FILES_FILE") <(sort -u <<<"$manifest"))
     [[ -z "$candidates" ]] && return 0
+    # Paths the sync filter would never sync are never deletion candidates:
+    # a host file matching SYNC_EXCLUDE/.ralphignore must survive even if a
+    # stale baseline entry says it once synced (Issue #76). Control files
+    # stay candidates — what syncs may also be deletion-synced.
+    candidates=$(printf '%s\n' "$candidates" | _e2b_filter_download_members)
+    [[ -z "$candidates" ]] && return 0
     local deleted=0 old
     while IFS= read -r old; do
         [[ -z "$old" ]] && continue
@@ -507,6 +526,56 @@ _apply_e2b_deletions() {
     if (( deleted > 0 )); then
         _e2b_log "INFO" "Removed $deleted file(s) deleted in the E2B sandbox"
     fi
+    return 0
+}
+
+# _e2b_member_hard_excluded <member>
+# rc 0 for archive members that must NEVER reach the host regardless of user
+# sync patterns: the manifest member, .git paths, and host-owned .ralph state
+# (mirrors the tar --exclude list in sync_e2b_artifacts_down).
+_e2b_member_hard_excluded() {
+    local m="${1#./}"
+    # Same control-dir derivation as _build_e2b_upload_list — honors a
+    # non-default RALPH_DIR (absolute or relative)
+    local rb="${RALPH_DIR##*/}"
+    case "$m" in
+        "$E2B_SYNC_MANIFEST_NAME") return 0 ;;
+        .git|.git/*|*/.git|*/.git/*) return 0 ;;
+        "$rb"/.*) return 0 ;;
+        "$rb"/status.json|"$rb"/progress.json|"$rb"/live.log) return 0 ;;
+        "$rb"/logs|"$rb"/logs/*) return 0 ;;
+    esac
+    return 1
+}
+
+# _e2b_member_control_file <member>
+# rc 0 for the .ralph control files (mirror of the upload allowlist): user
+# sync patterns never filter these on download — a broad pattern like *.md
+# must not silently drop Claude's plan/prompt updates.
+_e2b_member_control_file() {
+    local rb="${RALPH_DIR##*/}"
+    # .ralphrc lives at the project root, not under RALPH_DIR
+    case "${1#./}" in
+        .ralphrc|"$rb"/PROMPT.md|"$rb"/fix_plan.md|"$rb"/AGENT.md|"$rb"/specs/*) return 0 ;;
+    esac
+    return 1
+}
+
+# _e2b_filter_download_members
+# stdin: newline member paths; stdout: members that survive the user's sync
+# patterns, with .ralph control files force-included past them (deduped).
+_e2b_filter_download_members() {
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ralph-e2b-members.XXXXXX") || return 1
+    cat > "$tmp"
+    {
+        sync_filter_download_list < "$tmp"
+        local m
+        while IFS= read -r m; do
+            [[ -n "$m" ]] && _e2b_member_control_file "$m" && printf '%s\n' "$m"
+        done < "$tmp"
+    } | awk '!seen[$0]++'
+    rm -f "$tmp"
     return 0
 }
 
@@ -544,23 +613,57 @@ sync_e2b_artifacts_down() {
     local manifest=""
     manifest=$(tar -xzOf "$tarball" "$E2B_SYNC_MANIFEST_NAME" 2>/dev/null | sed 's|^\./||') || manifest=""
 
-    local file_count
-    file_count=$(tar -tzf "$tarball" 2>/dev/null | grep -v '/$' | grep -cv "^${E2B_SYNC_MANIFEST_NAME}$")
+    # Member selection: hard exclusions (host-owned state, .git) first, then
+    # the user's sync patterns (SYNC_EXCLUDE/.ralphignore, Issue #76) with
+    # .ralph control files exempt. The surviving names are extracted
+    # explicitly via -T; the tar --exclude flags below stay as defense in
+    # depth. Accumulate in a temp file — bash += in a loop is O(n^2).
+    local member kept_file file_count filtered_count
+    if ! kept_file=$(mktemp "${TMPDIR:-/tmp}/ralph-e2b-kept.XXXXXX"); then
+        rm -f "$tarball"
+        return 1
+    fi
+    while IFS= read -r member; do
+        [[ -z "$member" ]] && continue
+        _e2b_member_hard_excluded "$member" && continue
+        printf '%s\n' "$member" >> "$kept_file"
+    done < <(tar -tzf "$tarball" 2>/dev/null | grep -v '/$')
+    local selected kept_count
+    selected=$(_e2b_filter_download_members < "$kept_file")
+    # grep -c exits 1 on zero matches — never let that abort an errexit caller
+    file_count=$(printf '%s' "$selected" | grep -c . || true)
+    kept_count=$(grep -c . "$kept_file" || true)
+    rm -f "$kept_file"
+    filtered_count=$(( kept_count - file_count ))
+
     if [[ "$file_count" -gt 0 ]]; then
         # .ralph control files (fix_plan.md, PROMPT.md, specs/) sync back —
         # Claude updates them — but state dotfiles, status.json, progress.json,
         # live.log and logs/ are host-owned and must never be overwritten.
-        if ! tar -xzf "$tarball" -C . \
-            --exclude="$E2B_SYNC_MANIFEST_NAME" \
-            --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \
-            --exclude='.ralph/.*' --exclude='.ralph/status.json' \
-            --exclude='.ralph/progress.json' --exclude='.ralph/live.log' \
-            --exclude=".ralph/logs" --exclude=".ralph/logs/*" 2>/dev/null; then
-            _e2b_log "WARN" "Failed to extract some synced files from the E2B sandbox"
+        local list_file
+        if ! list_file=$(mktemp "${TMPDIR:-/tmp}/ralph-e2b-extract.XXXXXX"); then
             rm -f "$tarball"
             return 1
         fi
-        _e2b_log "INFO" "Synced $file_count changed file(s) from the E2B sandbox"
+        printf '%s' "$selected" > "$list_file"
+        local rb="${RALPH_DIR##*/}"
+        if ! tar -xzf "$tarball" -C . -T "$list_file" \
+            --exclude="$E2B_SYNC_MANIFEST_NAME" \
+            --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \
+            --exclude="$rb/.*" --exclude="$rb/status.json" \
+            --exclude="$rb/progress.json" --exclude="$rb/live.log" \
+            --exclude="$rb/logs" --exclude="$rb/logs/*" 2>/dev/null; then
+            _e2b_log "WARN" "Failed to extract some synced files from the E2B sandbox"
+            rm -f "$tarball" "$list_file"
+            return 1
+        fi
+        rm -f "$list_file"
+        local tar_size
+        tar_size=$(_sync_file_size "$tarball")
+        _e2b_log "INFO" "Synced $file_count changed file(s) ($(format_sync_size "$tar_size")) from the E2B sandbox"
+    fi
+    if [[ "$filtered_count" -gt 0 ]]; then
+        _e2b_log "INFO" "Filtered $filtered_count file(s) from sandbox download (SYNC_EXCLUDE / .ralphignore patterns)"
     fi
     rm -f "$tarball"
 
@@ -570,9 +673,14 @@ sync_e2b_artifacts_down() {
     # iteration carries a manifest but zero changed files and must still run.
     if [[ -n "$manifest" ]]; then
         _apply_e2b_deletions "$manifest"
-        local manifest_tmp
+        # Baseline = what is actually synced to the host: members the download
+        # filter excludes are dropped so a same-named host file can never
+        # become a deletion candidate once the sandbox removes its copy
+        # (Issue #76)
+        local manifest_synced manifest_tmp
+        manifest_synced=$(printf '%s\n' "$manifest" | _e2b_filter_download_members)
         if manifest_tmp=$(mktemp "${E2B_SYNCED_FILES_FILE}.XXXXXX" 2>/dev/null); then
-            printf '%s\n' "$manifest" > "$manifest_tmp" \
+            printf '%s\n' "$manifest_synced" > "$manifest_tmp" \
                 && mv "$manifest_tmp" "$E2B_SYNCED_FILES_FILE" || rm -f "$manifest_tmp"
         fi
     fi
