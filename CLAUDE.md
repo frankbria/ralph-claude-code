@@ -137,7 +137,7 @@ ralph --sandbox docker --sandbox-image node:20 --sandbox-memory 8g --sandbox-cpu
 ralph --sandbox docker --sandbox-network none   # Full isolation (blocks Claude API — special images only)
 ralph --monitor --sandbox docker         # Flags forwarded through tmux
 ```
-Providers daytona/cloudflare are rejected with "not yet implemented" (#79/#80). Sub-flags require their provider (docker sub-flags pair only with `--sandbox docker`, E2B sub-flags only with `--sandbox e2b`). See [docs/DOCKER_SANDBOX.md](docs/DOCKER_SANDBOX.md).
+Providers daytona/cloudflare are rejected as not supported (#79/#80 closed as not planned — Docker + E2B are the final provider set). Sub-flags require their provider (docker sub-flags pair only with `--sandbox docker`, E2B sub-flags only with `--sandbox e2b`). See [docs/DOCKER_SANDBOX.md](docs/DOCKER_SANDBOX.md).
 
 ### E2B Cloud Sandbox Execution (Issue #75)
 ```bash
