@@ -195,7 +195,7 @@ EOF
     grep -q 'alice' out.md
     grep -q 'Here is the plan' out.md
     # Empty comment bodies are skipped
-    ! grep -q 'bot' out.md
+    [[ $(grep -c 'bot' out.md) -eq 0 ]]
 }
 
 @test "format_issue_as_prd excludes comments by default (untrusted input)" {
@@ -205,9 +205,9 @@ EOF
 
     run format_issue_as_prd issue.json out.md
     assert_success
-    ! grep -q 'Discussion' out.md
-    ! grep -q 'mallory' out.md
-    ! grep -q 'ignore previous instructions' out.md
+    [[ $(grep -c 'Discussion' out.md) -eq 0 ]]
+    [[ $(grep -c 'mallory' out.md) -eq 0 ]]
+    [[ $(grep -c 'ignore previous instructions' out.md) -eq 0 ]]
 }
 
 @test "format_issue_as_prd warns on empty body but still produces a PRD" {
@@ -502,7 +502,7 @@ JSON
     run generate_implementation_plan "issue_prd.md" "analysis.json" "plan.md"
     assert_success
 
-    ! grep -q -- "--model" "$TEST_DIR/claude_args"
+    [[ $(grep -c -- "--model" "$TEST_DIR/claude_args") -eq 0 ]]
 }
 
 @test "generate_implementation_plan sends missing elements and issue content to claude" {
@@ -556,8 +556,8 @@ MOCKEOF
 
     # Legacy path must not pass modern-only flags (codex P1): old CLIs
     # reject --strict-mcp-config / --output-format
-    ! grep -q -- "--strict-mcp-config" "$TEST_DIR/claude_args"
-    ! grep -q -- "--output-format" "$TEST_DIR/claude_args"
+    [[ $(grep -c -- "--strict-mcp-config" "$TEST_DIR/claude_args") -eq 0 ]]
+    [[ $(grep -c -- "--output-format" "$TEST_DIR/claude_args") -eq 0 ]]
 }
 
 @test "generate_implementation_plan fails on an empty plan" {

@@ -110,7 +110,7 @@ teardown() {
     assert_file_exists "src/work_1.txt"
     assert_file_exists "src/work_2.txt"
     assert_file_exists "src/work_3.txt"
-    ! grep -q '^- \[ \]' .ralph/fix_plan.md
+    [[ $(grep -c '^- \[ \]' .ralph/fix_plan.md) -eq 0 ]]
 }
 
 @test "E2E: three test-only loops exit with test_saturation" {
@@ -203,7 +203,7 @@ EOF
     [[ "$output" == *"Saved Claude session"* ]]
 
     # Loop 1 started fresh (no --resume); loop 2 resumed the stored session
-    ! grep -qx -- "--resume" "$MOCK_DIR/calls/argv_1.log"
+    [[ $(grep -cx -- "--resume" "$MOCK_DIR/calls/argv_1.log") -eq 0 ]]
     grep -qx -- "--resume" "$MOCK_DIR/calls/argv_2.log"
     grep -qx "e2e-sess-abc123" "$MOCK_DIR/calls/argv_2.log"
 }
@@ -249,7 +249,7 @@ EOF
     assert_success
     assert_equal "$(status_field max_calls_per_hour)" "7"
     # --no-continue: the stored session must NOT be resumed
-    ! grep -qx -- "--resume" "$MOCK_DIR/calls/argv_1.log"
+    [[ $(grep -cx -- "--resume" "$MOCK_DIR/calls/argv_1.log") -eq 0 ]]
 }
 
 # =============================================================================

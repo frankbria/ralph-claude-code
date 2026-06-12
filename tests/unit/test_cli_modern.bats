@@ -931,10 +931,10 @@ EOF
     live_block=$(sed -n '/Live output mode enabled/,/End of Output/p' "$script")
 
     # set +e and set -e should NOT appear in the live block
-    ! echo "$live_block" | grep -q '^[[:space:]]*set +e$'
-    ! echo "$live_block" | grep -q '^[[:space:]]*set -e'
-    ! echo "$live_block" | grep -q 'set -o pipefail'
-    ! echo "$live_block" | grep -q 'set +o pipefail'
+    [[ $(echo "$live_block" | grep -c '^[[:space:]]*set +e$') -eq 0 ]]
+    [[ $(echo "$live_block" | grep -c '^[[:space:]]*set -e') -eq 0 ]]
+    [[ $(echo "$live_block" | grep -c 'set -o pipefail') -eq 0 ]]
+    [[ $(echo "$live_block" | grep -c 'set +o pipefail') -eq 0 ]]
 }
 
 @test "live mode pipeline logs timeout events with exit code 124" {
