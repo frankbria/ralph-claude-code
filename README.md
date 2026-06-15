@@ -130,6 +130,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 ### In Progress
 - Expanding test coverage
 - [Automated badge updates](#138)
+- [Multi-provider agent abstraction](docs/adr/0001-multi-provider-agent-abstraction.md) — decoupling Ralph from `claude` so any headless coding CLI (Codex, Gemini, OpenCode, Droid, Kilocode, Copilot) can drive the loop ([`multi-provider`](https://github.com/frankbria/ralph-claude-code/labels/multi-provider) epic)
 
 **Timeline to v1.0**: final polish underway | [Full roadmap](IMPLEMENTATION_PLAN.md) | **Contributions welcome!**
 
