@@ -105,4 +105,10 @@ extract_uses_lines() {
         fail "dependabot.yml has no ignore block (gh-aw setup pin must be excluded; Issue #287)"
     grep -qE 'dependency-name:[[:space:]]*"?github/gh-aw' "$config" || \
         fail "dependabot.yml does not ignore github/gh-aw (compiler-locked pin; Issue #287)"
+    # The glob must match the bare `github/gh-aw-actions` name that Dependabot
+    # actually reports — a `/**` suffix requires a subpath and silently fails to
+    # match, which is how the gh-aw pin still got bumped in PR #309. Require the
+    # `*` to follow the bare name directly (not after a `/`).
+    grep -qE 'dependency-name:[[:space:]]*"?github/gh-aw-actions\*' "$config" || \
+        fail "dependabot.yml gh-aw ignore must use 'github/gh-aw-actions*' so the bare repo name is matched (PR #309)"
 }
