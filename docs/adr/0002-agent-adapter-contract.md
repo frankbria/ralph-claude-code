@@ -185,7 +185,7 @@ key; when the provider's output does not carry a value, it falls back as follows
 
 | Field | Fallback when absent |
 |---|---|
-| `files_modified` | git diff count since `.ralph/.loop_start_sha` (committed + staged + unstaged) |
+| `files_modified` | count of **distinct files** changed since `.ralph/.loop_start_sha` — the deduplicated union of `git diff --name-only` over committed + staged + unstaged changes (a file count, *not* a line count); cf. `ralph_loop.sh` ~2257–2272 |
 | `exit_signal` | `false` (and `status` from the RALPH_STATUS text block if present) |
 | `token_usage` | `{0,0}` when the provider lacks usage events (`supports_token_usage:false`) |
 | `permission_denials` | `[]` when `supports_permission_denials:false` |
