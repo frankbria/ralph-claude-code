@@ -482,24 +482,32 @@ setup_tmux_session() {
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
     local project_dir="$(pwd)"
 
-    # Get the tmux base-index / pane-base-index to handle custom configurations
-    # (e.g. `set -g base-index 1`, `setw -g pane-base-index 1` — very common in
-    # dotfiles). Without this, pane targets like `.0` don't exist and the Ralph
-    # loop never starts, leaving empty panes. See: tmux pane-base-index.
-    local base_win base_pane
-    base_win=$(get_tmux_base_index)
-    base_pane=$(get_tmux_pane_base_index)
-    local pane0=$((base_pane + 0))   # Ralph loop (left)
-    local pane1=$((base_pane + 1))   # Claude output (right-top)
-    local pane2=$((base_pane + 2))   # Status monitor (right-bottom)
+    # base-index / pane-base-index are detected AFTER the server starts (below).
+    # Querying earlier fails on the very first `ralph --monitor` run when no tmux
+    # server exists yet: `tmux show-options` does NOT auto-start a server, so it
+    # errors out and detection silently defaults to 0. With a `base-index 1` /
+    # `pane-base-index 1` config that makes every `window.pane` target off-by-one
+    # (e.g. `1.0`, window `0`), the loop command is sent to a nonexistent pane,
+    # and tmux opens to empty idle panes. Starting the server first makes the
+    # detection reliable. See: tmux pane-base-index.
+    local base_win base_pane pane0 pane1 pane2
 
     log_status "INFO" "Setting up tmux session: $session_name"
 
     # Initialize live.log file
     echo "=== Ralph Live Output - Waiting for first loop... ===" > "$LIVE_LOG_FILE"
 
-    # Create new tmux session detached (left pane - Ralph loop)
+    # Create new tmux session detached (left pane - Ralph loop). This also starts
+    # the tmux server (sourcing the user's config), so the base-index /
+    # pane-base-index detection below is reliable even on the very first run.
     tmux new-session -d -s "$session_name" -c "$project_dir"
+
+    # Detect base-index / pane-base-index now that the server is running.
+    base_win=$(get_tmux_base_index)
+    base_pane=$(get_tmux_pane_base_index)
+    pane0=$((base_pane + 0))   # Ralph loop (left)
+    pane1=$((base_pane + 1))   # Claude output (right-top)
+    pane2=$((base_pane + 2))   # Status monitor (right-bottom)
 
     # Split window vertically (right side)
     tmux split-window -h -t "$session_name" -c "$project_dir"
