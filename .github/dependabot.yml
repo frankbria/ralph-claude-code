@@ -7,7 +7,10 @@ updates:
       patterns:
       - "*"
   ignore:
-  - dependency-name: "github/gh-aw-actions/**" # Managed by gh aw compile. Version-locked to the gh-aw compiler; do not bump.
+  # Managed by gh aw compile. Version-locked to the gh-aw compiler; do not bump.
+  # Dependabot reports this as the bare `github/gh-aw-actions`, so the glob must
+  # match the bare name (a `/**` suffix does not) — `*` matches name + any subpath.
+  - dependency-name: "github/gh-aw-actions*"
   package-ecosystem: github-actions
   schedule:
     interval: weekly
