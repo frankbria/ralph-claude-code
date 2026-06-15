@@ -1,10 +1,11 @@
 #!/usr/bin/env bats
 # Integration tests for ralph_monitor.sh dashboard (Issue #15)
 #
-# Sourcing strategy: `head -n -1` loads all function definitions from
-# ralph_monitor.sh without triggering the unconditional `main` call on
-# the last line. This mirrors the inline/source pattern used in
-# test_tmux_integration.bats and test_loop_execution.bats.
+# Sourcing strategy: strip the final `main` line with `sed '$d'` (portable —
+# `head -n -1` is GNU-only and errors on BSD), then source from a TEMP FILE.
+# `source <(process-substitution)` does NOT define functions on macOS bash 3.2
+# (they silently stay undefined), so the pipe→file→source form is required for
+# portability. Mirrors the inline/source pattern in test_tmux_integration.bats.
 
 bats_require_minimum_version 1.5.0
 
@@ -18,13 +19,18 @@ setup() {
 
     MONITOR_SCRIPT="${BATS_TEST_DIRNAME}/../../ralph_monitor.sh"
 
-    # Load all monitor functions without calling main().
-    # head -n -1 strips the bare `main` call on the final line.
+    # Load all monitor functions without calling main(). `sed '$d'` strips the
+    # bare `main` call on the final line (portable — `head -n -1` is GNU-only).
     # The `trap cleanup ...` line is filtered out: sourcing it would REPLACE
     # bats' own EXIT trap, silently swallowing failing tests (the file then
     # reports "Executed N-1 instead of expected N" with no `not ok` line).
+    # Write to a temp file and source THAT: `source <(process-substitution)` does
+    # NOT define functions on macOS bash 3.2 (they silently stay undefined), so
+    # the pipe→file→source form is required for portability.
+    _monitor_funcs="$TEST_DIR/.monitor_funcs.sh"
+    sed '$d' "$MONITOR_SCRIPT" | grep -v '^trap cleanup ' > "$_monitor_funcs"
     # shellcheck disable=SC1090
-    source <(head -n -1 "$MONITOR_SCRIPT" | grep -v '^trap cleanup ')
+    source "$_monitor_funcs"
 
     # Override clear_screen to suppress terminal-escape side-effects in tests.
     clear_screen() { :; }
@@ -226,12 +232,12 @@ EOF
         return 1
     }
 
-    # Verify ralph_monitor.sh registers an EXIT trap that calls cleanup
+    # Verify ralph_monitor.sh registers an EXIT trap that calls cleanup.
+    # Source from a temp file (not `source <(...)` — broken on macOS bash 3.2).
+    local _trap_src="$TEST_DIR/.mon_trap.sh"
+    sed '$d' "${BATS_TEST_DIRNAME}/../../ralph_monitor.sh" > "$_trap_src"
     local trap_output
-    trap_output=$(bash -c "
-        source <(head -n -1 '${BATS_TEST_DIRNAME}/../../ralph_monitor.sh')
-        trap -p EXIT
-    " 2>/dev/null)
+    trap_output=$(bash -c "source '$_trap_src'; trap -p EXIT" 2>/dev/null)
     echo "$trap_output" | grep -q "cleanup" || {
         echo "Expected EXIT trap to invoke cleanup; trap output: $trap_output"
         return 1

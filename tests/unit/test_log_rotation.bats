@@ -81,7 +81,9 @@ if [[ "\$1" == "-c%s" ]]; then
 fi
 if [[ "\$1" == "-f%z" ]]; then
   shift
-  exec "$real_stat" -c%s "\$@"
+  # Portable byte count — real stat's -c%s is GNU-only and fails on BSD/macOS,
+  # which silently defeated this fallback simulation there. wc -c works everywhere.
+  wc -c < "\$1"
 fi
 exec "$real_stat" "\$@"
 STUBEOF
