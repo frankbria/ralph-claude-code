@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "supports_structured_output": true,
+  "supports_token_usage": true,
+  "supports_session_continuity": true,
+  "supports_tool_restrictions": true,
+  "supports_permission_denials": true,
+  "supports_rate_limit_detection": true
+}
