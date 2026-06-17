@@ -1,4 +1,5 @@
 {
+  "provider": "claude",
   "status": "COMPLETE",
   "exit_signal": true,
   "work_type": "IMPLEMENTATION",
