@@ -1,0 +1,18 @@
+{
+  "status": "COMPLETE",
+  "exit_signal": true,
+  "work_type": "IMPLEMENTATION",
+  "files_modified": 3,
+  "asking_questions": false,
+  "question_count": 0,
+  "token_usage": {
+    "input_tokens": 1200,
+    "output_tokens": 450
+  },
+  "permission_denials": [],
+  "is_error": false,
+  "rate_limit_detected": false,
+  "session_id": "claude-session-123",
+  "confidence_score": 95,
+  "work_summary": "Implemented project setup and updated tests."
+}
