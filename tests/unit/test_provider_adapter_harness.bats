@@ -42,7 +42,7 @@ teardown() {
     printf '%s\n' "$output" > "$output_file"
 
     adapter_harness_assert_normalized_output_schema "$output_file"
-    adapter_harness_assert_json_value "$output_file" '.provider // "claude"' "claude"
+    adapter_harness_assert_json_value "$output_file" '.provider' "claude"
     adapter_harness_assert_argv_contains "$argv_capture" "--output-format"
     adapter_harness_assert_argv_contains "$argv_capture" "json"
     adapter_harness_assert_argv_contains "$argv_capture" "--model"
@@ -64,7 +64,7 @@ teardown() {
 
     run "$mock_cli" --output-format json
 
-    [ "$status" -eq 42 ]
+    assert_equal 42 "$status"
     adapter_harness_assert_argv_contains "$argv_capture" "--output-format"
     adapter_harness_assert_argv_contains "$argv_capture" "json"
 }
