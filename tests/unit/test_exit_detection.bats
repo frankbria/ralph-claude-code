@@ -1432,6 +1432,64 @@ detect_progress_with_commits() {
     assert_equal "$asking" "false"
 }
 
+@test "analyze_response does not crash when .last_output_length is zero (regression PR #333: division by zero)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    # Simulate a prior loop that wrote a zero output length
+    # (e.g. an interrupted/crashed agent call that produced no output)
+    echo "0" > "$RALPH_DIR/.last_output_length"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. Continuing work on the next steps." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    # Before the fix this aborted with "division by 0" mid-execution
+    assert_success
+    [ -f "$RALPH_DIR/.response_analysis" ]
+}
+
+@test "analyze_response does not crash when .last_output_length is empty/non-numeric (regression PR #333)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    # Empty file (also represents the non-numeric case — both fail the ^[0-9]+$ guard)
+    printf '' > "$RALPH_DIR/.last_output_length"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. Continuing work on the next steps." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    [ -f "$RALPH_DIR/.response_analysis" ]
+}
+
 # --- Stale Exit Signals Tests (Issue #194) ---
 
 @test "startup resets stale exit signals before main loop" {
