@@ -1462,7 +1462,7 @@ detect_progress_with_commits() {
     [ -f "$RALPH_DIR/.response_analysis" ]
 }
 
-@test "analyze_response does not crash when .last_output_length is empty/non-numeric (regression PR #333)" {
+@test "analyze_response does not crash when .last_output_length is empty (regression PR #333)" {
     # Skip if git is not available (analyze_response uses git)
     if ! command -v git &>/dev/null; then
         skip "git not available"
@@ -1478,8 +1478,37 @@ detect_progress_with_commits() {
     source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
     mkdir -p "$RALPH_DIR/logs"
 
-    # Empty file (also represents the non-numeric case — both fail the ^[0-9]+$ guard)
+    # Empty file — fails the ^[0-9]+$ guard; last_length must default without dividing by zero
     printf '' > "$RALPH_DIR/.last_output_length"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. Continuing work on the next steps." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    [ -f "$RALPH_DIR/.response_analysis" ]
+}
+
+@test "analyze_response does not crash when .last_output_length is non-numeric (regression PR #333)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    # Real non-numeric content — exercises the ^[0-9]+$ guard's false branch with a
+    # non-empty value (distinct from the empty-file case above)
+    printf 'not-a-number\n' > "$RALPH_DIR/.last_output_length"
 
     local output_file="$RALPH_DIR/logs/claude_output_test.log"
     echo "Implementing feature X. Continuing work on the next steps." > "$output_file"
