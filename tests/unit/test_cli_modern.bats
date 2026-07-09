@@ -192,6 +192,7 @@ setup() {
     _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
     _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
     _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
+    _env_CLAUDE_ANTHROPIC_BASE_URL="${CLAUDE_ANTHROPIC_BASE_URL:-}"
     _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 
     load_ralphrc() {
@@ -202,6 +203,7 @@ setup() {
         [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
         [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
         [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
+        [[ -n "$_env_CLAUDE_ANTHROPIC_BASE_URL" ]] && CLAUDE_ANTHROPIC_BASE_URL="$_env_CLAUDE_ANTHROPIC_BASE_URL"
         [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
         RALPHRC_LOADED=true
         return 0
@@ -546,6 +548,11 @@ build_claude_command() {
     # Add effort level override (Issue #228)
     if [[ -n "${CLAUDE_EFFORT:-}" ]]; then
         CLAUDE_CMD_ARGS+=("--effort" "$CLAUDE_EFFORT")
+    fi
+
+    # Add Anthropic-compatible API base URL override
+    if [[ -n "${CLAUDE_ANTHROPIC_BASE_URL:-}" ]]; then
+        CLAUDE_CMD_ARGS+=("--anthropic-base-url" "$CLAUDE_ANTHROPIC_BASE_URL")
     fi
 
     # Add output format flag
@@ -1937,6 +1944,17 @@ EOF
     assert_equal "$CLAUDE_EFFORT" "high"
 }
 
+@test "CLAUDE_ANTHROPIC_BASE_URL from .ralphrc is loaded correctly" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+EOF
+    _env_CLAUDE_ANTHROPIC_BASE_URL=""
+    CLAUDE_ANTHROPIC_BASE_URL=""
+
+    load_ralphrc
+    assert_equal "$CLAUDE_ANTHROPIC_BASE_URL" "https://api.minimax.io/anthropic/v1"
+}
+
 @test "CLAUDE_MODEL env var takes precedence over .ralphrc" {
     cat > "$TEST_DIR/.ralphrc" << 'EOF'
 CLAUDE_MODEL="claude-sonnet-4-6"
@@ -1957,6 +1975,17 @@ EOF
 
     load_ralphrc
     assert_equal "$CLAUDE_EFFORT" "high"
+}
+
+@test "CLAUDE_ANTHROPIC_BASE_URL env var takes precedence over .ralphrc" {
+    cat > "$TEST_DIR/.ralphrc" << 'EOF'
+CLAUDE_ANTHROPIC_BASE_URL="https://api.example.com/anthropic/v1"
+EOF
+    _env_CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+    CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+
+    load_ralphrc
+    assert_equal "$CLAUDE_ANTHROPIC_BASE_URL" "https://api.minimax.io/anthropic/v1"
 }
 
 @test "build_claude_command includes --model flag when CLAUDE_MODEL is set" {
@@ -1981,15 +2010,29 @@ EOF
     [[ "${CLAUDE_CMD_ARGS[*]}" == *"high"* ]]
 }
 
-@test "build_claude_command omits --model and --effort when not configured" {
+@test "build_claude_command includes --anthropic-base-url flag when CLAUDE_ANTHROPIC_BASE_URL is set" {
     CLAUDE_MODEL=""
     CLAUDE_EFFORT=""
+    CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+    echo "test prompt" > "$TEST_DIR/PROMPT.md"
+
+    build_claude_command "$TEST_DIR/PROMPT.md" "" ""
+
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"--anthropic-base-url"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"https://api.minimax.io/anthropic/v1"* ]]
+}
+
+@test "build_claude_command omits --model, --effort, and --anthropic-base-url when not configured" {
+    CLAUDE_MODEL=""
+    CLAUDE_EFFORT=""
+    CLAUDE_ANTHROPIC_BASE_URL=""
     echo "test prompt" > "$TEST_DIR/PROMPT.md"
 
     build_claude_command "$TEST_DIR/PROMPT.md" "" ""
 
     [[ "${CLAUDE_CMD_ARGS[*]}" != *"--model"* ]]
     [[ "${CLAUDE_CMD_ARGS[*]}" != *"--effort"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" != *"--anthropic-base-url"* ]]
 }
 
 # ==============================================================================

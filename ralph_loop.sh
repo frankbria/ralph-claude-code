@@ -78,6 +78,7 @@ _env_CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-}"
 _env_CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-}"
 _env_CLAUDE_MODEL="${CLAUDE_MODEL:-}"
 _env_CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"
+_env_CLAUDE_ANTHROPIC_BASE_URL="${CLAUDE_ANTHROPIC_BASE_URL:-}"
 _env_RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}"
 _env_ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-}"
 _env_ENABLE_BACKUP="${ENABLE_BACKUP:-}"
@@ -113,6 +114,7 @@ CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-true}"  # Auto-update Claude CLI at st
 CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"     # Claude Code CLI command (default: global install)
 CLAUDE_MODEL="${CLAUDE_MODEL:-}"                 # Model override (e.g. claude-sonnet-4-6); empty = CLI default
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-}"               # Effort level override (e.g. high, low); empty = CLI default
+CLAUDE_ANTHROPIC_BASE_URL="${CLAUDE_ANTHROPIC_BASE_URL:-}" # Anthropic-compatible API base URL override; empty = CLI default
 RALPH_SHELL_INIT_FILE="${RALPH_SHELL_INIT_FILE:-}" # Shell init file to source before running claude (e.g. ~/.zshrc)
 DRY_RUN="${DRY_RUN:-false}"                      # Simulate loop without making actual Claude API calls
 ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-false}"  # Enable desktop notifications; set true or use --notify flag
@@ -328,6 +330,7 @@ load_ralphrc() {
     [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
     [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"
     [[ -n "$_env_CLAUDE_EFFORT" ]] && CLAUDE_EFFORT="$_env_CLAUDE_EFFORT"
+    [[ -n "$_env_CLAUDE_ANTHROPIC_BASE_URL" ]] && CLAUDE_ANTHROPIC_BASE_URL="$_env_CLAUDE_ANTHROPIC_BASE_URL"
     [[ -n "$_env_RALPH_SHELL_INIT_FILE" ]] && RALPH_SHELL_INIT_FILE="$_env_RALPH_SHELL_INIT_FILE"
     [[ -n "$_env_ENABLE_NOTIFICATIONS" ]] && ENABLE_NOTIFICATIONS="$_env_ENABLE_NOTIFICATIONS"
     [[ -n "$_env_ENABLE_BACKUP" ]] && ENABLE_BACKUP="$_env_ENABLE_BACKUP"
@@ -1557,6 +1560,11 @@ build_claude_command() {
     # Add effort level override (Issue #228)
     if [[ -n "${CLAUDE_EFFORT:-}" ]]; then
         CLAUDE_CMD_ARGS+=("--effort" "$CLAUDE_EFFORT")
+    fi
+
+    # Add Anthropic-compatible API base URL override (for custom providers)
+    if [[ -n "${CLAUDE_ANTHROPIC_BASE_URL:-}" ]]; then
+        CLAUDE_CMD_ARGS+=("--anthropic-base-url" "$CLAUDE_ANTHROPIC_BASE_URL")
     fi
 
     # Add output format flag

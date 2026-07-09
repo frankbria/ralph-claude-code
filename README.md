@@ -681,6 +681,9 @@ PROJECT_TYPE="typescript"
 CLAUDE_CODE_CMD="claude"
 # CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"  # Alternative: use npx
 
+# Optional Anthropic-compatible API base URL override
+# CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+
 # Shell init file — source before running claude (useful for zsh/fish users
 # whose PATH or env vars are only set in their shell's init file)
 #RALPH_SHELL_INIT_FILE="~/.zshrc"

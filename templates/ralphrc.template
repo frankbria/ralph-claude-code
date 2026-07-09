@@ -103,6 +103,10 @@ CLAUDE_AUTO_UPDATE=true
 # Minimum Claude CLI version required
 CLAUDE_MIN_VERSION="2.0.76"
 
+# Optional Anthropic-compatible API base URL override for custom providers
+# Example: MiniMax Claude-compatible endpoint
+# CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+
 # Enable verbose logging
 RALPH_VERBOSE=false
 
