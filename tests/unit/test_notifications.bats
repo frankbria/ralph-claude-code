@@ -155,6 +155,10 @@ EOF
 # =============================================================================
 
 @test "send_notification uses notify-send on Linux when osascript unavailable" {
+    # osascript is always present on macOS (/usr/bin, and /bin symlinks to it),
+    # so the notify-send branch — which fires only when osascript is absent — is
+    # unreachable there and cannot be hidden via PATH. Exercise it on Linux only.
+    [[ "$(uname)" == "Darwin" ]] && skip "notify-send branch unreachable on macOS (osascript always present)"
     export ENABLE_NOTIFICATIONS=true
 
     # Create a private bin dir that has notify-send but NOT osascript

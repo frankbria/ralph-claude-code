@@ -61,21 +61,28 @@ setup_tmux_session() {
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
     local project_dir="$(pwd)"
 
-    # Get the tmux base-index / pane-base-index to handle custom configurations
-    local base_win base_pane
-    base_win=$(get_tmux_base_index)
-    base_pane=$(get_tmux_pane_base_index)
-    local pane0=$((base_pane + 0))
-    local pane1=$((base_pane + 1))
-    local pane2=$((base_pane + 2))
+    # base-index / pane-base-index are detected AFTER the server starts (below).
+    # See ralph_loop.sh: querying earlier fails when no tmux server exists yet
+    # (first run) — `tmux show-options` does not auto-start a server, so detection
+    # silently defaults to 0. With a base-index 1 config that yields off-by-one
+    # pane targets and the loop never starts (tmux shows empty idle panes). Keep
+    # this inline mirror in sync with ralph_loop.sh.
+    local base_win base_pane pane0 pane1 pane2
 
     log_status "INFO" "Setting up tmux session: $session_name"
 
     # Initialize live.log file
     echo "=== Ralph Live Output - Waiting for first loop... ===" > "$LIVE_LOG_FILE"
 
-    # Create new tmux session detached (left pane - Ralph loop)
+    # Create new tmux session detached (left pane - Ralph loop). Starts the server.
     tmux new-session -d -s "$session_name" -c "$project_dir"
+
+    # Detect base-index / pane-base-index now that the server is running.
+    base_win=$(get_tmux_base_index)
+    base_pane=$(get_tmux_pane_base_index)
+    pane0=$((base_pane + 0))
+    pane1=$((base_pane + 1))
+    pane2=$((base_pane + 2))
 
     # Split window vertically (right side)
     tmux split-window -h -t "$session_name" -c "$project_dir"
@@ -346,6 +353,39 @@ assert_tmux_called_with() {
     result=$(get_tmux_base_index)
     [ "$result" -eq 0 ]
     assert_tmux_called_with "tmux show-options"
+}
+
+# ==============================================================================
+# TEST 3a: setup_tmux_session detects base-index AFTER starting the server
+# Regression: with a base-index 1 / pane-base-index 1 config and no tmux server
+# running yet (the first `ralph --monitor`), detecting BEFORE new-session made
+# `tmux show-options` fail (it does not auto-start a server), silently defaulting
+# detection to 0. Every pane/window target was then off-by-one, so the `ralph
+# --live` loop command was sent to a nonexistent pane and tmux opened to empty
+# idle panes. The fix detects AFTER `tmux new-session` starts the server. This
+# test guards the call ORDER: the first `new-session` must precede the first
+# `show-options` in the tmux call log.
+# ==============================================================================
+@test "setup_tmux_session detects base-index only after new-session starts the server" {
+    export MOCK_TMUX_BASE_INDEX="1"
+    export MOCK_TMUX_PANE_BASE_INDEX="1"
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local new_session_line show_options_line
+    new_session_line=$(grep -nE '^tmux new-session -d' "$TMUX_CALL_LOG" | head -1 | cut -d: -f1)
+    show_options_line=$(grep -nE '^tmux show-options' "$TMUX_CALL_LOG" | head -1 | cut -d: -f1)
+
+    [ -n "$new_session_line" ]   || { echo "no new-session call logged:"; cat "$TMUX_CALL_LOG"; return 1; }
+    [ -n "$show_options_line" ] || { echo "no show-options call logged:"; cat "$TMUX_CALL_LOG"; return 1; }
+
+    # The ordering invariant: server starts first, THEN base-index is queried.
+    if [ "$new_session_line" -ge "$show_options_line" ]; then
+        echo "FAIL: new-session (line $new_session_line) must precede show-options (line $show_options_line)"
+        echo "--- tmux call log ---"
+        cat "$TMUX_CALL_LOG"
+        return 1
+    fi
 }
 
 # ==============================================================================

@@ -294,8 +294,11 @@ EOF
         cd "'"$TEST_DIR"'"
         NON_INTERACTIVE=true
 
-        # Define phase_verification from ralph_enable.sh
-        source <(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")
+        # Define phase_verification from ralph_enable.sh. Write to a temp file and
+        # source THAT — `source <(process-substitution)` does not define functions
+        # on macOS bash 3.2 (they silently stay undefined → "command not found").
+        sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh" > .pv.sh
+        source .pv.sh
 
         phase_verification
     '
@@ -323,8 +326,11 @@ EOF
         cd "'"$TEST_DIR"'"
         NON_INTERACTIVE=true
 
-        # Define phase_verification from ralph_enable.sh
-        source <(sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh")
+        # Define phase_verification from ralph_enable.sh. Write to a temp file and
+        # source THAT — `source <(process-substitution)` does not define functions
+        # on macOS bash 3.2 (they silently stay undefined → "command not found").
+        sed -n "/^phase_verification()/,/^}/p" "'"${BATS_TEST_DIRNAME}"'/../../ralph_enable.sh" > .pv.sh
+        source .pv.sh
 
         phase_verification
     '
