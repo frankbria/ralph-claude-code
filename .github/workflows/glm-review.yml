@@ -1,0 +1,23 @@
+name: GLM Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths-ignore:
+      - "**/*.md"
+      - ".gitignore"
+
+jobs:
+  review:
+    # Only review substantial changes (5+ files, or 20+ additions, or 20+ deletions)
+    if: |
+      github.event.pull_request.changed_files >= 5 ||
+      github.event.pull_request.additions >= 20 ||
+      github.event.pull_request.deletions >= 20
+    uses: frankbria/glm-review/.github/workflows/review.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    secrets:
+      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
