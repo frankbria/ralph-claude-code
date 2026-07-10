@@ -12,6 +12,11 @@ updates:
   # match the bare name (a `/**` suffix does not) — `*` matches name + any subpath.
   - dependency-name: "github/gh-aw-actions*"
   package-ecosystem: github-actions
+  cooldown:
+    default-days: 14
+    semver-major-days: 14
+    semver-minor-days: 7
+    semver-patch-days: 7
   schedule:
     interval: weekly
 version: 2
