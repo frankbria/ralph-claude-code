@@ -1519,6 +1519,43 @@ detect_progress_with_commits() {
     [ -f "$RALPH_DIR/.response_analysis" ]
 }
 
+@test "analyze_response output-decline heuristic still adds +10 when last length is a valid positive integer (PR #333 criterion 2)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    git init --quiet
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "init" > init.txt
+    git add init.txt
+    git commit --quiet -m "init"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Implementing feature X. Continuing work on the next steps." > "$output_file"
+
+    # Run A: previous output much larger -> ratio < 50% -> +10 confidence
+    echo "1000" > "$RALPH_DIR/.last_output_length"
+    run analyze_response "$output_file" 1
+    assert_success
+    local score_decline
+    score_decline=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
+
+    # Run B: identical output/state, previous length tiny -> ratio >= 50% -> no bonus
+    echo "1" > "$RALPH_DIR/.last_output_length"
+    run analyze_response "$output_file" 2
+    assert_success
+    local score_no_decline
+    score_no_decline=$(jq -r '.analysis.confidence_score' "$RALPH_DIR/.response_analysis")
+
+    # Only the decline bonus differs between the two runs
+    assert_equal "$((score_decline - score_no_decline))" "10"
+}
+
 # --- Stale Exit Signals Tests (Issue #194) ---
 
 @test "startup resets stale exit signals before main loop" {
