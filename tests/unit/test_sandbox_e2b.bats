@@ -654,6 +654,66 @@ EOF
     assert_failure
 }
 
+@test "e2b_helper.py: ack preserves files written after the download snapshot" {
+    local python=python3
+    command -v "$python" > /dev/null || python=python
+    command -v "$python" > /dev/null || skip "python not available"
+    run "$python" - "$PROJECT_ROOT/lib/e2b_helper.py" "$TEST_DIR/remote" <<'PY'
+import importlib.util
+import io
+import shlex
+import subprocess
+import sys
+import tarfile
+from types import SimpleNamespace
+
+helper_path, remote_root = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("e2b_helper", helper_path)
+helper = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helper)
+
+def bash(command):
+    return subprocess.run(
+        ["bash", "-c", command], check=True, stdout=subprocess.PIPE
+    ).stdout
+
+workspace = remote_root + "/workspace"
+marker = remote_root + "/.ralph_sync_marker"
+bash("mkdir -p {0} && touch {1} && sleep 0.05 && printf early > {0}/early.txt".format(
+    shlex.quote(workspace), shlex.quote(marker)
+))
+
+sandbox = SimpleNamespace(
+    commands=SimpleNamespace(run=lambda command: bash(command)),
+    files=SimpleNamespace(
+        read=lambda path, format=None: bash("cat " + shlex.quote(path))
+    ),
+)
+helper._require_sdk = lambda: None
+helper._connect = lambda _sandbox_id: sandbox
+helper._emit = lambda _value: None
+args = SimpleNamespace(sandbox_id="sandbox", src=workspace)
+
+def download_names():
+    captured = SimpleNamespace(buffer=io.BytesIO())
+    original_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        helper.cmd_download(args)
+    finally:
+        sys.stdout = original_stdout
+    with tarfile.open(fileobj=io.BytesIO(captured.buffer.getvalue()), mode="r:gz") as archive:
+        return {name[2:] if name.startswith("./") else name for name in archive.getnames()}
+
+assert "early.txt" in download_names()
+bash("sleep 0.05 && printf raced > " + shlex.quote(workspace + "/raced.txt"))
+helper.cmd_ack_download(args)
+helper.cmd_ack_download(args)
+assert "raced.txt" in download_names()
+PY
+    assert_success
+}
+
 @test "upload_project_to_e2b: initializes the synced-files state from the upload list" {
     echo "content" > "$TEST_DIR/tracked.txt"
     _started_sandbox

@@ -185,21 +185,23 @@ def cmd_download(args):
     _require_sdk()
     sandbox = _connect(args.sandbox_id)
     marker = _sync_marker(args.src)
+    pending_marker = marker + ".pending"
     # Besides the changed files, every download carries a manifest of ALL
     # current workspace files (minus .git) so the host can delete files that
     # disappeared in the sandbox. The sandbox is always Linux/GNU.
-    # The sync marker is NOT advanced here: the host calls ack-download after
-    # it has successfully extracted the archive, so a failure anywhere in
-    # between leaves the changes re-downloadable (at-least-once delivery;
-    # re-extraction is an idempotent overwrite).
+    # Snapshot the scan start before enumerating files, but do not advance the
+    # committed marker until the host acknowledges a successful extraction.
+    # Files written while the archive is being built stay newer than this
+    # pending marker and are therefore included by the next download.
     script = (
-        "cd {src} && "
+        "touch {pending_marker} && cd {src} && "
         "if [ -f {marker} ]; then find . -type f -newer {marker} -print0; else : ; fi > {changed} && "
         "find . -type f ! -path './.git/*' > {manifest_staging} && "
         "tar -czf {staging} --null -T {changed} -C {manifest_dir} {manifest}"
     ).format(
         src=shlex.quote(args.src),
         marker=shlex.quote(marker),
+        pending_marker=shlex.quote(pending_marker),
         changed=shlex.quote(CHANGED_LIST),
         staging=shlex.quote(DOWNLOAD_STAGING),
         manifest_staging=shlex.quote(MANIFEST_STAGING),
@@ -222,8 +224,10 @@ def cmd_ack_download(args):
     _require_sdk()
     sandbox = _connect(args.sandbox_id)
     marker = _sync_marker(args.src)
+    pending_marker = marker + ".pending"
     try:
-        sandbox.commands.run("touch %s && rm -f %s %s %s" % (
+        sandbox.commands.run("if [ -f %s ]; then mv -f %s %s; fi && rm -f %s %s %s" % (
+            shlex.quote(pending_marker), shlex.quote(pending_marker),
             shlex.quote(marker), shlex.quote(DOWNLOAD_STAGING),
             shlex.quote(CHANGED_LIST), shlex.quote(MANIFEST_STAGING)))
     except Exception as exc:
