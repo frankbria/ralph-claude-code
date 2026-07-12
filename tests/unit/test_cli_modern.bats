@@ -1946,13 +1946,13 @@ EOF
 
 @test "CLAUDE_ANTHROPIC_BASE_URL from .ralphrc is loaded correctly" {
     cat > "$TEST_DIR/.ralphrc" << 'EOF'
-CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
 EOF
     _env_CLAUDE_ANTHROPIC_BASE_URL=""
     CLAUDE_ANTHROPIC_BASE_URL=""
 
     load_ralphrc
-    assert_equal "$CLAUDE_ANTHROPIC_BASE_URL" "https://api.minimax.io/anthropic/v1"
+    assert_equal "$CLAUDE_ANTHROPIC_BASE_URL" "https://api.minimax.io/anthropic"
 }
 
 @test "CLAUDE_MODEL env var takes precedence over .ralphrc" {
@@ -1979,13 +1979,13 @@ EOF
 
 @test "CLAUDE_ANTHROPIC_BASE_URL env var takes precedence over .ralphrc" {
     cat > "$TEST_DIR/.ralphrc" << 'EOF'
-CLAUDE_ANTHROPIC_BASE_URL="https://api.example.com/anthropic/v1"
+CLAUDE_ANTHROPIC_BASE_URL="https://api.example.com/anthropic"
 EOF
-    _env_CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
-    CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+    _env_CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+    CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
 
     load_ralphrc
-    assert_equal "$CLAUDE_ANTHROPIC_BASE_URL" "https://api.minimax.io/anthropic/v1"
+    assert_equal "$CLAUDE_ANTHROPIC_BASE_URL" "https://api.minimax.io/anthropic"
 }
 
 @test "build_claude_command includes --model flag when CLAUDE_MODEL is set" {
@@ -2013,13 +2013,13 @@ EOF
 @test "build_claude_command includes --anthropic-base-url flag when CLAUDE_ANTHROPIC_BASE_URL is set" {
     CLAUDE_MODEL=""
     CLAUDE_EFFORT=""
-    CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic/v1"
+    CLAUDE_ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
     echo "test prompt" > "$TEST_DIR/PROMPT.md"
 
     build_claude_command "$TEST_DIR/PROMPT.md" "" ""
 
     [[ "${CLAUDE_CMD_ARGS[*]}" == *"--anthropic-base-url"* ]]
-    [[ "${CLAUDE_CMD_ARGS[*]}" == *"https://api.minimax.io/anthropic/v1"* ]]
+    [[ "${CLAUDE_CMD_ARGS[*]}" == *"https://api.minimax.io/anthropic"* ]]
 }
 
 @test "build_claude_command omits --model, --effort, and --anthropic-base-url when not configured" {
