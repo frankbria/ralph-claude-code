@@ -1556,6 +1556,141 @@ detect_progress_with_commits() {
     assert_equal "$((score_decline - score_no_decline))" "10"
 }
 
+# =============================================================================
+# PROGRESS DETECTION IN NON-GIT WORKSPACES (Issue #340)
+# =============================================================================
+# When the loop CWD is not a git repository (multi-repo workspace root),
+# git-based progress detection is skipped entirely. These tests cover the two
+# fallback signal paths: (1) the $RALPH_DIR tracker repository, and (2) an
+# explicit agent self-report in the RALPH_STATUS block.
+
+@test "analyze_response detects progress from RALPH_DIR repo when CWD is not a git repo (issue #340)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # CWD (TEST_TEMP_DIR) is intentionally NOT a git repository.
+    # The tracker directory is its own repository with a tracked fix_plan.md.
+    git -C "$RALPH_DIR" init --quiet
+    git -C "$RALPH_DIR" config user.email "test@test.com"
+    git -C "$RALPH_DIR" config user.name "Test"
+    echo "- [ ] item one" > "$RALPH_DIR/fix_plan.md"
+    git -C "$RALPH_DIR" add fix_plan.md
+    git -C "$RALPH_DIR" commit --quiet -m "baseline"
+
+    # Simulate loop work: the tracker file is updated during the loop
+    echo "- [x] item one" > "$RALPH_DIR/fix_plan.md"
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Consolidated the PR review and updated the tracker." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    local progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    local files=$(jq -r '.analysis.files_modified' "$RALPH_DIR/.response_analysis")
+    assert_equal "$progress" "true"
+    assert_equal "$files" "1"
+}
+
+@test "analyze_response does not crash when neither CWD nor RALPH_DIR is a git repo (issue #340)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # No git repository anywhere: CWD is plain, RALPH_DIR is plain
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.log"
+    echo "Worked on documentation." > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    [ -f "$RALPH_DIR/.response_analysis" ]
+    local progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    assert_equal "$progress" "false"
+}
+
+@test "analyze_response trusts FILES_MODIFIED self-report in RALPH_STATUS block (issue #340)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Non-git CWD, no tracker repo: only the agent self-report is available
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.json"
+    jq -n '{
+        result: "Committed fixes in a sub-repository via git -C.\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nEXIT_SIGNAL: false\nFILES_MODIFIED: 3\n---END_RALPH_STATUS---",
+        sessionId: "test-session"
+    }' > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    local progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    local files=$(jq -r '.analysis.files_modified' "$RALPH_DIR/.response_analysis")
+    assert_equal "$progress" "true"
+    assert_equal "$files" "3"
+}
+
+@test "analyze_response trusts PROGRESS: true self-report without FILES_MODIFIED (issue #340)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    # Work with no local file changes at all (e.g. posting a PR review):
+    # the agent reports progress explicitly
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.json"
+    jq -n '{
+        result: "Posted the consolidated review summary on the open PR.\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nEXIT_SIGNAL: false\nPROGRESS: true\n---END_RALPH_STATUS---",
+        sessionId: "test-session"
+    }' > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    local progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    local files=$(jq -r '.analysis.files_modified' "$RALPH_DIR/.response_analysis")
+    assert_equal "$progress" "true"
+    assert_equal "$files" "0"
+}
+
+@test "analyze_response keeps has_progress false on explicit FILES_MODIFIED: 0 (issue #340)" {
+    # Skip if git is not available (analyze_response uses git)
+    if ! command -v git &>/dev/null; then
+        skip "git not available"
+    fi
+
+    source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
+    mkdir -p "$RALPH_DIR/logs"
+
+    local output_file="$RALPH_DIR/logs/claude_output_test.json"
+    jq -n '{
+        result: "Re-scanned open PRs; nothing actionable this loop.\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nEXIT_SIGNAL: false\nFILES_MODIFIED: 0\n---END_RALPH_STATUS---",
+        sessionId: "test-session"
+    }' > "$output_file"
+
+    run analyze_response "$output_file" 1
+
+    assert_success
+    local progress=$(jq -r '.analysis.has_progress' "$RALPH_DIR/.response_analysis")
+    assert_equal "$progress" "false"
+}
+
 # --- Stale Exit Signals Tests (Issue #194) ---
 
 @test "startup resets stale exit signals before main loop" {
