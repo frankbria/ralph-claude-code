@@ -2099,6 +2099,9 @@ execute_claude_code() {
 
         # Get PID and monitor progress
         local claude_pid=$!
+        # Expose the child to on_signal(): claude_pid is local, and a SIGTERM
+        # sent to this script does not reach a backgrounded child.
+        CLAUDE_CHILD_PID=$claude_pid
         local progress_counter=0
 
         # Early failure detection: if the command doesn't exist or fails immediately,
@@ -2174,6 +2177,7 @@ EOF
         # Wait for the process to finish and get exit code
         wait $claude_pid
         exit_code=$?
+        CLAUDE_CHILD_PID=""
     fi
 
     # Issue #75: pull changed files back from the cloud sandbox BEFORE the
@@ -2452,16 +2456,41 @@ cleanup() {
 
     # Only record "interrupted" status for abnormal exits (non-zero exit code)
     # Normal exit (code 0) preserves the status already written by the main loop
-    if [[ $loop_count -gt 0 && $trap_exit_code -ne 0 ]]; then
+    # _INTERRUPTED is authoritative for signal paths: in a trap handler $? is the
+    # status of the last completed command, NOT 128+n, so trap_exit_code alone
+    # records the interrupt only when the preceding command happened to fail.
+    if [[ $loop_count -gt 0 && ( $trap_exit_code -ne 0 || "${_INTERRUPTED:-false}" == "true" ) ]]; then
         log_status "INFO" "Ralph loop interrupted. Cleaning up..."
         reset_session "manual_interrupt"
         update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     fi
-    # No exit here — EXIT trap handles natural termination
+    # No exit here — cleanup() is teardown only, and is called from both the
+    # normal loop-exit path and on_signal() below. The signal handler owns
+    # termination; see the warning there.
 }
 
 # Set up signal handlers
-trap cleanup SIGINT SIGTERM
+# ⚠️ cleanup() deliberately does NOT exit — it is teardown only. A signal trap
+# that merely calls it RETURNS, and bash resumes the main loop: the operator
+# sees "interrupted", and the loop keeps running. The handler must terminate
+# the process itself, and must also stop the backgrounded Claude child, which
+# a SIGTERM sent to this script alone never reaches.
+_INTERRUPTED=false
+on_signal() {
+    local sig="$1"
+    # Restore defaults FIRST so a second ^C always kills, even if cleanup hangs.
+    trap - SIGINT SIGTERM
+    _INTERRUPTED=true
+    log_status "WARN" "Received SIG${sig} — stopping Ralph…"
+    if [[ -n "${CLAUDE_CHILD_PID:-}" ]] && kill -0 "$CLAUDE_CHILD_PID" 2>/dev/null; then
+        kill -TERM "$CLAUDE_CHILD_PID" 2>/dev/null
+    fi
+    cleanup
+    # Re-raise so we die of the signal with the correct exit status (128+n).
+    kill -s "$sig" $$
+}
+trap 'on_signal INT'  SIGINT
+trap 'on_signal TERM' SIGTERM
 
 # Global variable for loop count (needed by cleanup function)
 loop_count=0
