@@ -2469,6 +2469,135 @@ cleanup() {
     # termination; see the warning there.
 }
 
+# ⚠️ WHY STOPPING NEEDS A TREE WALK AND NOT A kill.
+#
+# `$!` does NOT reliably name the agent. portable_timeout is a shell function,
+# so backgrounding it forks a subshell; bash sometimes replaces that subshell
+# with an exec of gtimeout and sometimes does not, and which one you get varies
+# with the execution context. Measured, mid-work, under a real pty:
+#
+#     loop      pid 94095   pgid 94095   <- foreground group; gets the Ctrl-C
+#     bash      pid 94100   pgid 94095   <- $! captured THIS, not the agent
+#     gtimeout  pid 94107   pgid 94107   <- gtimeout setpgid()s ITSELF
+#     claude    pid 94112   pgid 94107   <- the agent, in that other group
+#
+# Two consequences, both load-bearing:
+#   - Ctrl-C signals only the foreground group, so the agent never sees it.
+#   - TERMing $! kills the subshell; gtimeout and the agent are orphaned and
+#     keep working. Measured: files written 6s, 11s and 17s after the stop,
+#     and the API call billed in full.
+# A `kill -$PGID` is NOT the answer either: the agent is not in our group, so
+# that signals the loop itself and spares the agent. Membership must be
+# established by parentage before anything is signalled, never assumed.
+#
+# Targets bash 3.2 (`#!/bin/bash` on macOS): no mapfile, no readarray, no
+# associative arrays, no array expansions that break under `set -u`.
+
+# Print every descendant of $1 (excluding $1), one pid per line, shallowest
+# first, proven against the live ppid table.
+list_descendants() {
+    _ld_root="$1"
+    [ -n "$_ld_root" ] || return 0
+    _ld_snapshot=`ps -eo pid=,ppid= 2>/dev/null`
+    [ -n "$_ld_snapshot" ] || return 0
+
+    _ld_frontier="$_ld_root"
+    _ld_found=""
+    _ld_guard=0
+    while [ -n "$_ld_frontier" ]; do
+        _ld_guard=`expr $_ld_guard + 1`
+        [ "$_ld_guard" -gt 64 ] && break
+        _ld_next=""
+        while read -r _ld_p _ld_pp; do
+            [ -n "$_ld_p" ] || continue
+            for _ld_f in $_ld_frontier; do
+                if [ "$_ld_pp" = "$_ld_f" ]; then
+                    _ld_next="$_ld_next $_ld_p"
+                    break
+                fi
+            done
+        done <<EOF
+$_ld_snapshot
+EOF
+        [ -n "$_ld_next" ] || break
+        _ld_found="$_ld_found $_ld_next"
+        _ld_frontier="$_ld_next"
+    done
+
+    for _ld_p in $_ld_found; do echo "$_ld_p"; done
+}
+
+# kill_tree ROOT_PID [GRACE_SECONDS]
+# TERM every verified member deepest-first, then SIGKILL whatever outlives the
+# grace period. Returns 0 if the tree is gone, 1 if anything survived SIGKILL.
+kill_tree() {
+    _kt_root="$1"
+    _kt_grace="${2:-5}"
+    [ -n "$_kt_root" ] || return 0
+
+    # Never signal ourselves or our own ancestors, whatever the ppid table
+    # says: a stop control that kills the supervisor and leaves the agent
+    # running is the failure this whole function exists to prevent.
+    _kt_forbidden=""
+    _kt_a=$$
+    _kt_guard=0
+    while [ -n "$_kt_a" ] && [ "$_kt_a" != "0" ] && [ "$_kt_a" != "1" ]; do
+        _kt_forbidden="$_kt_forbidden $_kt_a"
+        _kt_guard=`expr $_kt_guard + 1`
+        [ "$_kt_guard" -gt 64 ] && break
+        _kt_a=`ps -o ppid= -p "$_kt_a" 2>/dev/null | tr -d ' '`
+    done
+    _kt_forbids() {
+        for _kt_x in $_kt_forbidden; do
+            [ "$1" = "$_kt_x" ] && return 0
+        done
+        return 1
+    }
+
+    # ⛔ ENUMERATE BEFORE SIGNALLING. Once the root dies its descendants are
+    # reparented to launchd and no later walk can ever find them.
+    _kt_members=""
+    for _kt_p in `list_descendants "$_kt_root"`; do
+        _kt_forbids "$_kt_p" || _kt_members="$_kt_p $_kt_members"
+    done
+    _kt_forbids "$_kt_root" || _kt_members="$_kt_members $_kt_root"
+    [ -n "$_kt_members" ] || return 0
+
+    for _kt_p in $_kt_members; do kill -TERM "$_kt_p" 2>/dev/null; done
+
+    _kt_waited=0
+    _kt_tenths=`expr $_kt_grace \* 10`
+    while [ "$_kt_waited" -lt "$_kt_tenths" ]; do
+        _kt_any=no
+        for _kt_p in $_kt_members; do
+            if kill -0 "$_kt_p" 2>/dev/null; then _kt_any=yes; break; fi
+        done
+        [ "$_kt_any" = "no" ] && return 0
+        sleep 0.1
+        _kt_waited=`expr $_kt_waited + 1`
+    done
+
+    # Re-enumerate from SURVIVING members (not the root, which may be gone) to
+    # catch anything spawned during the grace window.
+    _kt_late=""
+    for _kt_p in $_kt_members; do
+        if kill -0 "$_kt_p" 2>/dev/null; then
+            for _kt_q in `list_descendants "$_kt_p"`; do
+                _kt_forbids "$_kt_q" || _kt_late="$_kt_late $_kt_q"
+            done
+        fi
+    done
+    for _kt_p in $_kt_members $_kt_late; do
+        kill -0 "$_kt_p" 2>/dev/null && kill -KILL "$_kt_p" 2>/dev/null
+    done
+
+    sleep 0.3
+    for _kt_p in $_kt_members $_kt_late; do
+        if kill -0 "$_kt_p" 2>/dev/null; then return 1; fi
+    done
+    return 0
+}
+
 # Set up signal handlers
 # ⚠️ cleanup() deliberately does NOT exit — it is teardown only. A signal trap
 # that merely calls it RETURNS, and bash resumes the main loop: the operator
@@ -2483,7 +2612,14 @@ on_signal() {
     _INTERRUPTED=true
     log_status "WARN" "Received SIG${sig} — stopping Ralph…"
     if [[ -n "${CLAUDE_CHILD_PID:-}" ]] && kill -0 "$CLAUDE_CHILD_PID" 2>/dev/null; then
-        kill -TERM "$CLAUDE_CHILD_PID" 2>/dev/null
+        # NOT `kill -TERM "$CLAUDE_CHILD_PID"`: that pid is usually a wrapper,
+        # and killing it orphans the agent, which keeps working and keeps
+        # billing. Walk the tree and terminate every verified member.
+        if kill_tree "$CLAUDE_CHILD_PID" 5; then
+            log_status "INFO" "Claude process tree stopped"
+        else
+            log_status "ERROR" "⛔ Claude process tree SURVIVED SIGKILL — check for strays before relaunching"
+        fi
     fi
     cleanup
     # Re-raise so we die of the signal with the correct exit status (128+n).
