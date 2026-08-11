@@ -91,6 +91,26 @@ CB_COOLDOWN_MINUTES=30
 CB_AUTO_RESET=false
 
 # =============================================================================
+# PERMISSION-DENIAL HANDLING
+# =============================================================================
+
+# Trust in-turn hook-retry recovery for file-mutation tool denials.
+# When true, and every permission denial in a completed turn is for a
+# Write/Edit/NotebookEdit/MultiEdit tool AND the turn ended cleanly
+# (is_error=false, stop_reason=end_turn), the next loop continues with
+# an advisory instead of halting. Targets the PreToolUse-hook-denies-
+# then-Claude-retries-in-turn pattern (e.g. a style-rule hook that
+# rewrites the tool_input and denies with a corrective message).
+#
+# WARNING: This weakens the Issue #101 silent-loop protection. A clean
+# turn end does not prove the specific denied write was resolved — the
+# agent may have abandoned the write (e.g. against a protected path
+# like .ralphrc) and moved on to unrelated work. Leave false unless
+# your hook configuration is known-safe and you have observed the
+# false-positive halt described in the linked issue.
+TRUST_INTURN_RECOVERY=false
+
+# =============================================================================
 # ADVANCED SETTINGS
 # =============================================================================
 
