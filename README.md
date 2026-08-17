@@ -1225,4 +1225,4 @@ Ralph is seeking contributors! See [CONTRIBUTING.md](CONTRIBUTING.md) for the co
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=frankbria/ralph-claude-code&type=date&legend=top-left)](https://www.star-history.com/#frankbria/ralph-claude-code&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=frankbria/ralph-claude-code&type=date&legend=top-left)](https://star-history.dera.page/#frankbria/ralph-claude-code&type=date&legend=top-left)
