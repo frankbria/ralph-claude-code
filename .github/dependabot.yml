@@ -3,6 +3,9 @@
 updates:
 - directory: /
   groups:
+    security-updates:
+      applies-to: security-updates
+      patterns: ["*"]
     github-actions:
       patterns:
       - "*"
