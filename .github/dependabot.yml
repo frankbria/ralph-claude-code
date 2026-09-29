@@ -12,6 +12,7 @@ updates:
   # match the bare name (a `/**` suffix does not) — `*` matches name + any subpath.
   - dependency-name: "github/gh-aw-actions*"
   package-ecosystem: github-actions
+  open-pull-requests-limit: 0
   cooldown:
     default-days: 14
     semver-major-days: 14
