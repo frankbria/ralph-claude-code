@@ -181,6 +181,7 @@ Loop control files live in the `.ralph/` subfolder:
 ### Rate Limiting
 - Default: 100 API calls/hour (`--calls` flag); automatic hourly reset with countdown; counters persist across restarts
 - Optional token limit via `MAX_TOKENS_PER_HOUR` in `.ralphrc` (0 = disabled, default). Extracts `input_tokens + output_tokens` from each response (stream-json and CLI formats); blocks calls once the hourly budget is exhausted; call and token counters reset together on the hour
+- Optional rolling reset window via `RESET_WAIT_MINUTES` in `.ralphrc` (0 = disabled, default — counters reset on the wall-clock hour and a rate limit waits until the top of the next hour). Above `0`, counters reset that many minutes after the last reset and `wait_for_reset` sleeps only the remainder of the window, which makes `MAX_CALLS_PER_HOUR`/`MAX_TOKENS_PER_HOUR` budgets per window rather than per hour
 
 ### Modern CLI Configuration
 
