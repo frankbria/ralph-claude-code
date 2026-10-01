@@ -102,7 +102,7 @@ MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 MAX_TOKENS_PER_HOUR="${MAX_TOKENS_PER_HOUR:-0}"      # 0 = disabled; set to limit cumulative tokens/hour
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
-RESET_WAIT_MINUTES="${RESET_WAIT_MINUTES:-5}"        # 0 = wait until the top of the next hour (legacy behavior)
+RESET_WAIT_MINUTES="${RESET_WAIT_MINUTES:-0}"        # 0 (default) = legacy wall-clock hour reset; >0 = rolling window of N minutes
 
 # Modern Claude CLI configuration (Phase 1.1)
 CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
@@ -660,20 +660,46 @@ setup_tmux_session() {
     exit 0
 }
 
+# True when RESET_WAIT_MINUTES selects the configurable rolling window.
+# RESET_WAIT_MINUTES=0 (the default) keeps the legacy wall-clock hour boundary.
+_use_rolling_window() {
+    [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null
+}
+
+# Epoch of the last counter reset, or 0 when it cannot be trusted.
+# TIMESTAMP_FILE holds an epoch in rolling-window mode but a YYYYMMDDHH stamp in
+# legacy mode, and that stamp is also ten digits (e.g. 2026100104), so a digit
+# count alone would read it as an epoch roughly eight years in the future. Any
+# value ahead of now is therefore reported as unknown so the window restarts
+# instead of stalling until wall-clock time catches up.
+_last_reset_epoch() {
+    local now_epoch=$1
+    local raw_ts=""
+    [[ -f "$TIMESTAMP_FILE" ]] && raw_ts=$(cat "$TIMESTAMP_FILE" 2>/dev/null)
+    if [[ ! "$raw_ts" =~ ^[0-9]{10}$ ]]; then
+        echo "0"
+        return
+    fi
+    # Force base 10: a leading zero would otherwise be read as octal.
+    local ts=$((10#$raw_ts))
+    if (( ts > now_epoch )); then
+        echo "0"
+        return
+    fi
+    echo "$ts"
+}
+
 # Initialize call tracking
 init_call_tracking() {
     # Debug logging removed for cleaner output
     local now_epoch=$(date +%s)
     local should_reset=false
 
-    if [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null; then
+    if _use_rolling_window; then
         # Configurable rolling window: reset RESET_WAIT_MINUTES minutes after the last reset.
         local reset_window_secs=$((RESET_WAIT_MINUTES * 60))
-        local last_reset_epoch=0
-        if [[ -f "$TIMESTAMP_FILE" ]]; then
-            local raw_ts=$(cat "$TIMESTAMP_FILE" 2>/dev/null)
-            [[ "$raw_ts" =~ ^[0-9]{10}$ ]] && last_reset_epoch="$raw_ts"
-        fi
+        local last_reset_epoch
+        last_reset_epoch=$(_last_reset_epoch "$now_epoch")
         if [[ $last_reset_epoch -eq 0 ]] || (( now_epoch - last_reset_epoch >= reset_window_secs )); then
             should_reset=true
         fi
@@ -688,7 +714,7 @@ init_call_tracking() {
     if [[ "$should_reset" == "true" ]]; then
         echo "0" > "$CALL_COUNT_FILE"
         echo "0" > "$TOKEN_COUNT_FILE"
-        if [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null; then
+        if _use_rolling_window; then
             echo "$now_epoch" > "$TIMESTAMP_FILE"
             log_status "INFO" "Call and token counters reset (RESET_WAIT_MINUTES=${RESET_WAIT_MINUTES}m window)"
         else
@@ -900,9 +926,21 @@ wait_for_reset() {
 
     # Calculate time until reset
     local wait_time
-    if [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null; then
-        wait_time=$((RESET_WAIT_MINUTES * 60))
-        log_status "INFO" "Sleeping for ${RESET_WAIT_MINUTES}m ($wait_time seconds) per RESET_WAIT_MINUTES config..."
+    if _use_rolling_window; then
+        # Sleep only what is left of the window: init_call_tracking resets once
+        # RESET_WAIT_MINUTES have passed since the last reset, so sleeping the
+        # full window here would idle up to RESET_WAIT_MINUTES longer than needed.
+        local now_epoch=$(date +%s)
+        local reset_window_secs=$((RESET_WAIT_MINUTES * 60))
+        local last_reset_epoch
+        last_reset_epoch=$(_last_reset_epoch "$now_epoch")
+        if [[ $last_reset_epoch -eq 0 ]]; then
+            wait_time=$reset_window_secs
+        else
+            wait_time=$((reset_window_secs - (now_epoch - last_reset_epoch)))
+        fi
+        (( wait_time < 0 )) && wait_time=0
+        log_status "INFO" "Sleeping for $wait_time seconds (remaining of the ${RESET_WAIT_MINUTES}m RESET_WAIT_MINUTES window)..."
     else
         local current_minute=$(date +%M)
         local current_second=$(date +%S)
@@ -925,7 +963,7 @@ wait_for_reset() {
     # Reset counters
     echo "0" > "$CALL_COUNT_FILE"
     echo "0" > "$TOKEN_COUNT_FILE"
-    if [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null; then
+    if _use_rolling_window; then
         echo "$(date +%s)" > "$TIMESTAMP_FILE"
     else
         echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"

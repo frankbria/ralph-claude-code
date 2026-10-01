@@ -331,51 +331,103 @@ EOF
 # on `date +%Y%m%d%H` change, wait "until the top of the next hour" on rate
 # limit. That means a rate limit hit at :01 past the hour waits ~59 minutes
 # even though the provider's actual limit window may be much shorter (or
-# configurable per plan). RESET_WAIT_MINUTES lets that wait — and the reset
-# cadence — be set explicitly; 0 preserves the original hour-boundary behavior
-# for anyone relying on it.
+# configurable per plan). RESET_WAIT_MINUTES makes that wait — and the reset
+# cadence — explicit. It defaults to 0, which keeps the original hour-boundary
+# behavior, so existing installs only change once they opt in.
 # =============================================================================
+
+# _use_rolling_window (extracted from ralph_loop.sh)
+_use_rolling_window() {
+    [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null
+}
+
+# _last_reset_epoch (extracted from ralph_loop.sh)
+#
+# TIMESTAMP_FILE holds an epoch in rolling-window mode but a YYYYMMDDHH stamp in
+# legacy mode, and that stamp is also ten digits, so a digit count alone would
+# read it as an epoch years in the future. Values ahead of now report as unknown.
+_last_reset_epoch() {
+    local now_epoch=$1
+    local raw_ts=""
+    [[ -f "$TIMESTAMP_FILE" ]] && raw_ts=$(cat "$TIMESTAMP_FILE" 2>/dev/null)
+    if [[ ! "$raw_ts" =~ ^[0-9]{10}$ ]]; then
+        echo "0"
+        return
+    fi
+    # Force base 10: a leading zero would otherwise be read as octal.
+    local ts=$((10#$raw_ts))
+    if (( ts > now_epoch )); then
+        echo "0"
+        return
+    fi
+    echo "$ts"
+}
 
 # should_reset_counters (extracted from ralph_loop.sh's init_call_tracking)
 should_reset_counters() {
-    local timestamp_file=$1
-    local now_epoch=$2
+    local now_epoch=$1
 
-    if [[ "${RESET_WAIT_MINUTES:-0}" -gt 0 ]] 2>/dev/null; then
+    if _use_rolling_window; then
         local reset_window_secs=$((RESET_WAIT_MINUTES * 60))
-        local last_reset_epoch=0
-        if [[ -f "$timestamp_file" ]]; then
-            local raw_ts
-            raw_ts=$(cat "$timestamp_file" 2>/dev/null)
-            [[ "$raw_ts" =~ ^[0-9]{10}$ ]] && last_reset_epoch="$raw_ts"
-        fi
-        if [[ $last_reset_epoch -eq 0 ]] || (( now_epoch - last_reset_epoch >= reset_window_secs )); then
-            return 0
-        fi
-        return 1
+        local last_reset_epoch
+        last_reset_epoch=$(_last_reset_epoch "$now_epoch")
+        [[ $last_reset_epoch -eq 0 ]] && return 0
+        (( now_epoch - last_reset_epoch >= reset_window_secs ))
+        return
     fi
 
     local current_hour=$(date +%Y%m%d%H)
     local last_reset_hour=""
-    [[ -f "$timestamp_file" ]] && last_reset_hour=$(cat "$timestamp_file")
+    [[ -f "$TIMESTAMP_FILE" ]] && last_reset_hour=$(cat "$TIMESTAMP_FILE")
     [[ "$current_hour" != "$last_reset_hour" ]]
 }
 
-@test "RESET_WAIT_MINUTES defaults to 5 when unset" {
-    run grep 'RESET_WAIT_MINUTES="\${RESET_WAIT_MINUTES:-5}"' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-    assert_success
+# remaining_wait_secs (extracted from ralph_loop.sh's wait_for_reset)
+remaining_wait_secs() {
+    local now_epoch=$1
+    local reset_window_secs=$((RESET_WAIT_MINUTES * 60))
+    local last_reset_epoch
+    last_reset_epoch=$(_last_reset_epoch "$now_epoch")
+    local wait_time
+    if [[ $last_reset_epoch -eq 0 ]]; then
+        wait_time=$reset_window_secs
+    else
+        wait_time=$((reset_window_secs - (now_epoch - last_reset_epoch)))
+    fi
+    (( wait_time < 0 )) && wait_time=0
+    echo "$wait_time"
 }
 
-@test "ralph_loop.sh restores RESET_WAIT_MINUTES from environment in load_ralphrc" {
-    run grep '_env_RESET_WAIT_MINUTES.*RESET_WAIT_MINUTES=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+@test "RESET_WAIT_MINUTES defaults to 0 so existing installs keep hour-boundary resets" {
+    run env -u RESET_WAIT_MINUTES bash -c \
+        "source '${BATS_TEST_DIRNAME}/../../ralph_loop.sh' >/dev/null 2>&1; echo \"\$RESET_WAIT_MINUTES\""
     assert_success
+    assert_output "0"
+}
+
+@test "RESET_WAIT_MINUTES in .ralphrc is applied by load_ralphrc" {
+    printf 'RESET_WAIT_MINUTES=3\n' > .ralphrc
+
+    run env -u RESET_WAIT_MINUTES bash -c \
+        "source '${BATS_TEST_DIRNAME}/../../ralph_loop.sh' >/dev/null 2>&1; load_ralphrc >/dev/null 2>&1; echo \"\$RESET_WAIT_MINUTES\""
+    assert_success
+    assert_output "3"
+}
+
+@test "RESET_WAIT_MINUTES from the environment overrides .ralphrc" {
+    printf 'RESET_WAIT_MINUTES=3\n' > .ralphrc
+
+    run env RESET_WAIT_MINUTES=9 bash -c \
+        "source '${BATS_TEST_DIRNAME}/../../ralph_loop.sh' >/dev/null 2>&1; load_ralphrc >/dev/null 2>&1; echo \"\$RESET_WAIT_MINUTES\""
+    assert_success
+    assert_output "9"
 }
 
 @test "should_reset_counters: RESET_WAIT_MINUTES=0 falls back to legacy hour-boundary reset" {
     export RESET_WAIT_MINUTES=0
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
 
-    run should_reset_counters "$TIMESTAMP_FILE" "$(date +%s)"
+    run should_reset_counters "$(date +%s)"
     assert_failure  # same hour as last reset -> no reset yet
 }
 
@@ -384,7 +436,7 @@ should_reset_counters() {
     local now=$(date +%s)
     echo "$((now - 301))" > "$TIMESTAMP_FILE"  # 5m1s ago, window = 300s
 
-    run should_reset_counters "$TIMESTAMP_FILE" "$now"
+    run should_reset_counters "$now"
     assert_success
 }
 
@@ -393,7 +445,7 @@ should_reset_counters() {
     local now=$(date +%s)
     echo "$((now - 100))" > "$TIMESTAMP_FILE"  # 100s ago, window = 300s
 
-    run should_reset_counters "$TIMESTAMP_FILE" "$now"
+    run should_reset_counters "$now"
     assert_failure
 }
 
@@ -401,7 +453,42 @@ should_reset_counters() {
     export RESET_WAIT_MINUTES=5
     rm -f "$TIMESTAMP_FILE"
 
-    run should_reset_counters "$TIMESTAMP_FILE" "$(date +%s)"
+    run should_reset_counters "$(date +%s)"
     assert_success
 }
 
+@test "should_reset_counters: a legacy YYYYMMDDHH stamp does not stall the rolling window" {
+    export RESET_WAIT_MINUTES=5
+    # Ten digits like an epoch, but as an epoch it lands years in the future —
+    # which is exactly the state of anyone switching from the default 0 to >0.
+    echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
+
+    run should_reset_counters "$(date +%s)"
+    assert_success
+}
+
+@test "remaining_wait_secs: sleeps only what is left of the window" {
+    export RESET_WAIT_MINUTES=5
+    local now=$(date +%s)
+    echo "$((now - 270))" > "$TIMESTAMP_FILE"  # 4m30s into a 5m window
+
+    run remaining_wait_secs "$now"
+    assert_output "30"
+}
+
+@test "remaining_wait_secs: never returns a negative sleep" {
+    export RESET_WAIT_MINUTES=5
+    local now=$(date +%s)
+    echo "$((now - 600))" > "$TIMESTAMP_FILE"  # window already elapsed twice over
+
+    run remaining_wait_secs "$now"
+    assert_output "0"
+}
+
+@test "remaining_wait_secs: an untrustworthy timestamp falls back to the full window" {
+    export RESET_WAIT_MINUTES=5
+    rm -f "$TIMESTAMP_FILE"
+
+    run remaining_wait_secs "$(date +%s)"
+    assert_output "300"
+}
