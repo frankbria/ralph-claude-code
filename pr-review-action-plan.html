@@ -1,0 +1,331 @@
+<title>PR Review Action Plan</title>
+<style>
+  /* Layout: Clean task tracker with status indicators */
+  :root {
+    --bg: #fafaf9;
+    --fg: #1c1917;
+    --muted: #78716c;
+    --border: #e7e5e4;
+    --surface: #ffffff;
+    --accent: #059669;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --info: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1917;
+      --fg: #fafaf9;
+      --muted: #a8a29e;
+      --border: #44403c;
+      --surface: #292524;
+      --accent: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --info: #60a5fa;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1917;
+    --fg: #fafaf9;
+    --muted: #a8a29e;
+    --border: #44403c;
+    --surface: #292524;
+    --accent: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    color-scheme: dark;
+  }
+
+  @font-face {
+    font-family: system;
+    font-style: normal;
+    font-weight: 400;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    max-width: 800px;
+    margin: 0 auto;
+    padding-inline: 16px;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin: 2rem 0 0.5rem;
+    text-wrap: balance;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+
+  .section {
+    margin-bottom: 2.5rem;
+  }
+
+  .section h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .task {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: start;
+  }
+
+  .priority {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .priority.p0 { background: var(--danger); color: white; }
+  .priority.p1 { background: var(--warning); color: #1c1917; }
+  .priority.p2 { background: var(--info); color: white; }
+  .priority.p3 { background: var(--muted); color: white; }
+
+  .task-content {
+    min-width: 0;
+  }
+
+  .task-title {
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .task-title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+
+  .task-title a:hover {
+    text-decoration: underline;
+  }
+
+  .task-desc {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  .task-meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .status {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+
+  .status.approved { background: rgba(5, 150, 105, 0.15); color: var(--accent); }
+  .status.created { background: rgba(37, 99, 235, 0.15); color: var(--info); }
+  .status.closed { background: rgba(120, 113, 108, 0.15); color: var(--muted); }
+  .status.pending { background: rgba(217, 119, 6, 0.15); color: var(--warning); }
+
+  .summary-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 2rem;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    text-align: center;
+  }
+
+  .summary-stat {
+    padding: 8px;
+  }
+
+  .summary-stat .num {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .summary-stat .label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+  }
+
+  .num.green { color: var(--accent); }
+  .num.blue { color: var(--info); }
+  .num.orange { color: var(--warning); }
+  .num.gray { color: var(--muted); }
+
+  .note {
+    font-size: 0.875rem;
+    color: var(--muted);
+    padding: 12px 16px;
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    margin: 1rem 0;
+  }
+
+  @media (max-width: 600px) {
+    .task {
+      grid-template-columns: 1fr;
+    }
+    .status {
+      justify-self: start;
+    }
+  }
+</style>
+
+<h1>PR Review Action Plan</h1>
+<p class="subtitle">Analysis of PRs #92, #96, #103, #119, #140 and Issues #97, #100, #101, #141</p>
+
+<div class="summary-box">
+  <div class="summary-grid">
+    <div class="summary-stat">
+      <div class="num green">4</div>
+      <div class="label">Approved</div>
+    </div>
+    <div class="summary-stat">
+      <div class="num blue">1</div>
+      <div class="label">Issue Created</div>
+    </div>
+    <div class="summary-stat">
+      <div class="num orange">1</div>
+      <div class="label">Close PR</div>
+    </div>
+    <div class="summary-stat">
+      <div class="num gray">1</div>
+      <div class="label">Already Fixed</div>
+    </div>
+  </div>
+</div>
+
+<section class="section">
+  <h2>Prioritized Action Items</h2>
+  <div class="task-list">
+    <div class="task">
+      <span class="priority p0">P0</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/pull/140">PR #140</a> — Circuit breaker false positive fix</div>
+        <div class="task-desc">Recognizes STATUS: COMPLETE as progress when Claude commits within the loop. Fixes critical bug where users cannot complete work.</div>
+        <div class="task-meta">Resolves Issue #141 (P0 - Critical/Blocking)</div>
+      </div>
+      <span class="status approved">✓ Approved</span>
+    </div>
+
+    <div class="task">
+      <span class="priority p1">P1</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/pull/103">PR #103</a> — ralph-import hang fix</div>
+        <div class="task-desc">Adds --print and --strict-mcp-config flags for non-interactive CLI usage. Fixes indefinite hang during PRD conversion.</div>
+        <div class="task-meta">May partially address Issue #97 (startup hang)</div>
+      </div>
+      <span class="status approved">✓ Approved</span>
+    </div>
+
+    <div class="task">
+      <span class="priority p2">P2</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/pull/119">PR #119</a> — Cross-platform date compatibility</div>
+        <div class="task-desc">Implements try-first-then-fallback pattern for date commands. Fixes macOS errors with GNU coreutils.</div>
+        <div class="task-meta">Affects macOS users with Homebrew coreutils</div>
+      </div>
+      <span class="status approved">✓ Approved</span>
+    </div>
+
+    <div class="task">
+      <span class="priority p3">P3</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/pull/92">PR #92</a> — Absolute file path handling</div>
+        <div class="task-desc">Simple fix preventing malformed paths like ..//Users/foo/file.md in ralph-import.</div>
+        <div class="task-meta">Low risk, targeted edge case fix</div>
+      </div>
+      <span class="status approved">✓ Approved</span>
+    </div>
+
+    <div class="task">
+      <span class="priority p2">P2</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/pull/96">PR #96</a> — Timeout detection (deficient)</div>
+        <div class="task-desc">Implementation only checks for <code>timeout</code>, not <code>gtimeout</code>. Would cause false failures on macOS. Does not use existing timeout_utils.sh.</div>
+        <div class="task-meta">Superseded by Issue #362</div>
+      </div>
+      <span class="status pending">Close PR</span>
+    </div>
+
+    <div class="task">
+      <span class="priority p2">P2</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/issues/362">Issue #362</a> — Proper timeout startup validation</div>
+        <div class="task-desc">New issue created with correct implementation using existing has_timeout_command() from lib/timeout_utils.sh.</div>
+        <div class="task-meta">Replaces deficient PR #96</div>
+      </div>
+      <span class="status created">Created</span>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Issues Already Resolved</h2>
+  <div class="task-list">
+    <div class="task">
+      <span class="priority p1">P1</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/issues/101">Issue #101</a> — Permission denial silent fail</div>
+        <div class="task-desc">WSL2 users reported permission prompts not blocking execution. Already implemented via Permission Denial Detection feature.</div>
+        <div class="task-meta">Documented in CLAUDE.md under "Permission Denial Detection (Issue #101)"</div>
+      </div>
+      <span class="status closed">Already Fixed</span>
+    </div>
+
+    <div class="task">
+      <span class="priority p3">P3</span>
+      <div class="task-content">
+        <div class="task-title"><a href="https://github.com/frankbria/ralph-claude-code/issues/100">Issue #100</a> — Claude Extra Usage bug</div>
+        <div class="task-desc">Error when "Extra Usage" quota exhausted. Lower priority edge case that needs more investigation.</div>
+        <div class="task-meta">Needs reproduction steps and further analysis</div>
+      </div>
+      <span class="status pending">Investigate</span>
+    </div>
+  </div>
+</section>
+
+<div class="note">
+  <strong>Next steps:</strong> Merge the 4 approved PRs in priority order after CI passes, then close PR #96 with a reference to Issue #362.
+</div>
