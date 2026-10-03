@@ -293,9 +293,97 @@ load_ralphrc() {
         return 0
     fi
 
-    # Source .ralphrc (this may override default values)
-    # shellcheck source=/dev/null
-    source "$RALPHRC_FILE"
+    # SECURITY FIX (Issue #346): Parse .ralphrc as data, not executable code.
+    # The old `source "$RALPHRC_FILE"` allowed arbitrary code execution from
+    # repository-controlled files before any validation. This parser only
+    # accepts KEY=VALUE assignments for allowlisted configuration variables.
+
+    # Allowlisted configuration variable names
+    local -a RALPHRC_ALLOWED_KEYS=(
+        # Rate limiting
+        MAX_CALLS_PER_HOUR MAX_TOKENS_PER_HOUR
+        # Claude CLI configuration
+        CLAUDE_TIMEOUT_MINUTES CLAUDE_OUTPUT_FORMAT CLAUDE_ALLOWED_TOOLS
+        CLAUDE_USE_CONTINUE CLAUDE_SESSION_EXPIRY_HOURS CLAUDE_CODE_CMD
+        CLAUDE_AUTO_UPDATE CLAUDE_MODEL CLAUDE_EFFORT
+        # Legacy aliases (mapped to internal names below)
+        ALLOWED_TOOLS SESSION_CONTINUITY SESSION_EXPIRY_HOURS RALPH_VERBOSE
+        # Circuit breaker
+        CB_COOLDOWN_MINUTES CB_AUTO_RESET CB_NO_PROGRESS_THRESHOLD
+        CB_SAME_ERROR_THRESHOLD CB_OUTPUT_DECLINE_THRESHOLD
+        # Features
+        VERBOSE_PROGRESS RALPH_SHELL_INIT_FILE ENABLE_NOTIFICATIONS ENABLE_BACKUP
+        LIVE_SHOW_TOOL_ARGS OPTIONAL_SECTIONS
+        # GitHub lifecycle (Issue #73)
+        GITHUB_ISSUE COMMENT_PROGRESS COMMENT_INTERVAL AUTO_CLOSE CLOSE_SUMMARY
+        CREATE_PR LINK_ISSUE DRAFT_PR CREATE_FOLLOWUPS FOLLOWUP_LABEL ADD_COMPLETION_LABELS
+        # Sandbox (Issues #74, #75)
+        SANDBOX_PROVIDER SANDBOX_DOCKER_IMAGE SANDBOX_DOCKER_MEMORY SANDBOX_DOCKER_CPUS
+        SANDBOX_DOCKER_NETWORK SANDBOX_E2B_TEMPLATE SANDBOX_E2B_SANDBOX_ID
+        SANDBOX_E2B_TIMEOUT SANDBOX_E2B_KEEP_ALIVE SANDBOX_E2B_MAX_COST
+        SANDBOX_E2B_COST_ALERT SANDBOX_E2B_COST_PER_HOUR
+        # Sync (Issue #76)
+        SYNC_INCLUDE SYNC_EXCLUDE SYNC_MAX_FILE_SIZE SYNC_LARGE_FILE_ACTION
+        # Directory override
+        RALPH_DIR
+    )
+
+    # Build a lookup set for O(1) key validation
+    local -A allowed_keys_set
+    local key
+    for key in "${RALPHRC_ALLOWED_KEYS[@]}"; do
+        allowed_keys_set["$key"]=1
+    done
+
+    # Dangerous patterns that indicate shell syntax (not simple assignment)
+    local dangerous_pattern='[$`();|&<>!\\]|\beval\b|\bsource\b|\bexec\b|\bexport\b'
+
+    local line_num=0
+    local var_name var_value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_num++))
+
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+        # Strip leading/trailing whitespace
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+
+        # Skip if still empty after stripping
+        [[ -z "$line" ]] && continue
+
+        # Reject lines with dangerous shell syntax
+        if [[ "$line" =~ $dangerous_pattern ]]; then
+            log_status "ERROR" ".ralphrc:$line_num: Rejected - contains shell syntax (security)"
+            log_status "ERROR" "  Line: $line"
+            log_status "ERROR" ".ralphrc must contain only KEY=VALUE assignments, no shell code"
+            return 1
+        fi
+
+        # Parse KEY=VALUE (with optional quotes around value)
+        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+            var_name="${BASH_REMATCH[1]}"
+            var_value="${BASH_REMATCH[2]}"
+
+            # Strip surrounding quotes from value if present
+            if [[ "$var_value" =~ ^\"(.*)\"$ ]] || [[ "$var_value" =~ ^\'(.*)\'$ ]]; then
+                var_value="${BASH_REMATCH[1]}"
+            fi
+
+            # Validate key is in allowlist
+            if [[ -z "${allowed_keys_set[$var_name]:-}" ]]; then
+                log_status "WARN" ".ralphrc:$line_num: Unknown key '$var_name' ignored"
+                continue
+            fi
+
+            # Safely assign the value (declare creates a local, so we use printf -v)
+            printf -v "$var_name" '%s' "$var_value"
+        else
+            log_status "WARN" ".ralphrc:$line_num: Invalid syntax, expected KEY=VALUE"
+            log_status "WARN" "  Line: $line"
+        fi
+    done < "$RALPHRC_FILE"
 
     # Map .ralphrc variable names to internal names
     if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
