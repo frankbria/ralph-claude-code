@@ -2607,6 +2607,15 @@ main() {
         check_claude_updates
     fi
 
+    # Validate timeout command is available (Issue #362). Uses the cross-platform
+    # detection from lib/timeout_utils.sh which handles both GNU timeout (Linux)
+    # and gtimeout (macOS via Homebrew coreutils).
+    if ! has_timeout_command; then
+        log_status "ERROR" "Timeout command not available"
+        get_timeout_status_message >&2
+        exit 1
+    fi
+
     log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"

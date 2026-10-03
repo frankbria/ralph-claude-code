@@ -2205,3 +2205,26 @@ EOF
     [[ "$output" == *'SYNC_MAX_FILE_SIZE="$_env_SYNC_MAX_FILE_SIZE"'* ]]
     [[ "$output" == *'SYNC_LARGE_FILE_ACTION="$_env_SYNC_LARGE_FILE_ACTION"'* ]]
 }
+
+# =============================================================================
+# STARTUP TIMEOUT VALIDATION (Issue #362)
+# =============================================================================
+
+@test "issue #362: startup validates timeout command using has_timeout_command" {
+    # Verify the startup validation uses the cross-platform has_timeout_command function
+    run grep -A3 'has_timeout_command' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [[ "$output" == *"has_timeout_command"* ]]
+    [[ "$output" == *"Timeout command not available"* ]]
+}
+
+@test "issue #362: has_timeout_command is sourced from timeout_utils.sh" {
+    # Verify the lib is sourced
+    run grep 'source.*timeout_utils.sh' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [[ "$output" == *"lib/timeout_utils.sh"* ]]
+}
+
+@test "issue #362: timeout validation uses get_timeout_status_message for helpful errors" {
+    # Verify helpful error messages are shown via get_timeout_status_message
+    run grep -A5 'has_timeout_command' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    [[ "$output" == *"get_timeout_status_message"* ]]
+}
