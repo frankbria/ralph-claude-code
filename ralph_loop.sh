@@ -47,8 +47,8 @@ source "$SCRIPT_DIR/lib/sandbox_docker.sh" || { echo "FATAL: Failed to source li
 source "$SCRIPT_DIR/lib/sandbox_e2b.sh" || { echo "FATAL: Failed to source lib/sandbox_e2b.sh" >&2; exit 1; }
 
 # Configuration
-# Ralph-specific files live in .ralph/ subfolder
-RALPH_DIR=".ralph"
+# Ralph-specific files live in .ralph/ subfolder (Issue #352: honor env override)
+RALPH_DIR="${RALPH_DIR:-.ralph}"
 PROMPT_FILE="$RALPH_DIR/PROMPT.md"
 LOG_DIR="$RALPH_DIR/logs"
 DOCS_DIR="$RALPH_DIR/docs/generated"
