@@ -33,6 +33,39 @@ _env_SYNC_EXCLUDE="${SYNC_EXCLUDE:-}"
 _env_SYNC_MAX_FILE_SIZE="${SYNC_MAX_FILE_SIZE:-}"
 _env_SYNC_LARGE_FILE_ACTION="${SYNC_LARGE_FILE_ACTION:-}"
 
+# Issue #352: resolve RALPH_DIR BEFORE the library source block below. Each
+# sourced lib/*.sh derives its own state paths from RALPH_DIR at source time
+# (lib/response_analyzer.sh's SESSION_FILE, for one), and the path vars in the
+# Configuration block are derived immediately after -- so a RALPH_DIR applied
+# later by load_ralphrc(), which runs far below, cannot move any of them.
+#
+# Precedence: exported environment > .ralphrc > the ".ralph" default.
+#
+# .ralphrc is scanned here rather than sourced: sourcing runs arbitrary user
+# code -- including guards that call `exit` -- before the libraries and
+# defaults it may depend on exist. load_ralphrc() remains the single place
+# that sources .ralphrc, for every other setting.
+if [[ -z "${RALPH_DIR:-}" && -f ".ralphrc" ]]; then
+    _rc_ralph_dir=$(sed -n \
+        -e 's/^[[:space:]]*RALPH_DIR=[[:space:]]*"\([^"]*\)".*/\1/p' \
+        -e "s/^[[:space:]]*RALPH_DIR=[[:space:]]*'\([^']*\)'.*/\1/p" \
+        -e 's/^[[:space:]]*RALPH_DIR=\([^"'"'"'[:space:]#]\{1,\}\).*/\1/p' \
+        ".ralphrc" 2>/dev/null | tail -n 1)
+    if [[ "$_rc_ralph_dir" == *'$'* || "$_rc_ralph_dir" == *'`'* ]]; then
+        # A value carrying a shell expansion cannot be resolved without
+        # evaluating it. Applying it literally would derive paths such as
+        # "$HOME/state/PROMPT.md" here while load_ralphrc() expands the same
+        # assignment later -- reintroducing the very split this block removes.
+        # Leave RALPH_DIR untouched so the paths below keep the .ralph default.
+        echo "WARNING: RALPH_DIR in .ralphrc contains a shell expansion ($_rc_ralph_dir)." >&2
+        echo "         It cannot be applied before the state paths are derived." >&2
+        echo "         Export RALPH_DIR instead, or use a literal path." >&2
+    elif [[ -n "$_rc_ralph_dir" ]]; then
+        RALPH_DIR="$_rc_ralph_dir"
+    fi
+    unset _rc_ralph_dir
+fi
+
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh" || { echo "FATAL: Failed to source lib/date_utils.sh" >&2; exit 1; }
@@ -48,7 +81,13 @@ source "$SCRIPT_DIR/lib/sandbox_e2b.sh" || { echo "FATAL: Failed to source lib/s
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
-RALPH_DIR=".ralph"
+# Every sourced lib/*.sh reads RALPH_DIR with the env-respecting form
+# ("${RALPH_DIR:-.ralph}"), and they are sourced above (lines 38-47) before
+# this line runs. Resetting to a bare ".ralph" here silently discards an
+# exported RALPH_DIR for every path derived below (PROMPT_FILE, LOG_DIR,
+# STATUS_FILE, CLAUDE_SESSION_FILE, ...), splitting state across two
+# directories. See #352.
+RALPH_DIR="${RALPH_DIR:-.ralph}"
 PROMPT_FILE="$RALPH_DIR/PROMPT.md"
 LOG_DIR="$RALPH_DIR/logs"
 DOCS_DIR="$RALPH_DIR/docs/generated"
