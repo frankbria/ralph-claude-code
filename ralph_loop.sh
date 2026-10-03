@@ -2105,8 +2105,9 @@ execute_claude_code() {
             fi
         fi
 
-        # Get PID and monitor progress
+        # Get PID and monitor progress (Issue #345: also set global for signal handler)
         local claude_pid=$!
+        CLAUDE_CHILD_PID=$claude_pid
         local progress_counter=0
 
         # Early failure detection: if the command doesn't exist or fails immediately,
@@ -2182,6 +2183,7 @@ EOF
         # Wait for the process to finish and get exit code
         wait $claude_pid
         exit_code=$?
+        CLAUDE_CHILD_PID=""  # Clear the global PID (Issue #345)
     fi
 
     # Issue #75: pull changed files back from the cloud sandbox BEFORE the
@@ -2440,11 +2442,107 @@ EOF
     fi
 }
 
-# Cleanup function
-cleanup() {
-    local trap_exit_code=$?
+# Global variable for loop count (needed by cleanup/signal functions)
+loop_count=0
 
-    # Reentrancy guard — prevent double execution from EXIT + signal combination
+# Global PID of the Claude child process for signal handler (Issue #345)
+CLAUDE_CHILD_PID=""
+
+# Reentrancy guard for cleanup
+_CLEANUP_DONE=false
+
+# Flag set by signal handler to indicate an interrupt occurred
+_INTERRUPTED=false
+
+# list_descendants - List all descendant PIDs of a process (Issue #345)
+# Works on bash 3.2+ (macOS compatibility: no mapfile, no associative arrays)
+# Arguments: $1 = root PID
+# Output: space-separated list of descendant PIDs (children, grandchildren, etc.)
+list_descendants() {
+    local root_pid="$1"
+    local descendants=""
+    local queue="$root_pid"
+    local visited=" "
+
+    while [[ -n "$queue" ]]; do
+        local current
+        current="${queue%% *}"
+        queue="${queue#* }"
+        [[ "$queue" == "$current" ]] && queue=""
+
+        # Skip if already visited or if it's the caller
+        [[ "$visited" == *" $current "* ]] && continue
+        [[ "$current" == "$$" ]] && continue
+        visited="$visited$current "
+
+        # Find children of current PID
+        local children
+        if [[ "$(uname)" == "Darwin" ]]; then
+            children=$(ps -o pid= -p "$current" 2>/dev/null | tr -d ' ')
+            [[ -z "$children" ]] && continue
+            children=$(ps -o pid= --ppid "$current" 2>/dev/null | tr '\n' ' ')
+        else
+            children=$(pgrep -P "$current" 2>/dev/null | tr '\n' ' ')
+        fi
+
+        for child in $children; do
+            [[ -n "$child" ]] && queue="$queue $child"
+            [[ "$child" != "$root_pid" && "$child" != "$$" ]] && descendants="$descendants $child"
+        done
+    done
+
+    echo "$descendants"
+}
+
+# kill_tree - Kill a process and all its descendants (Issue #345)
+# Sends SIGTERM first, waits up to 5s, then SIGKILL to survivors
+# Arguments: $1 = root PID
+kill_tree() {
+    local root_pid="$1"
+    [[ -z "$root_pid" ]] && return 0
+
+    # Get descendants BEFORE killing anything (once root dies, children reparent)
+    local descendants
+    descendants=$(list_descendants "$root_pid")
+
+    # Build the full list: descendants (deepest first for cleaner teardown) + root
+    local all_pids="$descendants $root_pid"
+
+    # Remove duplicates and empty entries
+    local unique_pids=""
+    for pid in $all_pids; do
+        [[ -n "$pid" && "$unique_pids" != *" $pid "* && "$pid" != "$$" ]] && unique_pids="$unique_pids $pid "
+    done
+
+    [[ -z "${unique_pids// /}" ]] && return 0
+
+    # Send SIGTERM to all
+    for pid in $unique_pids; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+
+    # Wait up to 5 seconds for graceful termination
+    local waited=0
+    while [[ $waited -lt 50 ]]; do
+        local survivors=""
+        for pid in $unique_pids; do
+            kill -0 "$pid" 2>/dev/null && survivors="$survivors $pid"
+        done
+        [[ -z "${survivors// /}" ]] && return 0
+        sleep 0.1
+        ((waited++))
+    done
+
+    # SIGKILL any survivors
+    for pid in $unique_pids; do
+        kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+    done
+}
+
+# Cleanup function - handles teardown logic (Issue #345 refactor)
+# Called by on_signal and normal exit paths. Does NOT exit - caller handles that.
+cleanup() {
+    # Reentrancy guard — prevent double execution
     if [[ "$_CLEANUP_DONE" == "true" ]]; then return; fi
     _CLEANUP_DONE=true
 
@@ -2458,21 +2556,54 @@ cleanup() {
         cleanup_e2b_sandbox
     fi
 
-    # Only record "interrupted" status for abnormal exits (non-zero exit code)
-    # Normal exit (code 0) preserves the status already written by the main loop
-    if [[ $loop_count -gt 0 && $trap_exit_code -ne 0 ]]; then
+    # Record "interrupted" status if we were signaled
+    if [[ "$_INTERRUPTED" == "true" && $loop_count -gt 0 ]]; then
         log_status "INFO" "Ralph loop interrupted. Cleaning up..."
         reset_session "manual_interrupt"
         update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     fi
-    # No exit here — EXIT trap handles natural termination
 }
 
-# Set up signal handlers
-trap cleanup SIGINT SIGTERM
+# on_signal - Proper signal handler that actually terminates (Issue #345)
+#
+# The old handler called cleanup() which returned without exiting. That meant:
+# 1. The loop continued after Ctrl-C
+# 2. The reentrancy guard made subsequent signals no-ops
+# 3. The child process kept running
+#
+# This handler:
+# 1. Restores default signal dispositions (second Ctrl-C always kills)
+# 2. Kills the child process tree
+# 3. Runs cleanup() for teardown
+# 4. Re-raises the signal to exit with correct 128+n status
+on_signal() {
+    local sig="$1"
 
-# Global variable for loop count (needed by cleanup function)
-loop_count=0
+    # Restore default dispositions immediately — a second signal during
+    # teardown will now kill us, which is the safe behavior
+    trap - SIGINT SIGTERM
+
+    _INTERRUPTED=true
+
+    # Kill the Claude child process tree if running
+    if [[ -n "$CLAUDE_CHILD_PID" ]]; then
+        kill_tree "$CLAUDE_CHILD_PID"
+        CLAUDE_CHILD_PID=""
+    fi
+
+    # Run cleanup for teardown (sandbox, status recording, etc.)
+    cleanup
+
+    # Re-raise the signal so we exit with the correct status (128 + signal number)
+    # This lets supervisors and scripts see that we were interrupted, not that we
+    # exited cleanly
+    kill -s "$sig" $$
+}
+
+# Set up signal handlers (Issue #345)
+# Use a wrapper to pass the signal name to on_signal
+trap 'on_signal SIGINT' SIGINT
+trap 'on_signal SIGTERM' SIGTERM
 
 # Main loop
 main() {
