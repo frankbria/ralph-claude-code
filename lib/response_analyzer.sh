@@ -565,6 +565,7 @@ analyze_response() {
 
             # Check for file changes via git (supplements JSON data)
             # Fix #141: Detect both uncommitted changes AND committed changes
+            # Fix #340: Fall back to Claude's self-report when git is unavailable
             if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
                 local git_files=0
                 local loop_start_sha=""
@@ -598,6 +599,13 @@ analyze_response() {
                 if [[ $git_files -gt 0 ]]; then
                     has_progress=true
                     files_modified=$git_files
+                fi
+            else
+                # Fix #340: Non-git workspace fallback - trust Claude's self-reported files_modified
+                # This prevents false circuit breaker triggers in multi-repo workspaces
+                if [[ $files_modified -gt 0 ]]; then
+                    has_progress=true
+                    [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Non-git workspace, using self-reported files_modified=$files_modified" >&2
                 fi
             fi
 
@@ -760,6 +768,7 @@ analyze_response() {
 
     # 6. Check for file changes (git integration)
     # Fix #141: Detect both uncommitted changes AND committed changes
+    # Fix #340: Fall back to RALPH_STATUS FILES_MODIFIED when git is unavailable
     if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
         local loop_start_sha=""
         local current_sha=""
@@ -792,6 +801,19 @@ analyze_response() {
         if [[ $files_modified -gt 0 ]]; then
             has_progress=true
             ((confidence_score+=20))
+        fi
+    else
+        # Fix #340: Non-git workspace fallback - extract FILES_MODIFIED from RALPH_STATUS block
+        # This prevents false circuit breaker triggers in multi-repo workspaces
+        if grep -qE -- "^[[:space:]]*(---RALPH_STATUS---|RALPH_STATUS:)" "$output_file" 2>/dev/null; then
+            local reported_files
+            reported_files=$(grep "FILES_MODIFIED:" "$output_file" 2>/dev/null | head -1 | cut -d: -f2 | xargs)
+            if [[ "$reported_files" =~ ^[0-9]+$ ]] && [[ $reported_files -gt 0 ]]; then
+                files_modified=$reported_files
+                has_progress=true
+                ((confidence_score+=10))  # Lower boost than git-verified
+                [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && echo "DEBUG: Non-git workspace, using RALPH_STATUS FILES_MODIFIED=$files_modified" >&2
+            fi
         fi
     fi
 
