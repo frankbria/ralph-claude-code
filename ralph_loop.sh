@@ -572,16 +572,18 @@ setup_tmux_session() {
     # Always use --live mode in tmux for real-time streaming
     ralph_cmd="$ralph_cmd --live"
 
-    # Forward --calls if non-default
-    if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
+    # Forward each flag when the user passed it (_cli_*) or it differs from the
+    # default: the child loads the repository .ralphrc, so an explicit flag equal
+    # to the default must still be forwarded or the file would win in the pane
+    if [[ -n "${_cli_MAX_CALLS_PER_HOUR:-}" || "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
     # Forward --prompt if non-default
-    if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
+    if [[ -n "${_cli_PROMPT_FILE:-}" || "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
     # Forward --output-format if non-default (default is json)
-    if [[ "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
+    if [[ -n "${_cli_CLAUDE_OUTPUT_FORMAT:-}" || "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
         ralph_cmd="$ralph_cmd --output-format $CLAUDE_OUTPUT_FORMAT"
     fi
     # Forward --verbose if enabled
@@ -589,12 +591,12 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --verbose"
     fi
     # Forward --timeout if non-default (default is 15)
-    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
+    if [[ -n "${_cli_CLAUDE_TIMEOUT_MINUTES:-}" || "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
     fi
     # Forward --allowed-tools if non-default
     # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
+    if [[ -n "${_cli_CLAUDE_ALLOWED_TOOLS:-}" || "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
         ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
@@ -602,12 +604,16 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --no-continue"
     fi
     # Forward --session-expiry if non-default (default is 24)
-    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
+    if [[ -n "${_cli_CLAUDE_SESSION_EXPIRY_HOURS:-}" || "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
         ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
     fi
     # Forward --auto-reset-circuit if enabled
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
+    fi
+    # Forward --notify if enabled
+    if [[ "$ENABLE_NOTIFICATIONS" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --notify"
     fi
     # Forward --backup if enabled (Issue #23)
     if [[ "$ENABLE_BACKUP" == "true" ]]; then
@@ -617,14 +623,14 @@ setup_tmux_session() {
     if [[ -n "${GITHUB_ISSUE:-}" ]]; then
         ralph_cmd="$ralph_cmd --github-issue '$GITHUB_ISSUE'"
         [[ "$COMMENT_PROGRESS" == "true" ]] && ralph_cmd="$ralph_cmd --comment-progress"
-        [[ "$COMMENT_INTERVAL" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
+        [[ -n "${_cli_COMMENT_INTERVAL:-}" || "$COMMENT_INTERVAL" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
         [[ "$AUTO_CLOSE" == "true" ]] && ralph_cmd="$ralph_cmd --auto-close"
         [[ "$CLOSE_SUMMARY" == "true" ]] && ralph_cmd="$ralph_cmd --close-summary"
         [[ "$CREATE_PR" == "true" ]] && ralph_cmd="$ralph_cmd --create-pr"
         [[ "$LINK_ISSUE" == "true" ]] && ralph_cmd="$ralph_cmd --link-issue"
         [[ "$DRAFT_PR" == "true" ]] && ralph_cmd="$ralph_cmd --draft-pr"
         [[ "$CREATE_FOLLOWUPS" == "true" ]] && ralph_cmd="$ralph_cmd --create-followups"
-        [[ "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
+        [[ -n "${_cli_FOLLOWUP_LABEL:-}" || "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
         [[ -n "$ADD_COMPLETION_LABELS" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
     fi
     # Forward Docker sandbox flags (Issue #74) so --monitor preserves them.
@@ -632,14 +638,14 @@ setup_tmux_session() {
     # loads .ralphrc, which may be what supplies SANDBOX_PROVIDER — the child
     # re-validates the sub-flag/provider pairing at its own startup.
     [[ -n "${SANDBOX_PROVIDER:-}" ]] && ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
-    [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
-    [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
-    [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
-    [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
+    [[ -n "${_cli_SANDBOX_IMAGE:-}" || "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
+    [[ -n "${_cli_SANDBOX_MEMORY:-}" || "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
+    [[ -n "${_cli_SANDBOX_CPUS:-}" || "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
+    [[ -n "${_cli_SANDBOX_NETWORK:-}" || "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
     # E2B sandbox flags (Issue #75) — same non-default forwarding rule
-    [[ "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
+    [[ -n "${_cli_SANDBOX_E2B_TEMPLATE:-}" || "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
     [[ -n "${SANDBOX_E2B_SANDBOX_ID:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-id '$SANDBOX_E2B_SANDBOX_ID'"
-    [[ "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
+    [[ -n "${_cli_SANDBOX_E2B_TIMEOUT:-}" || "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
