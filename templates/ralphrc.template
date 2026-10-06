@@ -126,7 +126,7 @@ RALPH_VERBOSE=false
 # SANDBOX_DOCKER_IMAGE="ralph-sandbox:latest"   # custom images: --sandbox-image or env only
 # SANDBOX_DOCKER_MEMORY="4g"
 # SANDBOX_DOCKER_CPUS="2"
-# SANDBOX_DOCKER_NETWORK="bridge"   # none | bridge | host ('none' blocks the Claude API)
+# SANDBOX_DOCKER_NETWORK="bridge"   # none | bridge ('none' blocks the Claude API); host only via env or --sandbox-network
 
 # =============================================================================
 # E2B CLOUD SANDBOX EXECUTION (optional, Issue #75)

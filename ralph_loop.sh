@@ -3008,11 +3008,11 @@ Sandbox execution (Issues #74/#75; isolates Claude in a sandbox):
                             Build the default: docker build -t ralph-sandbox .
     --sandbox-memory SIZE   Container memory limit (default: $SANDBOX_DOCKER_MEMORY)
     --sandbox-cpus NUM      Container CPU limit (default: $SANDBOX_DOCKER_CPUS)
-    --sandbox-network MODE  Container network: none, bridge, host (default: $SANDBOX_DOCKER_NETWORK)
+    --sandbox-network MODE  Container network: none, bridge, host (host via flag/env only, not .ralphrc; default: $SANDBOX_DOCKER_NETWORK)
                             Note: 'none' blocks the Claude API — only for pre-authenticated images
 
   E2B cloud provider sub-flags (--sandbox e2b; needs E2B_API_KEY or ~/.ralph/e2b_api_key):
-    --sandbox-template T    E2B template (default: $SANDBOX_E2B_TEMPLATE; custom templates can preinstall claude)
+    --sandbox-template T    E2B template (default: $SANDBOX_E2B_TEMPLATE; custom templates can preinstall claude; flag/env only, not .ralphrc)
     --sandbox-id ID         Reconnect to an existing E2B sandbox instead of creating one
     --sandbox-timeout SECS  E2B session timeout in seconds (default: $SANDBOX_E2B_TIMEOUT)
     --sandbox-keep-alive    Leave the sandbox running on exit (reuse via --sandbox-id)
