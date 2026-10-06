@@ -69,15 +69,19 @@ ralphrc_value_allowed() {
 # ralphrc_value_numeric_ok KEY VALUE
 #
 # Numeric keys reach bash arithmetic ([[ -ge ]], $((...))), which dereferences
-# identifiers recursively - so a bare name could pull code in from elsewhere.
-# Returns 1 when KEY is numeric and VALUE is neither empty nor a number
-# (integer, decimal or dotted version).
+# identifiers recursively (a bare name could pull code in from elsewhere) and is
+# integer-only (a decimal errors the comparison and silently disables the guard).
+# Returns 1 when VALUE doesn't fit KEY's numeric class.
 ralphrc_value_numeric_ok() {
     case "$1" in
         MAX_CALLS_PER_HOUR|MAX_TOKENS_PER_HOUR|CLAUDE_TIMEOUT_MINUTES|CLAUDE_SESSION_EXPIRY_HOURS|SESSION_EXPIRY_HOURS|\
-        CLAUDE_MIN_VERSION|CB_COOLDOWN_MINUTES|CB_NO_PROGRESS_THRESHOLD|CB_SAME_ERROR_THRESHOLD|CB_OUTPUT_DECLINE_THRESHOLD|\
+        CB_COOLDOWN_MINUTES|CB_NO_PROGRESS_THRESHOLD|CB_SAME_ERROR_THRESHOLD|CB_OUTPUT_DECLINE_THRESHOLD|\
         CB_PERMISSION_DENIAL_THRESHOLD|MAX_CONSECUTIVE_TEST_LOOPS|MAX_CONSECUTIVE_DONE_SIGNALS|TEST_PERCENTAGE_THRESHOLD|\
-        COMMENT_INTERVAL|SANDBOX_E2B_TIMEOUT|SANDBOX_E2B_MAX_COST|SANDBOX_E2B_COST_ALERT|SANDBOX_E2B_COST_PER_HOUR|SYNC_MAX_FILE_SIZE)
+        COMMENT_INTERVAL|SANDBOX_E2B_TIMEOUT|SYNC_MAX_FILE_SIZE)
+            [[ "$2" =~ ^[0-9]+$ ]] ;;
+        SANDBOX_E2B_MAX_COST|SANDBOX_E2B_COST_ALERT|SANDBOX_E2B_COST_PER_HOUR)
+            [[ -z "$2" || "$2" =~ ^[0-9]+([.][0-9]+)?$ ]] ;;
+        CLAUDE_MIN_VERSION)
             [[ -z "$2" || "$2" =~ ^[0-9]+([.][0-9]+)*$ ]] ;;
         *) return 0 ;;
     esac

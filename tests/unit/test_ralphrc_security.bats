@@ -473,7 +473,7 @@ run_ralph_dry() {
     export RALPHRC_PWN="a[\$(touch $TEST_DIR/marker)]"
     CLAUDE_TIMEOUT_MINUTES=15
     printf '%s\n' 'MAX_CALLS_PER_HOUR=RALPHRC_PWN' 'CLAUDE_TIMEOUT_MINUTES=RALPHRC_PWN' \
-        'CLAUDE_MIN_VERSION=2.1.0' 'SANDBOX_E2B_MAX_COST=5.00' 'CB_COOLDOWN_MINUTES=' > .ralphrc
+        'CLAUDE_MIN_VERSION=2.1.0' 'SANDBOX_E2B_MAX_COST=5.00' > .ralphrc
 
     load_rc
     [ "$MAX_CALLS_PER_HOUR" = "100" ]
@@ -484,4 +484,20 @@ run_ralph_dry() {
     [[ 0 -ge $MAX_CALLS_PER_HOUR ]] || true
     echo $((CLAUDE_TIMEOUT_MINUTES * 60)) > /dev/null
     [ ! -e "$TEST_DIR/marker" ]
+}
+
+@test "issue #346: integer keys reject decimals and empty values (they would disable the guard)" {
+    # bash arithmetic is integer-only: [[ $calls -ge 500.5 ]] errors, so
+    # can_make_call would never stop the loop
+    printf '%s\n' 'MAX_CALLS_PER_HOUR=500.5' 'CLAUDE_TIMEOUT_MINUTES=' 'CLAUDE_SESSION_EXPIRY_HOURS=1.5' \
+        'SANDBOX_E2B_COST_ALERT=1.2.3' 'CLAUDE_MIN_VERSION=2' > .ralphrc
+    CLAUDE_TIMEOUT_MINUTES=15 CLAUDE_SESSION_EXPIRY_HOURS=24 SANDBOX_E2B_COST_ALERT=""
+
+    load_rc
+    [ "$MAX_CALLS_PER_HOUR" = "100" ]
+    [ "$CLAUDE_TIMEOUT_MINUTES" = "15" ]
+    [ "$CLAUDE_SESSION_EXPIRY_HOURS" = "24" ]
+    [ -z "$SANDBOX_E2B_COST_ALERT" ]
+    [ "$CLAUDE_MIN_VERSION" = "2" ]
+    [ "$(grep -c 'must be a number' "$TEST_DIR/out")" -eq 4 ]
 }
