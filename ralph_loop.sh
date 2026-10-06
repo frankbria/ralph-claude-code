@@ -319,8 +319,8 @@ load_ralphrc() {
         key="$RALPHRC_KEY"
         value="$RALPHRC_VALUE"
 
-        [[ "$inert_keys" =~ [[:space:]]$key[[:space:]] ]] && continue
-        if [[ ! "$allowed_keys" =~ [[:space:]]$key[[:space:]] ]]; then
+        [[ "$inert_keys" =~ [[:space:]]${key}[[:space:]] ]] && continue
+        if [[ ! "$allowed_keys" =~ [[:space:]]${key}[[:space:]] ]]; then
             log_status "WARN" ".ralphrc:$line_num: Unknown key '$key' ignored"
             continue
         fi
