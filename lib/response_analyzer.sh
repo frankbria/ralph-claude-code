@@ -1120,18 +1120,17 @@ should_resume_session() {
     local now=$(get_epoch_seconds)
     local session_time
 
-    # Parse ISO timestamp to epoch via date_utils' capability-based chain (GNU/uutils
-    # `date -d` → BSD `date -j` with %z → manual). Brand checks like
+    # Parse ISO timestamp to epoch via date_utils' capability-based strict parser
+    # (GNU/uutils `date -d` → BSD `date -j` with %z). Brand checks like
     # `date --version | grep GNU` misfire on uutils coreutils (Issue #368).
-    # Only well-formed ISO 8601 is parsed; anything else counts as expired, since
-    # parse_iso_to_epoch's last-resort fallback is "now".
+    # Anything that doesn't parse counts as expired.
     # Strip milliseconds if present (e.g., 2026-01-09T10:30:00.123+00:00 → 2026-01-09T10:30:00+00:00)
     local clean_timestamp="${timestamp}"
     if [[ "$timestamp" =~ ^([^.]+)\.[0-9]+(Z|[+-].*)$ ]]; then
         clean_timestamp="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
     fi
     if [[ "$clean_timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})$ ]]; then
-        session_time=$(parse_iso_to_epoch "$clean_timestamp")
+        session_time=$(iso_to_epoch_strict "$clean_timestamp") || session_time=""
     fi
 
     # If we couldn't parse the timestamp, consider session expired

@@ -181,7 +181,7 @@ function_exists_in_ralph() {
     # uutils coreutils supports `date -d` but its --version has no "GNU"
     date() { if [[ "${1:-}" == "--version" ]]; then echo "date (uutils coreutils) 0.10.0"; else command date "$@"; fi; }
     local now_iso
-    now_iso=$(command date -Iseconds)
+    now_iso=$(get_iso_timestamp)
     echo "{\"session_id\": \"s-uutils\", \"timestamp\": \"$now_iso\"}" > "$CLAUDE_SESSION_FILE"
 
     run should_resume_session
@@ -190,6 +190,13 @@ function_exists_in_ralph() {
 
 @test "should_resume_session returns false for an unparsable timestamp (issue #368)" {
     echo '{"session_id": "s-bad", "timestamp": "not-a-date"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+    [[ "$output" == "false" ]]
+}
+
+@test "should_resume_session returns false for a well-formed but impossible timestamp (issue #368)" {
+    echo '{"session_id": "s-bad", "timestamp": "2026-13-45T99:99:99+00:00"}' > "$CLAUDE_SESSION_FILE"
 
     run should_resume_session
     [[ "$output" == "false" ]]
