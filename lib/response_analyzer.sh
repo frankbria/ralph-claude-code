@@ -1120,25 +1120,18 @@ should_resume_session() {
     local now=$(get_epoch_seconds)
     local session_time
 
-    # Parse ISO timestamp to epoch - try multiple formats for cross-platform compatibility
+    # Parse ISO timestamp to epoch via date_utils' capability-based chain (GNU/uutils
+    # `date -d` → BSD `date -j` with %z → manual). Brand checks like
+    # `date --version | grep GNU` misfire on uutils coreutils (Issue #368).
+    # Only well-formed ISO 8601 is parsed; anything else counts as expired, since
+    # parse_iso_to_epoch's last-resort fallback is "now".
     # Strip milliseconds if present (e.g., 2026-01-09T10:30:00.123+00:00 → 2026-01-09T10:30:00+00:00)
     local clean_timestamp="${timestamp}"
-    if [[ "$timestamp" =~ \.[0-9]+[+-Z] ]]; then
-        clean_timestamp=$(echo "$timestamp" | sed 's/\.[0-9]*\([+-Z]\)/\1/')
+    if [[ "$timestamp" =~ ^([^.]+)\.[0-9]+(Z|[+-].*)$ ]]; then
+        clean_timestamp="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
     fi
-
-    if command -v gdate &>/dev/null; then
-        # macOS with coreutils
-        session_time=$(gdate -d "$clean_timestamp" +%s 2>/dev/null)
-    elif date --version 2>&1 | grep -q GNU; then
-        # GNU date (Linux)
-        session_time=$(date -d "$clean_timestamp" +%s 2>/dev/null)
-    else
-        # BSD date (macOS without coreutils) - try parsing ISO format
-        # Format: 2026-01-09T10:30:00+00:00 or 2026-01-09T10:30:00Z
-        # Strip timezone suffix for BSD date parsing
-        local date_only="${clean_timestamp%[+-Z]*}"
-        session_time=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$date_only" +%s 2>/dev/null)
+    if [[ "$clean_timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})$ ]]; then
+        session_time=$(parse_iso_to_epoch "$clean_timestamp")
     fi
 
     # If we couldn't parse the timestamp, consider session expired
