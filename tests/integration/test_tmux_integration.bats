@@ -679,3 +679,18 @@ assert_tmux_called_with() {
     [[ "$pane0_line" == *"--output-format json"* ]]
     [[ "$pane0_line" == *"--notify"* ]]
 }
+
+@test "setup_tmux_session forwards --dry-run and --show-tool-args (PR #363)" {
+    # DRY_RUN is not exported: without forwarding, the pane child would make
+    # real API calls despite an explicit --monitor --dry-run
+    export DRY_RUN=true
+    export LIVE_SHOW_TOOL_ARGS=true
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--dry-run"* ]]
+    [[ "$pane0_line" == *"--show-tool-args"* ]]
+}

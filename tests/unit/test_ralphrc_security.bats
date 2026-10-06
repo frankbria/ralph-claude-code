@@ -444,3 +444,10 @@ run_ralph_dry() {
     [ -z "$SANDBOX_E2B_SANDBOX_ID" ]
     grep -q "only accepted from the environment" "$TEST_DIR/out"
 }
+
+@test "issue #346: inspect-allowed-tools never prints raw control bytes from .ralphrc" {
+    printf "ALLOWED_TOOLS='Read,\033]0;pwned\007Write'\n" > .ralphrc
+
+    run env -u ALLOWED_TOOLS -u CLAUDE_ALLOWED_TOOLS bash "${BATS_TEST_DIRNAME}/../../tools/inspect-allowed-tools.sh" .ralphrc
+    [ "$(printf '%s' "$output" | grep -c $'\033')" -eq 0 ]
+}

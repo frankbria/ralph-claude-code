@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# shellcheck source=../lib/ralphrc.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/ralphrc.sh"
+
 rcfile="${1:-.ralphrc}"
 allowed_from_env="${ALLOWED_TOOLS:-${CLAUDE_ALLOWED_TOOLS:-}}"
 
@@ -26,8 +29,6 @@ if [[ -n "$allowed_from_env" ]]; then
 elif [[ -f "$rcfile" ]]; then
     echo "Source: $rcfile"
     # Parsed as data, never sourced (Issue #346) — same reader as ralph_loop.sh
-    # shellcheck source=../lib/ralphrc.sh
-    source "$(dirname "${BASH_SOURCE[0]}")/../lib/ralphrc.sh"
     allowed=$(ralphrc_get "$rcfile" ALLOWED_TOOLS || true)
     [[ -n "$allowed" ]] || allowed=$(ralphrc_get "$rcfile" CLAUDE_ALLOWED_TOOLS || true)
 else
@@ -42,7 +43,7 @@ if [[ -z "$allowed" ]]; then
 fi
 
 echo "Raw value:"
-echo "  $allowed"
+echo "  $(ralphrc_display "$allowed")"
 echo
 
 # Replicate the parsing from ralph_loop.sh:build_claude_command

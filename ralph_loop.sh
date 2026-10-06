@@ -615,6 +615,15 @@ setup_tmux_session() {
     if [[ "$ENABLE_NOTIFICATIONS" == "true" ]]; then
         ralph_cmd="$ralph_cmd --notify"
     fi
+    # Forward --dry-run: DRY_RUN is not exported, so without this the pane child
+    # would make real API calls despite an explicit --monitor --dry-run
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --dry-run"
+    fi
+    # Forward --show-tool-args if enabled
+    if [[ "${LIVE_SHOW_TOOL_ARGS:-false}" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --show-tool-args"
+    fi
     # Forward --backup if enabled (Issue #23)
     if [[ "$ENABLE_BACKUP" == "true" ]]; then
         ralph_cmd="$ralph_cmd --backup"
