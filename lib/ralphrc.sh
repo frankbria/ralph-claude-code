@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# lib/ralphrc.sh - Safe .ralphrc parsing (Issue #346)
+#
+# .ralphrc is repository-controlled, so it is read as KEY=VALUE data and never
+# sourced. Shared by ralph_loop.sh (load_ralphrc), ralph_import.sh and
+# tools/inspect-allowed-tools.sh so every reader applies the same grammar and
+# the same command-bearing-key policy. Bash 3.2 compatible.
+
+# ralphrc_parse_line LINE
+#
+# Sets RALPHRC_KEY and RALPHRC_VALUE (the literal value, per bash quoting rules).
+# Returns 0 for an assignment, 1 for a blank or comment line, 2 for a line that
+# is not KEY=VALUE, 3 for a value bash would expand or execute (rejected rather
+# than reinterpreted).
+ralphrc_parse_line() {
+    local line="$1"
+    local re_assign='^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$'
+    local re_dquoted='^"([^"]*)"([[:space:]]+#.*)?$'
+    local re_squoted="^'([^']*)'([[:space:]]+#.*)?\$"
+    local re_bare='^([^[:space:]#]*)([[:space:]]+#.*)?$'
+    local re_unsafe='[$`\\]'
+    local re_bare_unsafe='[$`\\;|&<>()"'"'"']'
+
+    RALPHRC_KEY=""
+    RALPHRC_VALUE=""
+    line="${line#$'\xef\xbb\xbf'}"
+    line="${line%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "$line" == \#* ]] && return 1
+    [[ "$line" =~ $re_assign ]] || return 2
+
+    RALPHRC_KEY="${BASH_REMATCH[2]}"
+    local value="${BASH_REMATCH[3]}"
+    if [[ "$value" =~ $re_squoted ]]; then
+        RALPHRC_VALUE="${BASH_REMATCH[1]}"
+        return 0
+    elif [[ "$value" =~ $re_dquoted ]]; then
+        value="${BASH_REMATCH[1]}"
+        [[ "$value" =~ $re_unsafe ]] && return 3
+    elif [[ "$value" =~ $re_bare ]]; then
+        value="${BASH_REMATCH[1]}"
+        [[ "$value" =~ $re_bare_unsafe ]] && return 3
+    else
+        return 3
+    fi
+    RALPHRC_VALUE="$value"
+    return 0
+}
+
+# ralphrc_value_allowed KEY VALUE
+#
+# Command-bearing keys decide what Ralph executes, sources, or hands
+# credentials to (or, for SANDBOX_DOCKER_NETWORK=host, how isolated it is). From the repo file only stock values are honored; custom
+# values must come from the user's environment (or CLI flags). Returns 1 for a
+# disallowed command-bearing value, 0 otherwise.
+ralphrc_value_allowed() {
+    case "$1=$2" in
+        CLAUDE_CODE_CMD=|CLAUDE_CODE_CMD=claude|"CLAUDE_CODE_CMD=npx @anthropic-ai/claude-code") return 0 ;;
+        SANDBOX_DOCKER_IMAGE=|SANDBOX_DOCKER_IMAGE=ralph-sandbox:latest|SANDBOX_DOCKER_IMAGE=ghcr.io/frankbria/ralph-sandbox:latest) return 0 ;;
+        SANDBOX_E2B_TEMPLATE=|SANDBOX_E2B_TEMPLATE=base) return 0 ;;
+        SANDBOX_DOCKER_NETWORK=|SANDBOX_DOCKER_NETWORK=bridge|SANDBOX_DOCKER_NETWORK=none) return 0 ;;
+        RALPH_SHELL_INIT_FILE=) return 0 ;;
+        CLAUDE_CODE_CMD=*|SANDBOX_DOCKER_IMAGE=*|SANDBOX_E2B_TEMPLATE=*|SANDBOX_DOCKER_NETWORK=*|RALPH_SHELL_INIT_FILE=*) return 1 ;;
+    esac
+    return 0
+}
+
+# ralphrc_display VALUE - VALUE with control characters and backslashes replaced
+# by '?', safe to print even via `echo -e` (repo-controlled text must not reach
+# the terminal as escape sequences)
+ralphrc_display() {
+    local v="${1//[[:cntrl:]]/?}"
+    printf '%s' "${v//\\/?}"
+}
+
+# ralphrc_get FILE KEY
+#
+# Prints KEY's literal value from FILE (last valid assignment wins). Values a
+# repo may not set (see ralphrc_value_allowed) are skipped with a warning on
+# stderr. Returns 1 when FILE has no usable assignment for KEY.
+ralphrc_get() {
+    local file="$1" key="$2" line found=1 value=""
+    [[ -f "$file" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ralphrc_parse_line "$line" || continue
+        [[ "$RALPHRC_KEY" == "$key" ]] || continue
+        if ! ralphrc_value_allowed "$RALPHRC_KEY" "$RALPHRC_VALUE"; then
+            echo "WARN: $file: $key='$(ralphrc_display "$RALPHRC_VALUE")' ignored - custom values for this key are only accepted from the environment (export $key=...)" >&2
+            continue
+        fi
+        value="$RALPHRC_VALUE"
+        found=0
+    done < "$file"
+    [[ $found -eq 0 ]] && printf '%s\n' "$value"
+    return $found
+}

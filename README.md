@@ -48,6 +48,10 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 
 ### Recent Improvements
 
+**Unreleased - Security: `.ralphrc` is parsed as data** (#346)
+- `.ralphrc` is no longer executed with `source`: only `KEY=VALUE` lines for known keys are applied, with literal values. Shell syntax (`$VAR`, `$(...)`, chained commands) is rejected with a warning — **breaking** for `.ralphrc` files that relied on it
+- `CLAUDE_CODE_CMD`, `RALPH_SHELL_INIT_FILE`, `SANDBOX_DOCKER_IMAGE`, `SANDBOX_E2B_TEMPLATE` and `SANDBOX_DOCKER_NETWORK` (no `host`) accept only stock values from `.ralphrc`; set custom values as environment variables (or `--sandbox-*` flags). Applies to `ralph`, `ralph-import` and `ralph-queue`. See [docs/CLI_OPTIONS.md](docs/CLI_OPTIONS.md#common-ralphrc-patterns)
+
 **v0.11.5 - Community Bug Fixes** (latest)
 - Fixed API limit false positive: Timeout (exit code 124) no longer misidentified as API 5-hour limit (#183)
 - Three-layer API limit detection: timeout guard → structural JSON (`rate_limit_event`) → filtered text fallback
@@ -681,9 +685,10 @@ PROJECT_TYPE="typescript"
 CLAUDE_CODE_CMD="claude"
 # CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"  # Alternative: use npx
 
-# Shell init file — source before running claude (useful for zsh/fish users
-# whose PATH or env vars are only set in their shell's init file)
-#RALPH_SHELL_INIT_FILE="~/.zshrc"
+# Custom CLI paths and shell init files are environment-only (never read from
+# .ralphrc, which is repository-controlled):
+#   export CLAUDE_CODE_CMD="/opt/local/bin/claude"
+#   export RALPH_SHELL_INIT_FILE="$HOME/.zshrc"
 
 # Loop settings
 MAX_CALLS_PER_HOUR=100

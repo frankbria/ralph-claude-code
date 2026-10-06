@@ -45,6 +45,7 @@ source "$SCRIPT_DIR/lib/github_lifecycle.sh" || { echo "FATAL: Failed to source 
 source "$SCRIPT_DIR/lib/sync.sh" || { echo "FATAL: Failed to source lib/sync.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_docker.sh" || { echo "FATAL: Failed to source lib/sandbox_docker.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_e2b.sh" || { echo "FATAL: Failed to source lib/sandbox_e2b.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/ralphrc.sh" || { echo "FATAL: Failed to source lib/ralphrc.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -268,121 +269,67 @@ RALPHRC_LOADED=false
 
 # load_ralphrc - Load project-specific configuration from .ralphrc
 #
-# This function sources .ralphrc if it exists, applying project-specific
-# settings. Environment variables take precedence over .ralphrc values.
-#
-# Configuration values that can be overridden:
-#   - MAX_CALLS_PER_HOUR
-#   - MAX_TOKENS_PER_HOUR (cumulative token limit per hour; 0 = disabled)
-#   - CLAUDE_TIMEOUT_MINUTES
-#   - CLAUDE_OUTPUT_FORMAT
-#   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
-#   - SESSION_CONTINUITY (mapped to CLAUDE_USE_CONTINUE)
-#   - SESSION_EXPIRY_HOURS (mapped to CLAUDE_SESSION_EXPIRY_HOURS)
-#   - CB_NO_PROGRESS_THRESHOLD
-#   - CB_SAME_ERROR_THRESHOLD
-#   - CB_OUTPUT_DECLINE_THRESHOLD
-#   - RALPH_VERBOSE
-#   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
-#   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
-#   - RALPH_SHELL_INIT_FILE (shell init file to source before running claude)
-#   - OPTIONAL_SECTIONS (fix_plan.md sections whose unchecked items don't block exit, Issue #239)
+# .ralphrc is repository-controlled, so it is parsed as data, never sourced
+# (Issue #346): only KEY=VALUE lines for known configuration keys are applied,
+# values are taken literally (no expansion or command substitution), and other
+# lines are skipped with a warning. Command-bearing keys (CLAUDE_CODE_CMD,
+# RALPH_SHELL_INIT_FILE, SANDBOX_DOCKER_IMAGE, SANDBOX_E2B_TEMPLATE) accept only
+# their stock values from the file; custom values must come from the environment.
+# Environment variables take precedence over .ralphrc values.
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
         return 0
     fi
 
-    # SECURITY FIX (Issue #346): Parse .ralphrc as data, not executable code.
-    # The old `source "$RALPHRC_FILE"` allowed arbitrary code execution from
-    # repository-controlled files before any validation. This parser only
-    # accepts KEY=VALUE assignments for allowlisted configuration variables.
-
-    # Allowlisted configuration variable names
-    local -a RALPHRC_ALLOWED_KEYS=(
-        # Rate limiting
-        MAX_CALLS_PER_HOUR MAX_TOKENS_PER_HOUR
-        # Claude CLI configuration
+    # SECURITY (Issue #346): parsed as data via lib/ralphrc.sh, never sourced.
+    # Rejected, unknown and malformed lines are skipped with a warning (never
+    # fatal, so env precedence below still applies).
+    local allowed_keys=" MAX_CALLS_PER_HOUR MAX_TOKENS_PER_HOUR
         CLAUDE_TIMEOUT_MINUTES CLAUDE_OUTPUT_FORMAT CLAUDE_ALLOWED_TOOLS
         CLAUDE_USE_CONTINUE CLAUDE_SESSION_EXPIRY_HOURS CLAUDE_CODE_CMD
-        CLAUDE_AUTO_UPDATE CLAUDE_MODEL CLAUDE_EFFORT
-        # Legacy aliases (mapped to internal names below)
+        CLAUDE_AUTO_UPDATE CLAUDE_MODEL CLAUDE_EFFORT CLAUDE_MIN_VERSION
         ALLOWED_TOOLS SESSION_CONTINUITY SESSION_EXPIRY_HOURS RALPH_VERBOSE
-        # Circuit breaker
         CB_COOLDOWN_MINUTES CB_AUTO_RESET CB_NO_PROGRESS_THRESHOLD
-        CB_SAME_ERROR_THRESHOLD CB_OUTPUT_DECLINE_THRESHOLD
-        # Features
+        CB_SAME_ERROR_THRESHOLD CB_OUTPUT_DECLINE_THRESHOLD CB_PERMISSION_DENIAL_THRESHOLD
+        MAX_CONSECUTIVE_TEST_LOOPS MAX_CONSECUTIVE_DONE_SIGNALS TEST_PERCENTAGE_THRESHOLD
         VERBOSE_PROGRESS RALPH_SHELL_INIT_FILE ENABLE_NOTIFICATIONS ENABLE_BACKUP
         LIVE_SHOW_TOOL_ARGS OPTIONAL_SECTIONS
-        # GitHub lifecycle (Issue #73)
         GITHUB_ISSUE COMMENT_PROGRESS COMMENT_INTERVAL AUTO_CLOSE CLOSE_SUMMARY
         CREATE_PR LINK_ISSUE DRAFT_PR CREATE_FOLLOWUPS FOLLOWUP_LABEL ADD_COMPLETION_LABELS
-        # Sandbox (Issues #74, #75)
         SANDBOX_PROVIDER SANDBOX_DOCKER_IMAGE SANDBOX_DOCKER_MEMORY SANDBOX_DOCKER_CPUS
         SANDBOX_DOCKER_NETWORK SANDBOX_E2B_TEMPLATE SANDBOX_E2B_SANDBOX_ID
         SANDBOX_E2B_TIMEOUT SANDBOX_E2B_KEEP_ALIVE SANDBOX_E2B_MAX_COST
         SANDBOX_E2B_COST_ALERT SANDBOX_E2B_COST_PER_HOUR
-        # Sync (Issue #76)
         SYNC_INCLUDE SYNC_EXCLUDE SYNC_MAX_FILE_SIZE SYNC_LARGE_FILE_ACTION
-        # Directory override
-        RALPH_DIR
-    )
-
-    # Build a lookup set for O(1) key validation
-    local -A allowed_keys_set
-    local key
-    for key in "${RALPHRC_ALLOWED_KEYS[@]}"; do
-        allowed_keys_set["$key"]=1
-    done
-
-    # Dangerous patterns that indicate shell syntax (not simple assignment)
-    local dangerous_pattern='[$`();|&<>!\\]|\beval\b|\bsource\b|\bexec\b|\bexport\b'
-
-    local line_num=0
-    local var_name var_value
+        PROMPT_FILE RALPH_DIR "
+    # Written by ralph-enable/ralph-setup for reference only; accepted silently.
+    local inert_keys=" PROJECT_NAME PROJECT_TYPE TASK_SOURCES FIX_PLAN_FILE
+        AGENT_FILE BEADS_FILTER GITHUB_TASK_LABEL "
+    local line line_num=0 key value rc
     while IFS= read -r line || [[ -n "$line" ]]; do
-        ((line_num++))
+        line_num=$((line_num + 1))
+        rc=0
+        ralphrc_parse_line "$line" || rc=$?
+        case $rc in
+            1) continue ;;
+            2) log_status "WARN" ".ralphrc:$line_num: Invalid syntax, expected KEY=VALUE (line ignored)"; continue ;;
+            3) log_status "WARN" ".ralphrc:$line_num: $RALPHRC_KEY rejected - shell syntax is not evaluated in .ralphrc (use a literal value)"; continue ;;
+        esac
+        key="$RALPHRC_KEY"
+        value="$RALPHRC_VALUE"
 
-        # Skip empty lines and comments
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-        # Strip leading/trailing whitespace
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-
-        # Skip if still empty after stripping
-        [[ -z "$line" ]] && continue
-
-        # Reject lines with dangerous shell syntax
-        if [[ "$line" =~ $dangerous_pattern ]]; then
-            log_status "ERROR" ".ralphrc:$line_num: Rejected - contains shell syntax (security)"
-            log_status "ERROR" "  Line: $line"
-            log_status "ERROR" ".ralphrc must contain only KEY=VALUE assignments, no shell code"
-            return 1
+        [[ "$inert_keys" =~ [[:space:]]$key[[:space:]] ]] && continue
+        if [[ ! "$allowed_keys" =~ [[:space:]]$key[[:space:]] ]]; then
+            log_status "WARN" ".ralphrc:$line_num: Unknown key '$key' ignored"
+            continue
+        fi
+        if ! ralphrc_value_allowed "$key" "$value"; then
+            log_status "WARN" ".ralphrc:$line_num: $key='$(ralphrc_display "$value")' ignored - custom values for this key are only accepted from the environment (export $key=... before running ralph)"
+            continue
         fi
 
-        # Parse KEY=VALUE (with optional quotes around value)
-        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-            var_name="${BASH_REMATCH[1]}"
-            var_value="${BASH_REMATCH[2]}"
-
-            # Strip surrounding quotes from value if present
-            if [[ "$var_value" =~ ^\"(.*)\"$ ]] || [[ "$var_value" =~ ^\'(.*)\'$ ]]; then
-                var_value="${BASH_REMATCH[1]}"
-            fi
-
-            # Validate key is in allowlist
-            if [[ -z "${allowed_keys_set[$var_name]:-}" ]]; then
-                log_status "WARN" ".ralphrc:$line_num: Unknown key '$var_name' ignored"
-                continue
-            fi
-
-            # Safely assign the value (declare creates a local, so we use printf -v)
-            printf -v "$var_name" '%s' "$var_value"
-        else
-            log_status "WARN" ".ralphrc:$line_num: Invalid syntax, expected KEY=VALUE"
-            log_status "WARN" "  Line: $line"
-        fi
+        printf -v "$key" '%s' "$value"
     done < "$RALPHRC_FILE"
 
     # Map .ralphrc variable names to internal names
@@ -2604,6 +2551,7 @@ main() {
     [[ -n "${_cli_FOLLOWUP_LABEL:-}" ]] && FOLLOWUP_LABEL="$_cli_FOLLOWUP_LABEL"
     [[ -n "${_cli_ADD_COMPLETION_LABELS:-}" ]] && ADD_COMPLETION_LABELS="$_cli_ADD_COMPLETION_LABELS"
     # Docker sandbox flags (Issue #74) — CLI overrides .ralphrc
+    [[ -n "${_cli_PROMPT_FILE:-}" ]] && PROMPT_FILE="$_cli_PROMPT_FILE"
     [[ -n "${_cli_SANDBOX_PROVIDER:-}" ]] && SANDBOX_PROVIDER="$_cli_SANDBOX_PROVIDER"
     [[ -n "${_cli_SANDBOX_IMAGE:-}" ]] && SANDBOX_DOCKER_IMAGE="$_cli_SANDBOX_IMAGE"
     [[ -n "${_cli_SANDBOX_MEMORY:-}" ]] && SANDBOX_DOCKER_MEMORY="$_cli_SANDBOX_MEMORY"
@@ -2853,9 +2801,10 @@ main() {
 
                 # Show current ALLOWED_TOOLS if .ralphrc exists
                 if [[ -f ".ralphrc" ]]; then
-                    local current_tools=$(grep "^ALLOWED_TOOLS=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"')
+                    local current_tools
+                    current_tools=$(ralphrc_get ".ralphrc" ALLOWED_TOOLS 2>/dev/null) || current_tools=""
                     if [[ -n "$current_tools" ]]; then
-                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $current_tools"
+                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $(ralphrc_display "$current_tools")"
                         echo ""
                     fi
                 fi
@@ -3129,6 +3078,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -p|--prompt)
             PROMPT_FILE="$2"
+            _cli_PROMPT_FILE="$2"
             shift 2
             ;;
         -s|--status)

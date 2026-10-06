@@ -303,7 +303,13 @@ ralph --session-expiry 4     # Short-lived tasks where fresh context is better
 
 ## Common `.ralphrc` Patterns
 
-The `.ralphrc` file at your project root is sourced before each loop. Environment variables always take precedence over `.ralphrc` values.
+The `.ralphrc` file at your project root is read at startup. Environment variables always take precedence over `.ralphrc` values.
+
+> **Security (Issue #346):** `.ralphrc` lives in the repository, so Ralph parses it as data — it is **never executed**. Only `KEY=VALUE` lines for known configuration keys are applied (optional `export` prefix, `"double"`/`'single'` quotes and trailing `# comments` are fine). Values are literal: `$VAR`, `$(...)`, backticks and other shell syntax are rejected with a warning, as are unknown keys, and `~` is not expanded (write the full path).
+>
+> Keys that decide what Ralph runs — `CLAUDE_CODE_CMD`, `RALPH_SHELL_INIT_FILE`, `SANDBOX_DOCKER_IMAGE`, `SANDBOX_E2B_TEMPLATE` — accept only their stock values from `.ralphrc` (`claude` / `npx @anthropic-ai/claude-code`, the official sandbox image, the `base` template; `RALPH_SHELL_INIT_FILE` none at all), and `SANDBOX_DOCKER_NETWORK` accepts only `bridge` or `none`. Set custom values in your environment (or with `--sandbox-image` / `--sandbox-template` / `--sandbox-network`), so a repository can't choose what runs on your machine. The same rules apply to `ralph-import` and `tools/inspect-allowed-tools.sh`.
+>
+> `ALLOWED_TOOLS` is still read from `.ralphrc`, so it is **not** a permission boundary against an untrusted repository (and `PROMPT.md` is repository-controlled too). Likewise `GITHUB_ISSUE` (with `AUTO_CLOSE`, `CREATE_PR`, …) can name any repository your `gh` login can write to. Run repositories you don't trust with `--sandbox docker` or `--sandbox e2b`, and review their `.ralphrc` before enabling GitHub lifecycle flags.
 
 ### Local workstation (default)
 
@@ -339,8 +345,12 @@ CLAUDE_TIMEOUT_MINUTES=10
 # npm registry is unreachable — prevents timeout and warning spam
 CLAUDE_AUTO_UPDATE=false
 
-# Use a specific local Claude CLI path if not on PATH
-CLAUDE_CODE_CMD="/opt/local/bin/claude"
+```
+
+Custom Claude CLI paths are not read from `.ralphrc` (see the security note above) — export one instead:
+
+```bash
+export CLAUDE_CODE_CMD="/opt/local/bin/claude"
 ```
 
 ---
@@ -424,8 +434,10 @@ CLAUDE_MODEL=claude-opus-4-6 ralph --monitor
 ### Custom shell initialization
 
 ```bash
-# Source a script before each loop (e.g., to activate a virtualenv or set PATH)
-RALPH_SHELL_INIT_FILE=".ralph/init.sh"
+# Source a script at startup (e.g., to activate a virtualenv or set PATH).
+# Environment only — Ralph ignores this key in .ralphrc, since sourcing a file
+# the repository chose would run repository code on your machine.
+export RALPH_SHELL_INIT_FILE="$HOME/.zshrc"
 ```
 
 Ralph will warn if the file is set but missing, and skip sourcing if it doesn't exist.
@@ -438,7 +450,7 @@ These keys have no CLI flag equivalent — they can only be set in `.ralphrc` or
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `CLAUDE_CODE_CMD` | `"claude"` | Claude Code CLI command. Override for non-global installs (e.g., `"npx @anthropic-ai/claude-code"`). |
+| `CLAUDE_CODE_CMD` | `"claude"` | Claude Code CLI command. `.ralphrc` accepts only `"claude"` or `"npx @anthropic-ai/claude-code"`; export a custom path as an environment variable. |
 | `CLAUDE_AUTO_UPDATE` | `true` | Auto-check npm registry and update the Claude CLI at startup. Set `false` for Docker/air-gapped environments. |
 | `CLAUDE_MIN_VERSION` | `"2.0.76"` | Minimum Claude CLI version required. Ralph warns and exits if the installed version is older. |
 | `MAX_TOKENS_PER_HOUR` | `0` | Hourly token budget (`input + output`). `0` = disabled. Blocks further calls once exhausted; resets with the call counter on the hour. |

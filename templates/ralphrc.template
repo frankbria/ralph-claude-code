@@ -11,10 +11,10 @@
 # =============================================================================
 
 # Project name (used in prompts and logging)
-PROJECT_NAME="${PROJECT_NAME:-my-project}"
+PROJECT_NAME="my-project"
 
 # Project type: javascript, typescript, python, rust, go, unknown
-PROJECT_TYPE="${PROJECT_TYPE:-unknown}"
+PROJECT_TYPE="unknown"
 
 # =============================================================================
 # LOOP SETTINGS
@@ -123,7 +123,7 @@ RALPH_VERBOSE=false
 # Build the default image first: docker build -t ralph-sandbox ~/.ralph
 # CLI flags (--sandbox, --sandbox-image, ...) override these values.
 # SANDBOX_PROVIDER="docker"
-# SANDBOX_DOCKER_IMAGE="ralph-sandbox:latest"
+# SANDBOX_DOCKER_IMAGE="ralph-sandbox:latest"   # custom images: --sandbox-image or env only
 # SANDBOX_DOCKER_MEMORY="4g"
 # SANDBOX_DOCKER_CPUS="2"
 # SANDBOX_DOCKER_NETWORK="bridge"   # none | bridge | host ('none' blocks the Claude API)
@@ -137,7 +137,7 @@ RALPH_VERBOSE=false
 # variable or ~/.ralph/e2b_api_key (chmod 600) — never store the key here.
 # CLI flags (--sandbox e2b, --sandbox-template, ...) override these values.
 # SANDBOX_PROVIDER="e2b"
-# SANDBOX_E2B_TEMPLATE="base"       # custom templates can preinstall the claude CLI
+# SANDBOX_E2B_TEMPLATE="base"       # custom templates (env or --sandbox-template only) can preinstall the claude CLI
 # SANDBOX_E2B_SANDBOX_ID=""         # reconnect to an existing sandbox
 # SANDBOX_E2B_TIMEOUT="3600"        # sandbox session timeout (seconds)
 # SANDBOX_E2B_KEEP_ALIVE="false"    # leave the sandbox running on exit
