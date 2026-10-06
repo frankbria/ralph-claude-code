@@ -324,6 +324,10 @@ load_ralphrc() {
             log_status "WARN" ".ralphrc:$line_num: Unknown key '$key' ignored"
             continue
         fi
+        if ! ralphrc_value_numeric_ok "$key" "$value"; then
+            log_status "WARN" ".ralphrc:$line_num: $key='$(ralphrc_display "$value")' ignored - must be a number"
+            continue
+        fi
         if ! ralphrc_value_allowed "$key" "$value"; then
             log_status "WARN" ".ralphrc:$line_num: $key='$(ralphrc_display "$value")' ignored - custom values for this key are only accepted from the environment (export $key=... before running ralph)"
             continue

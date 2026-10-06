@@ -66,6 +66,23 @@ ralphrc_value_allowed() {
     return 0
 }
 
+# ralphrc_value_numeric_ok KEY VALUE
+#
+# Numeric keys reach bash arithmetic ([[ -ge ]], $((...))), which dereferences
+# identifiers recursively - so a bare name could pull code in from elsewhere.
+# Returns 1 when KEY is numeric and VALUE is neither empty nor a number
+# (integer, decimal or dotted version).
+ralphrc_value_numeric_ok() {
+    case "$1" in
+        MAX_CALLS_PER_HOUR|MAX_TOKENS_PER_HOUR|CLAUDE_TIMEOUT_MINUTES|CLAUDE_SESSION_EXPIRY_HOURS|SESSION_EXPIRY_HOURS|\
+        CLAUDE_MIN_VERSION|CB_COOLDOWN_MINUTES|CB_NO_PROGRESS_THRESHOLD|CB_SAME_ERROR_THRESHOLD|CB_OUTPUT_DECLINE_THRESHOLD|\
+        CB_PERMISSION_DENIAL_THRESHOLD|MAX_CONSECUTIVE_TEST_LOOPS|MAX_CONSECUTIVE_DONE_SIGNALS|TEST_PERCENTAGE_THRESHOLD|\
+        COMMENT_INTERVAL|SANDBOX_E2B_TIMEOUT|SANDBOX_E2B_MAX_COST|SANDBOX_E2B_COST_ALERT|SANDBOX_E2B_COST_PER_HOUR|SYNC_MAX_FILE_SIZE)
+            [[ -z "$2" || "$2" =~ ^[0-9]+([.][0-9]+)*$ ]] ;;
+        *) return 0 ;;
+    esac
+}
+
 # ralphrc_display VALUE - VALUE with control characters and backslashes replaced
 # by '?', safe to print even via `echo -e` (repo-controlled text must not reach
 # the terminal as escape sequences)

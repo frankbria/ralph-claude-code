@@ -468,3 +468,20 @@ run_ralph_dry() {
     run env -u ALLOWED_TOOLS -u CLAUDE_ALLOWED_TOOLS bash "${BATS_TEST_DIRNAME}/../../tools/inspect-allowed-tools.sh" .ralphrc
     [ "$(printf '%s' "$output" | grep -c $'\033')" -eq 0 ]
 }
+
+@test "issue #346: numeric keys accept only numbers (identifiers would be dereferenced in arithmetic)" {
+    export RALPHRC_PWN="a[\$(touch $TEST_DIR/marker)]"
+    CLAUDE_TIMEOUT_MINUTES=15
+    printf '%s\n' 'MAX_CALLS_PER_HOUR=RALPHRC_PWN' 'CLAUDE_TIMEOUT_MINUTES=RALPHRC_PWN' \
+        'CLAUDE_MIN_VERSION=2.1.0' 'SANDBOX_E2B_MAX_COST=5.00' 'CB_COOLDOWN_MINUTES=' > .ralphrc
+
+    load_rc
+    [ "$MAX_CALLS_PER_HOUR" = "100" ]
+    [ "$CLAUDE_TIMEOUT_MINUTES" = "15" ]
+    [ "$CLAUDE_MIN_VERSION" = "2.1.0" ]
+    [ "$SANDBOX_E2B_MAX_COST" = "5.00" ]
+    [ "$(grep -c 'must be a number' "$TEST_DIR/out")" -eq 2 ]
+    [[ 0 -ge $MAX_CALLS_PER_HOUR ]] || true
+    echo $((CLAUDE_TIMEOUT_MINUTES * 60)) > /dev/null
+    [ ! -e "$TEST_DIR/marker" ]
+}
