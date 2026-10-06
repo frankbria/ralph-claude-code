@@ -399,6 +399,43 @@ parse_json_response() {
         fi
     fi
 
+    # Hook-retry recovery detection (opt-in via TRUST_INTURN_RECOVERY).
+    # PreToolUse hooks can deny a Write/Edit/NotebookEdit/MultiEdit tool call
+    # with a corrective message (e.g. a style-rule hook rewriting a Write's
+    # tool_input). Claude Code then retries the tool call within the SAME
+    # turn and succeeds; the overall turn ends with is_error=false and
+    # stop_reason=end_turn. Without this exception the next loop halts on
+    # the previous turn's denial array — a false positive.
+    # This exception is OPT-IN because is_error/stop_reason are outcome
+    # signals (turn ended cleanly) not authorization signals (the specific
+    # denial was resolved). A hook that denies a Write to a sensitive path
+    # which the agent then abandons would also produce is_error=false /
+    # stop_reason=end_turn, defeating the Issue #101 silent-loop guard.
+    # Users must explicitly opt in via TRUST_INTURN_RECOVERY=true in .ralphrc.
+    local has_hook_recovered_denials="false"
+    local hook_recovered_denial_count=0
+    if [[ $permission_denial_count -gt 0 && "$has_compound_command_limitation" == "false" && "${TRUST_INTURN_RECOVERY:-false}" == "true" ]]; then
+        local turn_is_error
+        turn_is_error=$(jq -r '.is_error // false' "$output_file" 2>/dev/null)
+        local turn_stop_reason
+        turn_stop_reason=$(jq -r '.stop_reason // ""' "$output_file" 2>/dev/null)
+
+        if [[ "$turn_is_error" == "false" && ( "$turn_stop_reason" == "end_turn" || -z "$turn_stop_reason" ) ]]; then
+            # Count file-mutation-tool denials. Anything else is a real gap.
+            local mutation_denial_count
+            mutation_denial_count=$(jq -r '[.permission_denials[] | select(.tool_name == "Write" or .tool_name == "Edit" or .tool_name == "NotebookEdit" or .tool_name == "MultiEdit")] | length' "$output_file" 2>/dev/null || echo "0")
+            mutation_denial_count=$((mutation_denial_count + 0))
+
+            if [[ $mutation_denial_count -gt 0 && $mutation_denial_count -eq $permission_denial_count ]]; then
+                has_hook_recovered_denials="true"
+                hook_recovered_denial_count=$mutation_denial_count
+                # Downgrade has_permission_denials — user opted into
+                # trusting in-turn recovery on file-mutation tools.
+                has_permission_denials="false"
+            fi
+        fi
+    fi
+
     # Normalize values
     # Convert exit_signal to boolean string
     # Only infer from status/completion_status if no explicit EXIT_SIGNAL was provided
@@ -463,6 +500,8 @@ parse_json_response() {
         --argjson denied_commands "$denied_commands_json" \
         --argjson has_compound_command_limitation "$has_compound_command_limitation" \
         --argjson compound_command_count "$compound_command_count" \
+        --argjson has_hook_recovered_denials "$has_hook_recovered_denials" \
+        --argjson hook_recovered_denial_count "$hook_recovered_denial_count" \
         '{
             status: $status,
             exit_signal: $exit_signal,
@@ -480,6 +519,8 @@ parse_json_response() {
             denied_commands: $denied_commands,
             has_compound_command_limitation: $has_compound_command_limitation,
             compound_command_count: $compound_command_count,
+            has_hook_recovered_denials: $has_hook_recovered_denials,
+            hook_recovered_denial_count: $hook_recovered_denial_count,
             metadata: {
                 loop_number: $loop_number,
                 session_id: $session_id
@@ -542,6 +583,9 @@ analyze_response() {
             # Compound-command limitation flag (Issue #243)
             local has_compound_command_limitation=$(jq -r '.has_compound_command_limitation // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             local compound_command_count=$(jq -r '.compound_command_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            # Hook-retry recovery flag (opt-in, TRUST_INTURN_RECOVERY)
+            local has_hook_recovered_denials=$(jq -r '.has_hook_recovered_denials // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            local hook_recovered_denial_count=$(jq -r '.hook_recovered_denial_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
 
             # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
@@ -621,6 +665,8 @@ analyze_response() {
                 --argjson denied_commands "$denied_commands_json" \
                 --argjson has_compound_command_limitation "$has_compound_command_limitation" \
                 --argjson compound_command_count "$compound_command_count" \
+                --argjson has_hook_recovered_denials "$has_hook_recovered_denials" \
+                --argjson hook_recovered_denial_count "$hook_recovered_denial_count" \
                 --argjson asking_questions "$asking_questions" \
                 --argjson question_count "$question_count" \
                 '{
@@ -643,6 +689,8 @@ analyze_response() {
                         denied_commands: $denied_commands,
                         has_compound_command_limitation: $has_compound_command_limitation,
                         compound_command_count: $compound_command_count,
+                        has_hook_recovered_denials: $has_hook_recovered_denials,
+                        hook_recovered_denial_count: $hook_recovered_denial_count,
                         asking_questions: $asking_questions,
                         question_count: $question_count
                     }

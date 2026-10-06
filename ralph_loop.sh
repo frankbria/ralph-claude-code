@@ -931,15 +931,26 @@ should_exit_gracefully() {
     # Exception (Issue #243): if every denial is a Bash compound command whose
     # base is already covered by ALLOWED_TOOLS, the denial is a Claude CLI
     # limitation rather than a real permission gap — log an advisory and continue.
+    # Exception (opt-in, TRUST_INTURN_RECOVERY): if every denial is a file-
+    # mutation tool call (Write/Edit/NotebookEdit/MultiEdit) AND the turn ended
+    # cleanly, treat as advisory. Off by default because this is an outcome
+    # signal not an authorization signal — see WARNING in the ralphrc template.
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
         local has_compound_limitation=$(jq -r '.analysis.has_compound_command_limitation // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
+        local has_hook_recovered=$(jq -r '.analysis.has_hook_recovered_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
 
         if [[ "$has_compound_limitation" == "true" ]]; then
             local compound_count=$(jq -r '.analysis.compound_command_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
             local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
             log_status "WARN" "⚠️  Claude CLI denied $compound_count compound command(s) but the base command is already in ALLOWED_TOOLS: $denied_cmds"
             log_status "WARN" "This is a Claude CLI matching limitation (pipes/redirects bypass Bash(cmd *) patterns). Loop continues."
+            # Fall through — do not halt
+        elif [[ "$has_hook_recovered" == "true" ]]; then
+            local recovered_count=$(jq -r '.analysis.hook_recovered_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
+            local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
+            log_status "WARN" "⚠️  $recovered_count file-mutation tool call(s) denied by a PreToolUse hook; turn ended cleanly (TRUST_INTURN_RECOVERY=true): $denied_cmds"
+            log_status "WARN" "Loop continues. Note: this is an outcome signal, not proof the specific denial was resolved — see .ralphrc TRUST_INTURN_RECOVERY warning."
             # Fall through — do not halt
         elif [[ "$has_permission_denials" == "true" ]]; then
             local denied_count=$(jq -r '.analysis.permission_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
