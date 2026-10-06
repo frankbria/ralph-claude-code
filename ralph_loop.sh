@@ -2551,7 +2551,17 @@ main() {
     [[ -n "${_cli_FOLLOWUP_LABEL:-}" ]] && FOLLOWUP_LABEL="$_cli_FOLLOWUP_LABEL"
     [[ -n "${_cli_ADD_COMPLETION_LABELS:-}" ]] && ADD_COMPLETION_LABELS="$_cli_ADD_COMPLETION_LABELS"
     # Docker sandbox flags (Issue #74) — CLI overrides .ralphrc
+    # Every CLI flag that sets a .ralphrc key wins over the (repository-controlled) file
     [[ -n "${_cli_PROMPT_FILE:-}" ]] && PROMPT_FILE="$_cli_PROMPT_FILE"
+    [[ -n "${_cli_MAX_CALLS_PER_HOUR:-}" ]] && MAX_CALLS_PER_HOUR="$_cli_MAX_CALLS_PER_HOUR"
+    [[ -n "${_cli_VERBOSE_PROGRESS:-}" ]] && VERBOSE_PROGRESS="$_cli_VERBOSE_PROGRESS"
+    [[ -n "${_cli_CLAUDE_TIMEOUT_MINUTES:-}" ]] && CLAUDE_TIMEOUT_MINUTES="$_cli_CLAUDE_TIMEOUT_MINUTES"
+    [[ -n "${_cli_CLAUDE_OUTPUT_FORMAT:-}" ]] && CLAUDE_OUTPUT_FORMAT="$_cli_CLAUDE_OUTPUT_FORMAT"
+    [[ -n "${_cli_CLAUDE_ALLOWED_TOOLS:-}" ]] && CLAUDE_ALLOWED_TOOLS="$_cli_CLAUDE_ALLOWED_TOOLS"
+    [[ -n "${_cli_CLAUDE_USE_CONTINUE:-}" ]] && CLAUDE_USE_CONTINUE="$_cli_CLAUDE_USE_CONTINUE"
+    [[ -n "${_cli_CLAUDE_SESSION_EXPIRY_HOURS:-}" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_cli_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "${_cli_CB_AUTO_RESET:-}" ]] && CB_AUTO_RESET="$_cli_CB_AUTO_RESET"
+    [[ -n "${_cli_ENABLE_NOTIFICATIONS:-}" ]] && ENABLE_NOTIFICATIONS="$_cli_ENABLE_NOTIFICATIONS"
     [[ -n "${_cli_SANDBOX_PROVIDER:-}" ]] && SANDBOX_PROVIDER="$_cli_SANDBOX_PROVIDER"
     [[ -n "${_cli_SANDBOX_IMAGE:-}" ]] && SANDBOX_DOCKER_IMAGE="$_cli_SANDBOX_IMAGE"
     [[ -n "${_cli_SANDBOX_MEMORY:-}" ]] && SANDBOX_DOCKER_MEMORY="$_cli_SANDBOX_MEMORY"
@@ -3074,6 +3084,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--calls)
             MAX_CALLS_PER_HOUR="$2"
+            _cli_MAX_CALLS_PER_HOUR="$2"
             shift 2
             ;;
         -p|--prompt)
@@ -3096,6 +3107,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -v|--verbose)
             VERBOSE_PROGRESS=true
+            _cli_VERBOSE_PROGRESS=true
             shift
             ;;
         -l|--live)
@@ -3105,6 +3117,7 @@ while [[ $# -gt 0 ]]; do
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
                 CLAUDE_TIMEOUT_MINUTES="$2"
+                _cli_CLAUDE_TIMEOUT_MINUTES="$2"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
@@ -3138,6 +3151,7 @@ while [[ $# -gt 0 ]]; do
         --output-format)
             if [[ "$2" == "json" || "$2" == "text" ]]; then
                 CLAUDE_OUTPUT_FORMAT="$2"
+                _cli_CLAUDE_OUTPUT_FORMAT="$2"
             else
                 echo "Error: --output-format must be 'json' or 'text'"
                 exit 1
@@ -3149,10 +3163,12 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CLAUDE_ALLOWED_TOOLS="$2"
+            _cli_CLAUDE_ALLOWED_TOOLS="$2"
             shift 2
             ;;
         --no-continue)
             CLAUDE_USE_CONTINUE=false
+            _cli_CLAUDE_USE_CONTINUE=false
             shift
             ;;
         --session-expiry)
@@ -3161,10 +3177,12 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CLAUDE_SESSION_EXPIRY_HOURS="$2"
+            _cli_CLAUDE_SESSION_EXPIRY_HOURS="$2"
             shift 2
             ;;
         --auto-reset-circuit)
             CB_AUTO_RESET=true
+            _cli_CB_AUTO_RESET=true
             shift
             ;;
         --dry-run)
@@ -3173,6 +3191,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -n|--notify)
             ENABLE_NOTIFICATIONS=true
+            _cli_ENABLE_NOTIFICATIONS=true
             shift
             ;;
         -b|--backup)

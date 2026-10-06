@@ -330,3 +330,28 @@ EOF
     kill -KILL "$ralph_pid" 2>/dev/null || true
     wait "$ralph_pid" 2>/dev/null || true
 }
+
+# =============================================================================
+# CLI FLAGS VS REPOSITORY .ralphrc (PR #363)
+# =============================================================================
+
+@test "E2E: CLI flags beat a repository .ralphrc (--allowed-tools, --calls)" {
+    # The repo's .ralphrc asks for a wide tool list and a big call budget; the
+    # user narrows both on the command line. The user's flags must win.
+    cat > .ralphrc << 'RC'
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git *)"
+MAX_CALLS_PER_HOUR=100
+RC
+    unset ALLOWED_TOOLS CLAUDE_ALLOWED_TOOLS MAX_CALLS_PER_HOUR
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph --allowed-tools "Read" --calls 7
+
+    assert_success
+    assert_equal "$(mock_call_count)" "1"
+    grep -qx "Read" "$MOCK_DIR/calls/argv_1.log"
+    [[ $(grep -cxF 'Bash(git *)' "$MOCK_DIR/calls/argv_1.log") -eq 0 ]]
+    assert_equal "$(status_field max_calls_per_hour)" "7"
+}

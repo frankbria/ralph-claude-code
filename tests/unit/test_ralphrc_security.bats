@@ -419,3 +419,28 @@ run_ralph_dry() {
     [ "$CLAUDE_CODE_CMD" = "claude" ]
     [ "$(grep -c $'\033' "$TEST_DIR/out")" -eq 0 ]
 }
+
+@test "issue #346: every CLI flag that sets a .ralphrc key is re-applied after load_ralphrc" {
+    # Keys .ralphrc may set
+    local allowed
+    allowed=$(sed -n '/local allowed_keys="/,/"$/p' "$RALPH_LOOP" | tr -s ' \n"' '\n' | grep -E '^[A-Z_]+$' | sort -u)
+    # Variables assigned by the CLI parse loop (top-level `while [[ $# -gt 0 ]]`)
+    local cli_set
+    cli_set=$(awk '/^while \[\[ \$# -gt 0 \]\]; do/{p=1} p' "$RALPH_LOOP" \
+        | grep -oE '^[[:space:]]+[A-Z][A-Z_]*=' | tr -d ' =' | sort -u)
+
+    local missing="" v
+    for v in $(comm -12 <(echo "$allowed") <(echo "$cli_set")); do
+        grep -qE "_cli_.*\]\] && ${v}=" "$RALPH_LOOP" || missing="$missing $v"
+    done
+    [ -z "$missing" ] || { echo "CLI flags overridden by .ralphrc:$missing"; false; }
+}
+
+@test "issue #346: SANDBOX_E2B_SANDBOX_ID is never taken from .ralphrc" {
+    SANDBOX_E2B_SANDBOX_ID=""
+    echo 'SANDBOX_E2B_SANDBOX_ID="sbx-attacker123"' > .ralphrc
+
+    load_rc
+    [ -z "$SANDBOX_E2B_SANDBOX_ID" ]
+    grep -q "only accepted from the environment" "$TEST_DIR/out"
+}
