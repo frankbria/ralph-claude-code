@@ -355,3 +355,18 @@ RC
     [[ $(grep -cxF 'Bash(git *)' "$MOCK_DIR/calls/argv_1.log") -eq 0 ]]
     assert_equal "$(status_field max_calls_per_hour)" "7"
 }
+
+@test "E2E: arithmetic injection via a numeric .ralphrc key does not execute (PR #363)" {
+    # a[$(cmd)] in an arithmetic context runs cmd; MAX_CALLS_PER_HOUR reaches
+    # [[ $calls -ge $MAX_CALLS_PER_HOUR ]] in can_make_call on every loop
+    printf '%s\n' "MAX_CALLS_PER_HOUR='a[\$(touch $E2E_DIR/PWNED)]'" > .ralphrc
+    unset MAX_CALLS_PER_HOUR
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+    [[ "$output" == *"shell syntax"* ]]
+}

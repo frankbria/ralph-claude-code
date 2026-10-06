@@ -90,13 +90,30 @@ EOF
     [ "$MAX_CALLS_PER_HOUR" = "100" ]
 }
 
-@test "issue #346: single-quoted values are literal, as in bash" {
+@test "issue #346: single-quoted values allow shell metacharacters that never reach a shell" {
     cat > .ralphrc << 'EOF'
-OPTIONAL_SECTIONS='Costs $5; maybe `later`'
+OPTIONAL_SECTIONS='Later; maybe (v2) & beyond'
 EOF
 
     load_rc
-    [ "$OPTIONAL_SECTIONS" = 'Costs $5; maybe `later`' ]
+    [ "$OPTIONAL_SECTIONS" = 'Later; maybe (v2) & beyond' ]
+}
+
+@test "issue #346: \$, backticks, backslashes and control bytes are rejected even in single quotes" {
+    # Single-quoted text is literal at assignment, but values later reach bash
+    # arithmetic (where a[$(cmd)] executes) and echo -e (where \033 renders)
+    OPTIONAL_SECTIONS="unchanged"
+    printf '%s\n' "MAX_CALLS_PER_HOUR='a[\$(touch $TEST_DIR/marker)]'" \
+        "OPTIONAL_SECTIONS='Costs \$5'" "OPTIONAL_SECTIONS='run \`id\`'" \
+        "OPTIONAL_SECTIONS='50\\033]0;x'" > .ralphrc
+    printf "OPTIONAL_SECTIONS='a\033b'\n" >> .ralphrc
+
+    load_rc
+    [ "$MAX_CALLS_PER_HOUR" = "100" ]
+    [ "$OPTIONAL_SECTIONS" = "unchanged" ]
+    [ "$(grep -c 'shell syntax' "$TEST_DIR/out")" -eq 5 ]
+    [[ 0 -ge $MAX_CALLS_PER_HOUR ]] || true    # the arithmetic sink in can_make_call
+    [ ! -e "$TEST_DIR/marker" ]
 }
 
 # =============================================================================

@@ -8,7 +8,8 @@
 
 # ralphrc_parse_line LINE
 #
-# Sets RALPHRC_KEY and RALPHRC_VALUE (the literal value, per bash quoting rules).
+# Sets RALPHRC_KEY and RALPHRC_VALUE (the literal value, per bash quoting rules;
+# `$`, backticks, backslashes and control characters are never accepted).
 # Returns 0 for an assignment, 1 for a blank or comment line, 2 for a line that
 # is not KEY=VALUE, 3 for a value bash would expand or execute (rejected rather
 # than reinterpreted).
@@ -18,7 +19,9 @@ ralphrc_parse_line() {
     local re_dquoted='^"([^"]*)"([[:space:]]+#.*)?$'
     local re_squoted="^'([^']*)'([[:space:]]+#.*)?\$"
     local re_bare='^([^[:space:]#]*)([[:space:]]+#.*)?$'
-    local re_unsafe='[$`\\]'
+    # Never allowed in any value, however quoted: values later reach bash
+    # arithmetic (where a[$(cmd)] executes) and echo -e (where \033 renders)
+    local re_unsafe='[$`\\[:cntrl:]]'
     local re_bare_unsafe='[$`\\;|&<>()"'"'"']'
 
     RALPHRC_KEY=""
@@ -32,18 +35,15 @@ ralphrc_parse_line() {
 
     RALPHRC_KEY="${BASH_REMATCH[2]}"
     local value="${BASH_REMATCH[3]}"
-    if [[ "$value" =~ $re_squoted ]]; then
-        RALPHRC_VALUE="${BASH_REMATCH[1]}"
-        return 0
-    elif [[ "$value" =~ $re_dquoted ]]; then
+    if [[ "$value" =~ $re_squoted ]] || [[ "$value" =~ $re_dquoted ]]; then
         value="${BASH_REMATCH[1]}"
-        [[ "$value" =~ $re_unsafe ]] && return 3
     elif [[ "$value" =~ $re_bare ]]; then
         value="${BASH_REMATCH[1]}"
         [[ "$value" =~ $re_bare_unsafe ]] && return 3
     else
         return 3
     fi
+    [[ "$value" =~ $re_unsafe ]] && return 3
     RALPHRC_VALUE="$value"
     return 0
 }
