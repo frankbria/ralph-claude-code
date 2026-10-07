@@ -1129,7 +1129,11 @@ should_resume_session() {
     if [[ "$timestamp" =~ ^([^.]+)\.[0-9]+(Z|[+-].*)$ ]]; then
         clean_timestamp="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
     fi
-    if [[ "$clean_timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2})$ ]]; then
+    # Range-checked here because BSD `date -j -f` silently normalizes out-of-range
+    # fields (2026-13-45 rolls into 2027) instead of rejecting them. Day-of-month
+    # vs. month (Feb 30) is still left to the parser: GNU rejects it, BSD rolls it.
+    local iso_re='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](Z|[+-]([01][0-9]|2[0-3]):?[0-5][0-9])$'
+    if [[ "$clean_timestamp" =~ $iso_re ]]; then
         session_time=$(iso_to_epoch_strict "$clean_timestamp") || session_time=""
     fi
 
