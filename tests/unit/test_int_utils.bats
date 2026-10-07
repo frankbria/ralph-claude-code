@@ -43,3 +43,22 @@ teardown() {
     [ "$(to_int "$(cat "$TEST_DIR/count")")" = "12" ]
     [ "$(to_int $'\t5\n')" = "5" ]
 }
+
+@test "to_int maps a 19-digit value to 0 (beyond the 18-digit cap)" {
+    [ "$(to_int 1234567890123456789)" = "0" ]
+}
+
+@test "real should_exit_gracefully: fractional .exit_signals lengths raise no arithmetic errors (#371)" {
+    # jq `length` of a number is its absolute value; 0.5 in [[ -ge ]] is a
+    # syntax error that silently disables the exit checks
+    cd "$TEST_DIR"
+    run bash -c '
+        root="$1"; set --   # ralph_loop.sh parses "$@" at source time
+        source "$root/ralph_loop.sh"
+        RALPH_DIR=.ralph; EXIT_SIGNALS_FILE=.ralph/.exit_signals
+        RESPONSE_ANALYSIS_FILE=.ralph/.response_analysis; mkdir -p .ralph
+        log_status() { :; }
+        echo "{\"test_only_loops\": 0.5, \"done_signals\": 2.5, \"completion_indicators\": 1.5}" > "$EXIT_SIGNALS_FILE"
+        should_exit_gracefully > /dev/null' _ "${BATS_TEST_DIRNAME}/../.."
+    [[ "$output" != *"syntax error"* ]] || { echo "$output"; false; }
+}

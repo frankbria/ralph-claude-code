@@ -975,9 +975,11 @@ should_exit_gracefully() {
     local recent_done_signals  
     local recent_completion_indicators
     
-    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
-    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
-    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
+    # jq `length` of a non-array number is its absolute value (0.5 stays 0.5),
+    # which [[ -ge ]] can't compare - to_int keeps the exit checks working (#371)
+    recent_test_loops=$(to_int "$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null)")
+    recent_done_signals=$(to_int "$(echo "$signals" | jq '.done_signals | length' 2>/dev/null)")
+    recent_completion_indicators=$(to_int "$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null)")
 
     # Diagnostic logging for exit signal check (Issue #194)
     [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "DEBUG" "Exit check: test_loops=$recent_test_loops done_signals=$recent_done_signals completion_indicators=$recent_completion_indicators"
