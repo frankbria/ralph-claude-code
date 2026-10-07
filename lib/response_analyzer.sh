@@ -349,7 +349,7 @@ parse_json_response() {
     # Permission denials: from Claude Code output (Issue #101)
     # When Claude Code is denied permission to run commands, it outputs a permission_denials array
     local permission_denial_count=$(jq -r '.permission_denials | if . then length else 0 end' "$output_file" 2>/dev/null)
-    permission_denial_count=$((permission_denial_count + 0))  # Ensure integer
+    permission_denial_count=$(to_int "$permission_denial_count")  # jq length of a number can be fractional
 
     local has_permission_denials="false"
     if [[ $permission_denial_count -gt 0 ]]; then
@@ -377,7 +377,7 @@ parse_json_response() {
         # Count Bash denials. Anything else (e.g., AskUserQuestion) is a real gap.
         local bash_denial_count
         bash_denial_count=$(jq -r '[.permission_denials[] | select(.tool_name == "Bash")] | length' "$output_file" 2>/dev/null || echo "0")
-        bash_denial_count=$((bash_denial_count + 0))
+        bash_denial_count=$(to_int "$bash_denial_count")
 
         if [[ $bash_denial_count -gt 0 && $bash_denial_count -eq $permission_denial_count ]]; then
             # All denials are Bash — check coverage of each base command
@@ -431,7 +431,7 @@ parse_json_response() {
     files_modified=$(to_int "$files_modified")  # from Claude's output: never evaluate (#371)
 
     # Ensure progress_count is integer
-    progress_count=$((progress_count + 0))
+    progress_count=$(to_int "$progress_count")
 
     # Calculate has_completion_signal
     local has_completion_signal="false"
