@@ -36,6 +36,7 @@ _env_SYNC_LARGE_FILE_ACTION="${SYNC_LARGE_FILE_ACTION:-}"
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh" || { echo "FATAL: Failed to source lib/date_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/int_utils.sh" || { echo "FATAL: Failed to source lib/int_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/timeout_utils.sh" || { echo "FATAL: Failed to source lib/timeout_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/response_analyzer.sh" || { echo "FATAL: Failed to source lib/response_analyzer.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source lib/circuit_breaker.sh" >&2; exit 1; }
@@ -767,13 +768,14 @@ log_status() {
 # Update status JSON for external monitoring
 update_status() {
     local loop_count=$1
-    local calls_made=$2
+    local calls_made
+    calls_made=$(to_int "$2")   # callers pass raw .call_count content (#371)
     local last_action=$3
     local status=$4
     local exit_reason=${5:-""}
     
     local tokens_used
-    tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+    tokens_used=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
     # Issue #74: surface sandbox state for ralph-monitor (read before the
     # heredoc per the project convention — no lazy $() inside cat >)
     local sandbox_json='{"provider": "none"}'
@@ -845,17 +847,19 @@ update_token_count() {
     new_tokens=$(extract_token_usage "$output_file")
     if [[ "$new_tokens" -gt 0 ]] 2>/dev/null; then
         local current
-        current=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        current=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
         echo $(( current + new_tokens )) > "$TOKEN_COUNT_FILE"
         log_status "INFO" "Tokens this hour: $((current + new_tokens))${MAX_TOKENS_PER_HOUR:+/$MAX_TOKENS_PER_HOUR} (+${new_tokens})"
     fi
 }
 
 # Check if we can make another call
+# Counter files are repository-committable: read them through to_int, never as
+# raw arithmetic operands (a[$(cmd)] would execute — Issue #371)
 can_make_call() {
     local calls_made=0
     if [[ -f "$CALL_COUNT_FILE" ]]; then
-        calls_made=$(cat "$CALL_COUNT_FILE")
+        calls_made=$(to_int "$(cat "$CALL_COUNT_FILE")")
     fi
 
     if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
@@ -865,7 +869,7 @@ can_make_call() {
     # Check token limit only when configured (MAX_TOKENS_PER_HOUR > 0)
     if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]] 2>/dev/null; then
         local tokens_used=0
-        tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        tokens_used=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
         if [[ $tokens_used -ge $MAX_TOKENS_PER_HOUR ]]; then
             return 1  # Cannot make call — token limit reached
         fi
@@ -878,7 +882,7 @@ can_make_call() {
 increment_call_counter() {
     local calls_made=0
     if [[ -f "$CALL_COUNT_FILE" ]]; then
-        calls_made=$(cat "$CALL_COUNT_FILE")
+        calls_made=$(to_int "$(cat "$CALL_COUNT_FILE")")
     fi
     
     ((calls_made++))
@@ -921,8 +925,9 @@ print_metrics_summary() {
 
 # Wait for rate limit reset with countdown
 wait_for_reset() {
-    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-    local tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+    local calls_made tokens_used
+    calls_made=$(to_int "$(cat "$CALL_COUNT_FILE" 2>/dev/null)")
+    tokens_used=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
     local limit_reason="calls: $calls_made/$MAX_CALLS_PER_HOUR"
     if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]]; then
         limit_reason="$limit_reason, tokens: $tokens_used/$MAX_TOKENS_PER_HOUR"
@@ -970,9 +975,11 @@ should_exit_gracefully() {
     local recent_done_signals  
     local recent_completion_indicators
     
-    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
-    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
-    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
+    # jq `length` of a non-array number is its absolute value (0.5 stays 0.5),
+    # which [[ -ge ]] can't compare - to_int keeps the exit checks working (#371)
+    recent_test_loops=$(to_int "$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null)")
+    recent_done_signals=$(to_int "$(echo "$signals" | jq '.done_signals | length' 2>/dev/null)")
+    recent_completion_indicators=$(to_int "$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null)")
 
     # Diagnostic logging for exit signal check (Issue #194)
     [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "DEBUG" "Exit check: test_loops=$recent_test_loops done_signals=$recent_done_signals completion_indicators=$recent_completion_indicators"
@@ -2848,7 +2855,7 @@ main() {
 
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
             log_status "INFO" "  - Total loops: $loop_count"
-            log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
+            log_status "INFO" "  - API calls used: $(to_int "$(cat "$CALL_COUNT_FILE")")"
             log_status "INFO" "  - Exit reason: $exit_reason"
             print_metrics_summary
 
@@ -2863,7 +2870,7 @@ main() {
         
         # Update status
         local calls_made
-        calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        calls_made=$(to_int "$(cat "$CALL_COUNT_FILE" 2>/dev/null)")
         update_status "$loop_count" "$calls_made" "executing" "running"
 
         # Capture loop start time and pre-execution call count for metrics (Issue #21)
@@ -2885,7 +2892,7 @@ main() {
         local loop_success="false"
         [ $exec_result -eq 0 ] && loop_success="true"
         local calls_after_exec
-        calls_after_exec=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        calls_after_exec=$(to_int "$(cat "$CALL_COUNT_FILE" 2>/dev/null)")
         local calls_this_loop=$(( calls_after_exec > calls_before_exec ? calls_after_exec - calls_before_exec : calls_after_exec ))
         track_metrics "$loop_count" "$loop_duration" "$loop_success" "$calls_this_loop"
 

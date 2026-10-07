@@ -31,6 +31,7 @@
 
 # Source date utilities for cross-platform timestamps
 source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/int_utils.sh"
 # Sync filter layer: include/exclude/.ralphignore patterns + large-file
 # policy applied to upload and download (Issue #76)
 source "$(dirname "${BASH_SOURCE[0]}")/sync.sh"
@@ -321,7 +322,7 @@ start_e2b_sandbox() {
     # resetting the epoch, so --sandbox-max-cost spans replacements — a run
     # that keeps expiring/recreating must not restart its budget from zero.
     local prev_epoch
-    prev_epoch=$(e2b_state_get '.created_epoch')
+    prev_epoch=$(to_int "$(e2b_state_get '.created_epoch')")   # repo-committable state (#371)
     if [[ -n "$prev_epoch" && "$prev_epoch" != "0" ]]; then
         local segment_s accrued
         segment_s=$(( $(get_epoch_seconds) - prev_epoch ))
@@ -703,7 +704,7 @@ update_e2b_cost() {
     local accrued created
     accrued=$(e2b_state_get '.accrued_cost')
     accrued=${accrued:-0}
-    created=$(e2b_state_get '.created_epoch')
+    created=$(to_int "$(e2b_state_get '.created_epoch')")   # repo-committable state (#371)
     if [[ -z "$created" || "$created" == "0" ]]; then
         # No active sandbox: the estimate is the accrued total alone — still
         # persisted so status.json/monitor never show 0 while accrued > 0
@@ -779,7 +780,7 @@ cleanup_e2b_sandbox() {
     sync_e2b_artifacts_down || true
     local cost created runtime=0
     cost=$(update_e2b_cost)
-    created=$(e2b_state_get '.created_epoch')
+    created=$(to_int "$(e2b_state_get '.created_epoch')")
     if [[ -n "$created" && "$created" != "0" ]]; then
         runtime=$(( $(get_epoch_seconds) - created ))
         (( runtime < 0 )) && runtime=0

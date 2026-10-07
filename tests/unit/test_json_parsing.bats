@@ -1297,3 +1297,18 @@ EOF
     local exit_signal=$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$exit_signal" "true"
 }
+
+@test "parse_json_response survives fractional and hostile numeric fields (Issue #371)" {
+    # jq `length` of a number is its absolute value (1.5 stays 1.5), and a bash
+    # arithmetic syntax error would end the whole script; strings must never
+    # be evaluated
+    local output_file="$TEST_DIR/hostile.json"
+    jq -n --arg p "a[\$(touch\${IFS}$TEST_DIR/PWNED)]" '{status: "IN_PROGRESS", exit_signal: false,
+        confidence: $p, error_count: $p, files_modified: $p,
+        permission_denials: 1.5, metadata: {progress_indicators: 1.5, files_changed: $p}}' > "$output_file"
+
+    run bash -c 'source "$1/lib/response_analyzer.sh"; parse_json_response "$2" >/dev/null 2>&1; echo survived' _ \
+        "${BATS_TEST_DIRNAME}/../.." "$output_file"
+    [[ "$output" == *"survived"* ]]
+    [ ! -e "$TEST_DIR/PWNED" ]
+}
