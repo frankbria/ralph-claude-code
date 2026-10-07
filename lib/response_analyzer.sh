@@ -4,6 +4,7 @@
 
 # Source date utilities for cross-platform compatibility
 source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/int_utils.sh"
 
 # Response Analysis Functions
 # Based on expert recommendations from Martin Fowler, Michael Nygard, Sam Newman
@@ -322,7 +323,8 @@ parse_json_response() {
     # we set error_count=1 as a minimum. This is defensive programming since
     # the stuck detection threshold is >5 errors, so 1 error won't trigger it.
     # Actual error count may be higher, but precise count isn't critical for our logic.
-    local error_count=$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)
+    local error_count
+    error_count=$(to_int "$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)")  # Claude output (#371)
     local has_errors=$(jq -r '.metadata.has_errors // false' "$output_file" 2>/dev/null)
     if [[ "$has_errors" == "true" && "$error_count" == "0" ]]; then
         error_count=1  # At least one error if has_errors is true
@@ -338,7 +340,8 @@ parse_json_response() {
     local loop_number=$(jq -r '.metadata.loop_number // .loop_number // 0' "$output_file" 2>/dev/null)
 
     # Confidence: from flat format
-    local confidence=$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)
+    local confidence
+    confidence=$(to_int "$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)")
 
     # Progress indicators: from Claude CLI metadata (optional)
     local progress_count=$(jq -r '.metadata.progress_indicators | if . then length else 0 end' "$output_file" 2>/dev/null)
@@ -425,7 +428,7 @@ parse_json_response() {
     fi
 
     # Ensure files_modified is integer
-    files_modified=$((files_modified + 0))
+    files_modified=$(to_int "$files_modified")  # from Claude's output: never evaluate (#371)
 
     # Ensure progress_count is integer
     progress_count=$((progress_count + 0))
@@ -531,17 +534,20 @@ analyze_response() {
             is_test_only=$(jq -r '.is_test_only' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             is_stuck=$(jq -r '.is_stuck' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             work_summary=$(jq -r '.summary' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
-            files_modified=$(jq -r '.files_modified' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
-            local json_confidence=$(jq -r '.confidence' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            files_modified=$(to_int "$(jq -r '.files_modified' $RALPH_DIR/.json_parse_result 2>/dev/null)")
+            local json_confidence
+            json_confidence=$(to_int "$(jq -r '.confidence' $RALPH_DIR/.json_parse_result 2>/dev/null)")
             local session_id=$(jq -r '.session_id' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
 
             # Extract permission denial fields (Issue #101)
             local has_permission_denials=$(jq -r '.has_permission_denials' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
-            local permission_denial_count=$(jq -r '.permission_denial_count' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            local permission_denial_count
+            permission_denial_count=$(to_int "$(jq -r '.permission_denial_count' $RALPH_DIR/.json_parse_result 2>/dev/null)")
             local denied_commands_json=$(jq -r '.denied_commands' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "[]")
             # Compound-command limitation flag (Issue #243)
             local has_compound_command_limitation=$(jq -r '.has_compound_command_limitation // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
-            local compound_command_count=$(jq -r '.compound_command_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            local compound_command_count
+            compound_command_count=$(to_int "$(jq -r '.compound_command_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null)")
 
             # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then

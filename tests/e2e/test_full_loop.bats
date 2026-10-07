@@ -370,3 +370,53 @@ RC
     [ ! -e "$E2E_DIR/PWNED" ]
     [[ "$output" == *"shell syntax"* ]]
 }
+
+# =============================================================================
+# UNTRUSTED NUMBERS NEVER REACH BASH ARITHMETIC (Issue #371)
+# =============================================================================
+
+@test "E2E: committed circuit-breaker state cannot execute code (#371)" {
+    # Valid JSON (so it survives init_circuit_breaker's validity check) with a
+    # payload in every numeric field record_loop_result coerces each loop.
+    # \${IFS} instead of a space: the reader strips whitespace, an attacker wouldn't use any
+    jq -n --arg p "a[\$(touch\${IFS}$E2E_DIR/PWNED)]" '{state: "CLOSED", consecutive_no_progress: $p,
+        consecutive_same_error: $p, consecutive_permission_denials: $p, last_progress_loop: $p,
+        total_opens: $p, current_loop: $p, reason: ""}' > .ralph/.circuit_breaker_state
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+    assert_equal "$(mock_call_count)" "1"
+    jq -e '.total_opens | numbers' .ralph/.circuit_breaker_state > /dev/null
+}
+
+@test "E2E: committed call/token counters cannot execute code (#371)" {
+    # A current-hour .last_reset stops init_call_tracking from resetting them
+    date +%Y%m%d%H > .ralph/.last_reset
+    echo "a[\$(touch $E2E_DIR/PWNED)]" > .ralph/.call_count
+    echo "a[\$(touch $E2E_DIR/PWNED)]" > .ralph/.token_count
+    export MAX_TOKENS_PER_HOUR=100000
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+    jq -e '.calls_made_this_hour | numbers' .ralph/status.json > /dev/null
+}
+
+@test "E2E: a numeric field in Claude's output cannot execute code (#371)" {
+    e2e_fix_plan 1 0
+    e2e_response_json "IN_PROGRESS" "false" "Implemented the open task." "" \
+        "+ {files_modified: \"a[\$(touch $E2E_DIR/PWNED)]\", error_count: \"a[\$(touch $E2E_DIR/PWNED)]\", metadata: {files_changed: \"a[\$(touch $E2E_DIR/PWNED)]\"}}" \
+        | queue_raw_response 1 0
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+}
