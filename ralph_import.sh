@@ -8,14 +8,14 @@ set -e
 # both the repo layout and the installed layout (~/.ralph/lib)
 IMPORT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$IMPORT_SCRIPT_DIR/lib/issue_analyzer.sh" || { echo "FATAL: Failed to source lib/issue_analyzer.sh" >&2; exit 1; }
+source "$IMPORT_SCRIPT_DIR/lib/ralphrc.sh" || { echo "FATAL: Failed to source lib/ralphrc.sh" >&2; exit 1; }
 
 # Configuration
-CLAUDE_CODE_CMD="claude"
-# Load CLAUDE_CODE_CMD from .ralphrc if available
-if [[ -f ".ralphrc" ]]; then
-    _ralphrc_cmd=$(grep "^CLAUDE_CODE_CMD=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
-    [[ -n "$_ralphrc_cmd" ]] && CLAUDE_CODE_CMD="$_ralphrc_cmd"
+# CLAUDE_CODE_CMD: environment first, then .ralphrc (stock values only, Issue #346)
+if [[ -z "${CLAUDE_CODE_CMD:-}" ]]; then
+    CLAUDE_CODE_CMD=$(ralphrc_get ".ralphrc" CLAUDE_CODE_CMD) || CLAUDE_CODE_CMD=""
 fi
+CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"
 
 # Modern CLI Configuration (Phase 1.1)
 # These flags enable structured JSON output and controlled file operations
