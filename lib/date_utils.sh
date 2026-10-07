@@ -46,17 +46,15 @@ get_epoch_seconds() {
     date +%s
 }
 
-# Convert ISO 8601 timestamp to Unix epoch seconds
+# Convert ISO 8601 timestamp to Unix epoch seconds, strictly
 # Input: ISO timestamp (e.g., "2025-01-15T10:30:00+00:00")
-# Returns: Unix epoch seconds on stdout
-# Falls back to current epoch on parse failure (safe default)
-parse_iso_to_epoch() {
+# Returns: Unix epoch seconds on stdout, or status 1 (no output) when it can't
+# be parsed. Capability-based (GNU/uutils `date -d`, then BSD `date -j`), never
+# brand-based (Issue #368).
+iso_to_epoch_strict() {
     local iso_timestamp=$1
 
-    if [[ -z "$iso_timestamp" || "$iso_timestamp" == "null" ]]; then
-        date +%s
-        return
-    fi
+    [[ -n "$iso_timestamp" && "$iso_timestamp" != "null" ]] || return 1
 
     # Try GNU date -d (Linux, macOS with Homebrew coreutils)
     local result
@@ -92,8 +90,15 @@ parse_iso_to_epoch() {
         fi
     fi
 
-    # Ultimate fallback: return current epoch (safe default)
-    date +%s
+    return 1
+}
+
+# Convert ISO 8601 timestamp to Unix epoch seconds
+# Input: ISO timestamp (e.g., "2025-01-15T10:30:00+00:00")
+# Returns: Unix epoch seconds on stdout
+# Falls back to current epoch on parse failure (safe default)
+parse_iso_to_epoch() {
+    iso_to_epoch_strict "$1" || date +%s
 }
 
 # Export functions for use in other scripts
@@ -101,4 +106,5 @@ export -f get_iso_timestamp
 export -f get_next_hour_time
 export -f get_basic_timestamp
 export -f get_epoch_seconds
+export -f iso_to_epoch_strict
 export -f parse_iso_to_epoch
