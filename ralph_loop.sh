@@ -36,6 +36,7 @@ _env_SYNC_LARGE_FILE_ACTION="${SYNC_LARGE_FILE_ACTION:-}"
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/lib/date_utils.sh" || { echo "FATAL: Failed to source lib/date_utils.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/int_utils.sh" || { echo "FATAL: Failed to source lib/int_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/timeout_utils.sh" || { echo "FATAL: Failed to source lib/timeout_utils.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/response_analyzer.sh" || { echo "FATAL: Failed to source lib/response_analyzer.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/circuit_breaker.sh" || { echo "FATAL: Failed to source lib/circuit_breaker.sh" >&2; exit 1; }
@@ -45,6 +46,7 @@ source "$SCRIPT_DIR/lib/github_lifecycle.sh" || { echo "FATAL: Failed to source 
 source "$SCRIPT_DIR/lib/sync.sh" || { echo "FATAL: Failed to source lib/sync.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_docker.sh" || { echo "FATAL: Failed to source lib/sandbox_docker.sh" >&2; exit 1; }
 source "$SCRIPT_DIR/lib/sandbox_e2b.sh" || { echo "FATAL: Failed to source lib/sandbox_e2b.sh" >&2; exit 1; }
+source "$SCRIPT_DIR/lib/ralphrc.sh" || { echo "FATAL: Failed to source lib/ralphrc.sh" >&2; exit 1; }
 
 # Configuration
 # Ralph-specific files live in .ralph/ subfolder
@@ -268,34 +270,72 @@ RALPHRC_LOADED=false
 
 # load_ralphrc - Load project-specific configuration from .ralphrc
 #
-# This function sources .ralphrc if it exists, applying project-specific
-# settings. Environment variables take precedence over .ralphrc values.
-#
-# Configuration values that can be overridden:
-#   - MAX_CALLS_PER_HOUR
-#   - MAX_TOKENS_PER_HOUR (cumulative token limit per hour; 0 = disabled)
-#   - CLAUDE_TIMEOUT_MINUTES
-#   - CLAUDE_OUTPUT_FORMAT
-#   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
-#   - SESSION_CONTINUITY (mapped to CLAUDE_USE_CONTINUE)
-#   - SESSION_EXPIRY_HOURS (mapped to CLAUDE_SESSION_EXPIRY_HOURS)
-#   - CB_NO_PROGRESS_THRESHOLD
-#   - CB_SAME_ERROR_THRESHOLD
-#   - CB_OUTPUT_DECLINE_THRESHOLD
-#   - RALPH_VERBOSE
-#   - CLAUDE_CODE_CMD (path or command for Claude Code CLI)
-#   - CLAUDE_AUTO_UPDATE (auto-update Claude CLI at startup)
-#   - RALPH_SHELL_INIT_FILE (shell init file to source before running claude)
-#   - OPTIONAL_SECTIONS (fix_plan.md sections whose unchecked items don't block exit, Issue #239)
+# .ralphrc is repository-controlled, so it is parsed as data, never sourced
+# (Issue #346): only KEY=VALUE lines for known configuration keys are applied,
+# values are taken literally (no expansion or command substitution), and other
+# lines are skipped with a warning. Command-bearing keys (CLAUDE_CODE_CMD,
+# RALPH_SHELL_INIT_FILE, SANDBOX_DOCKER_IMAGE, SANDBOX_E2B_TEMPLATE) accept only
+# their stock values from the file; custom values must come from the environment.
+# Environment variables take precedence over .ralphrc values.
 #
 load_ralphrc() {
     if [[ ! -f "$RALPHRC_FILE" ]]; then
         return 0
     fi
 
-    # Source .ralphrc (this may override default values)
-    # shellcheck source=/dev/null
-    source "$RALPHRC_FILE"
+    # SECURITY (Issue #346): parsed as data via lib/ralphrc.sh, never sourced.
+    # Rejected, unknown and malformed lines are skipped with a warning (never
+    # fatal, so env precedence below still applies).
+    local allowed_keys=" MAX_CALLS_PER_HOUR MAX_TOKENS_PER_HOUR
+        CLAUDE_TIMEOUT_MINUTES CLAUDE_OUTPUT_FORMAT CLAUDE_ALLOWED_TOOLS
+        CLAUDE_USE_CONTINUE CLAUDE_SESSION_EXPIRY_HOURS CLAUDE_CODE_CMD
+        CLAUDE_AUTO_UPDATE CLAUDE_MODEL CLAUDE_EFFORT CLAUDE_MIN_VERSION
+        ALLOWED_TOOLS SESSION_CONTINUITY SESSION_EXPIRY_HOURS RALPH_VERBOSE
+        CB_COOLDOWN_MINUTES CB_AUTO_RESET CB_NO_PROGRESS_THRESHOLD
+        CB_SAME_ERROR_THRESHOLD CB_OUTPUT_DECLINE_THRESHOLD CB_PERMISSION_DENIAL_THRESHOLD
+        MAX_CONSECUTIVE_TEST_LOOPS MAX_CONSECUTIVE_DONE_SIGNALS TEST_PERCENTAGE_THRESHOLD
+        VERBOSE_PROGRESS RALPH_SHELL_INIT_FILE ENABLE_NOTIFICATIONS ENABLE_BACKUP
+        LIVE_SHOW_TOOL_ARGS OPTIONAL_SECTIONS
+        GITHUB_ISSUE COMMENT_PROGRESS COMMENT_INTERVAL AUTO_CLOSE CLOSE_SUMMARY
+        CREATE_PR LINK_ISSUE DRAFT_PR CREATE_FOLLOWUPS FOLLOWUP_LABEL ADD_COMPLETION_LABELS
+        SANDBOX_PROVIDER SANDBOX_DOCKER_IMAGE SANDBOX_DOCKER_MEMORY SANDBOX_DOCKER_CPUS
+        SANDBOX_DOCKER_NETWORK SANDBOX_E2B_TEMPLATE SANDBOX_E2B_SANDBOX_ID
+        SANDBOX_E2B_TIMEOUT SANDBOX_E2B_KEEP_ALIVE SANDBOX_E2B_MAX_COST
+        SANDBOX_E2B_COST_ALERT SANDBOX_E2B_COST_PER_HOUR
+        SYNC_INCLUDE SYNC_EXCLUDE SYNC_MAX_FILE_SIZE SYNC_LARGE_FILE_ACTION
+        PROMPT_FILE RALPH_DIR "
+    # Written by ralph-enable/ralph-setup for reference only; accepted silently.
+    local inert_keys=" PROJECT_NAME PROJECT_TYPE TASK_SOURCES FIX_PLAN_FILE
+        AGENT_FILE BEADS_FILTER GITHUB_TASK_LABEL "
+    local line line_num=0 key value rc
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_num=$((line_num + 1))
+        rc=0
+        ralphrc_parse_line "$line" || rc=$?
+        case $rc in
+            1) continue ;;
+            2) log_status "WARN" ".ralphrc:$line_num: Invalid syntax, expected KEY=VALUE (line ignored)"; continue ;;
+            3) log_status "WARN" ".ralphrc:$line_num: $RALPHRC_KEY rejected - shell syntax is not evaluated in .ralphrc (use a literal value)"; continue ;;
+        esac
+        key="$RALPHRC_KEY"
+        value="$RALPHRC_VALUE"
+
+        [[ "$inert_keys" =~ [[:space:]]${key}[[:space:]] ]] && continue
+        if [[ ! "$allowed_keys" =~ [[:space:]]${key}[[:space:]] ]]; then
+            log_status "WARN" ".ralphrc:$line_num: Unknown key '$key' ignored"
+            continue
+        fi
+        if ! ralphrc_value_numeric_ok "$key" "$value"; then
+            log_status "WARN" ".ralphrc:$line_num: $key='$(ralphrc_display "$value")' ignored - must be a number"
+            continue
+        fi
+        if ! ralphrc_value_allowed "$key" "$value"; then
+            log_status "WARN" ".ralphrc:$line_num: $key='$(ralphrc_display "$value")' ignored - custom values for this key are only accepted from the environment (export $key=... before running ralph)"
+            continue
+        fi
+
+        printf -v "$key" '%s' "$value"
+    done < "$RALPHRC_FILE"
 
     # Map .ralphrc variable names to internal names
     if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
@@ -537,16 +577,18 @@ setup_tmux_session() {
     # Always use --live mode in tmux for real-time streaming
     ralph_cmd="$ralph_cmd --live"
 
-    # Forward --calls if non-default
-    if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
+    # Forward each flag when the user passed it (_cli_*) or it differs from the
+    # default: the child loads the repository .ralphrc, so an explicit flag equal
+    # to the default must still be forwarded or the file would win in the pane
+    if [[ -n "${_cli_MAX_CALLS_PER_HOUR:-}" || "$MAX_CALLS_PER_HOUR" != "100" ]]; then
         ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
     fi
     # Forward --prompt if non-default
-    if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
+    if [[ -n "${_cli_PROMPT_FILE:-}" || "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
     # Forward --output-format if non-default (default is json)
-    if [[ "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
+    if [[ -n "${_cli_CLAUDE_OUTPUT_FORMAT:-}" || "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
         ralph_cmd="$ralph_cmd --output-format $CLAUDE_OUTPUT_FORMAT"
     fi
     # Forward --verbose if enabled
@@ -554,12 +596,12 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --verbose"
     fi
     # Forward --timeout if non-default (default is 15)
-    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
+    if [[ -n "${_cli_CLAUDE_TIMEOUT_MINUTES:-}" || "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
     fi
     # Forward --allowed-tools if non-default
     # Safe git subcommands only - broad Bash(git *) allows destructive commands like git clean/git rm (Issue #149)
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
+    if [[ -n "${_cli_CLAUDE_ALLOWED_TOOLS:-}" || "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
         ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
@@ -567,12 +609,25 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --no-continue"
     fi
     # Forward --session-expiry if non-default (default is 24)
-    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
+    if [[ -n "${_cli_CLAUDE_SESSION_EXPIRY_HOURS:-}" || "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
         ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
     fi
     # Forward --auto-reset-circuit if enabled
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
+    fi
+    # Forward --notify if enabled
+    if [[ "$ENABLE_NOTIFICATIONS" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --notify"
+    fi
+    # Forward --dry-run: DRY_RUN is not exported, so without this the pane child
+    # would make real API calls despite an explicit --monitor --dry-run
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --dry-run"
+    fi
+    # Forward --show-tool-args if enabled
+    if [[ "${LIVE_SHOW_TOOL_ARGS:-false}" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --show-tool-args"
     fi
     # Forward --backup if enabled (Issue #23)
     if [[ "$ENABLE_BACKUP" == "true" ]]; then
@@ -582,14 +637,14 @@ setup_tmux_session() {
     if [[ -n "${GITHUB_ISSUE:-}" ]]; then
         ralph_cmd="$ralph_cmd --github-issue '$GITHUB_ISSUE'"
         [[ "$COMMENT_PROGRESS" == "true" ]] && ralph_cmd="$ralph_cmd --comment-progress"
-        [[ "$COMMENT_INTERVAL" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
+        [[ -n "${_cli_COMMENT_INTERVAL:-}" || "$COMMENT_INTERVAL" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
         [[ "$AUTO_CLOSE" == "true" ]] && ralph_cmd="$ralph_cmd --auto-close"
         [[ "$CLOSE_SUMMARY" == "true" ]] && ralph_cmd="$ralph_cmd --close-summary"
         [[ "$CREATE_PR" == "true" ]] && ralph_cmd="$ralph_cmd --create-pr"
         [[ "$LINK_ISSUE" == "true" ]] && ralph_cmd="$ralph_cmd --link-issue"
         [[ "$DRAFT_PR" == "true" ]] && ralph_cmd="$ralph_cmd --draft-pr"
         [[ "$CREATE_FOLLOWUPS" == "true" ]] && ralph_cmd="$ralph_cmd --create-followups"
-        [[ "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
+        [[ -n "${_cli_FOLLOWUP_LABEL:-}" || "$FOLLOWUP_LABEL" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
         [[ -n "$ADD_COMPLETION_LABELS" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
     fi
     # Forward Docker sandbox flags (Issue #74) so --monitor preserves them.
@@ -597,14 +652,14 @@ setup_tmux_session() {
     # loads .ralphrc, which may be what supplies SANDBOX_PROVIDER — the child
     # re-validates the sub-flag/provider pairing at its own startup.
     [[ -n "${SANDBOX_PROVIDER:-}" ]] && ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
-    [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
-    [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
-    [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
-    [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
+    [[ -n "${_cli_SANDBOX_IMAGE:-}" || "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
+    [[ -n "${_cli_SANDBOX_MEMORY:-}" || "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
+    [[ -n "${_cli_SANDBOX_CPUS:-}" || "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
+    [[ -n "${_cli_SANDBOX_NETWORK:-}" || "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
     # E2B sandbox flags (Issue #75) — same non-default forwarding rule
-    [[ "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
+    [[ -n "${_cli_SANDBOX_E2B_TEMPLATE:-}" || "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
     [[ -n "${SANDBOX_E2B_SANDBOX_ID:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-id '$SANDBOX_E2B_SANDBOX_ID'"
-    [[ "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
+    [[ -n "${_cli_SANDBOX_E2B_TIMEOUT:-}" || "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
     [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
     [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
     [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
@@ -713,13 +768,14 @@ log_status() {
 # Update status JSON for external monitoring
 update_status() {
     local loop_count=$1
-    local calls_made=$2
+    local calls_made
+    calls_made=$(to_int "$2")   # callers pass raw .call_count content (#371)
     local last_action=$3
     local status=$4
     local exit_reason=${5:-""}
     
     local tokens_used
-    tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+    tokens_used=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
     # Issue #74: surface sandbox state for ralph-monitor (read before the
     # heredoc per the project convention — no lazy $() inside cat >)
     local sandbox_json='{"provider": "none"}'
@@ -791,17 +847,19 @@ update_token_count() {
     new_tokens=$(extract_token_usage "$output_file")
     if [[ "$new_tokens" -gt 0 ]] 2>/dev/null; then
         local current
-        current=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        current=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
         echo $(( current + new_tokens )) > "$TOKEN_COUNT_FILE"
         log_status "INFO" "Tokens this hour: $((current + new_tokens))${MAX_TOKENS_PER_HOUR:+/$MAX_TOKENS_PER_HOUR} (+${new_tokens})"
     fi
 }
 
 # Check if we can make another call
+# Counter files are repository-committable: read them through to_int, never as
+# raw arithmetic operands (a[$(cmd)] would execute — Issue #371)
 can_make_call() {
     local calls_made=0
     if [[ -f "$CALL_COUNT_FILE" ]]; then
-        calls_made=$(cat "$CALL_COUNT_FILE")
+        calls_made=$(to_int "$(cat "$CALL_COUNT_FILE")")
     fi
 
     if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
@@ -811,7 +869,7 @@ can_make_call() {
     # Check token limit only when configured (MAX_TOKENS_PER_HOUR > 0)
     if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]] 2>/dev/null; then
         local tokens_used=0
-        tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+        tokens_used=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
         if [[ $tokens_used -ge $MAX_TOKENS_PER_HOUR ]]; then
             return 1  # Cannot make call — token limit reached
         fi
@@ -824,7 +882,7 @@ can_make_call() {
 increment_call_counter() {
     local calls_made=0
     if [[ -f "$CALL_COUNT_FILE" ]]; then
-        calls_made=$(cat "$CALL_COUNT_FILE")
+        calls_made=$(to_int "$(cat "$CALL_COUNT_FILE")")
     fi
     
     ((calls_made++))
@@ -867,8 +925,9 @@ print_metrics_summary() {
 
 # Wait for rate limit reset with countdown
 wait_for_reset() {
-    local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
-    local tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
+    local calls_made tokens_used
+    calls_made=$(to_int "$(cat "$CALL_COUNT_FILE" 2>/dev/null)")
+    tokens_used=$(to_int "$(cat "$TOKEN_COUNT_FILE" 2>/dev/null)")
     local limit_reason="calls: $calls_made/$MAX_CALLS_PER_HOUR"
     if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]]; then
         limit_reason="$limit_reason, tokens: $tokens_used/$MAX_TOKENS_PER_HOUR"
@@ -916,9 +975,11 @@ should_exit_gracefully() {
     local recent_done_signals  
     local recent_completion_indicators
     
-    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
-    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
-    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
+    # jq `length` of a non-array number is its absolute value (0.5 stays 0.5),
+    # which [[ -ge ]] can't compare - to_int keeps the exit checks working (#371)
+    recent_test_loops=$(to_int "$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null)")
+    recent_done_signals=$(to_int "$(echo "$signals" | jq '.done_signals | length' 2>/dev/null)")
+    recent_completion_indicators=$(to_int "$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null)")
 
     # Diagnostic logging for exit signal check (Issue #194)
     [[ "${VERBOSE_PROGRESS:-}" == "true" ]] && log_status "DEBUG" "Exit check: test_loops=$recent_test_loops done_signals=$recent_done_signals completion_indicators=$recent_completion_indicators"
@@ -2516,6 +2577,17 @@ main() {
     [[ -n "${_cli_FOLLOWUP_LABEL:-}" ]] && FOLLOWUP_LABEL="$_cli_FOLLOWUP_LABEL"
     [[ -n "${_cli_ADD_COMPLETION_LABELS:-}" ]] && ADD_COMPLETION_LABELS="$_cli_ADD_COMPLETION_LABELS"
     # Docker sandbox flags (Issue #74) — CLI overrides .ralphrc
+    # Every CLI flag that sets a .ralphrc key wins over the (repository-controlled) file
+    [[ -n "${_cli_PROMPT_FILE:-}" ]] && PROMPT_FILE="$_cli_PROMPT_FILE"
+    [[ -n "${_cli_MAX_CALLS_PER_HOUR:-}" ]] && MAX_CALLS_PER_HOUR="$_cli_MAX_CALLS_PER_HOUR"
+    [[ -n "${_cli_VERBOSE_PROGRESS:-}" ]] && VERBOSE_PROGRESS="$_cli_VERBOSE_PROGRESS"
+    [[ -n "${_cli_CLAUDE_TIMEOUT_MINUTES:-}" ]] && CLAUDE_TIMEOUT_MINUTES="$_cli_CLAUDE_TIMEOUT_MINUTES"
+    [[ -n "${_cli_CLAUDE_OUTPUT_FORMAT:-}" ]] && CLAUDE_OUTPUT_FORMAT="$_cli_CLAUDE_OUTPUT_FORMAT"
+    [[ -n "${_cli_CLAUDE_ALLOWED_TOOLS:-}" ]] && CLAUDE_ALLOWED_TOOLS="$_cli_CLAUDE_ALLOWED_TOOLS"
+    [[ -n "${_cli_CLAUDE_USE_CONTINUE:-}" ]] && CLAUDE_USE_CONTINUE="$_cli_CLAUDE_USE_CONTINUE"
+    [[ -n "${_cli_CLAUDE_SESSION_EXPIRY_HOURS:-}" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_cli_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "${_cli_CB_AUTO_RESET:-}" ]] && CB_AUTO_RESET="$_cli_CB_AUTO_RESET"
+    [[ -n "${_cli_ENABLE_NOTIFICATIONS:-}" ]] && ENABLE_NOTIFICATIONS="$_cli_ENABLE_NOTIFICATIONS"
     [[ -n "${_cli_SANDBOX_PROVIDER:-}" ]] && SANDBOX_PROVIDER="$_cli_SANDBOX_PROVIDER"
     [[ -n "${_cli_SANDBOX_IMAGE:-}" ]] && SANDBOX_DOCKER_IMAGE="$_cli_SANDBOX_IMAGE"
     [[ -n "${_cli_SANDBOX_MEMORY:-}" ]] && SANDBOX_DOCKER_MEMORY="$_cli_SANDBOX_MEMORY"
@@ -2765,9 +2837,10 @@ main() {
 
                 # Show current ALLOWED_TOOLS if .ralphrc exists
                 if [[ -f ".ralphrc" ]]; then
-                    local current_tools=$(grep "^ALLOWED_TOOLS=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"')
+                    local current_tools
+                    current_tools=$(ralphrc_get ".ralphrc" ALLOWED_TOOLS 2>/dev/null) || current_tools=""
                     if [[ -n "$current_tools" ]]; then
-                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $current_tools"
+                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $(ralphrc_display "$current_tools")"
                         echo ""
                     fi
                 fi
@@ -2782,7 +2855,7 @@ main() {
 
             log_status "SUCCESS" "🎉 Ralph has completed the project! Final stats:"
             log_status "INFO" "  - Total loops: $loop_count"
-            log_status "INFO" "  - API calls used: $(cat "$CALL_COUNT_FILE")"
+            log_status "INFO" "  - API calls used: $(to_int "$(cat "$CALL_COUNT_FILE")")"
             log_status "INFO" "  - Exit reason: $exit_reason"
             print_metrics_summary
 
@@ -2797,7 +2870,7 @@ main() {
         
         # Update status
         local calls_made
-        calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        calls_made=$(to_int "$(cat "$CALL_COUNT_FILE" 2>/dev/null)")
         update_status "$loop_count" "$calls_made" "executing" "running"
 
         # Capture loop start time and pre-execution call count for metrics (Issue #21)
@@ -2819,7 +2892,7 @@ main() {
         local loop_success="false"
         [ $exec_result -eq 0 ] && loop_success="true"
         local calls_after_exec
-        calls_after_exec=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
+        calls_after_exec=$(to_int "$(cat "$CALL_COUNT_FILE" 2>/dev/null)")
         local calls_this_loop=$(( calls_after_exec > calls_before_exec ? calls_after_exec - calls_before_exec : calls_after_exec ))
         track_metrics "$loop_count" "$loop_duration" "$loop_success" "$calls_this_loop"
 
@@ -2971,11 +3044,11 @@ Sandbox execution (Issues #74/#75; isolates Claude in a sandbox):
                             Build the default: docker build -t ralph-sandbox .
     --sandbox-memory SIZE   Container memory limit (default: $SANDBOX_DOCKER_MEMORY)
     --sandbox-cpus NUM      Container CPU limit (default: $SANDBOX_DOCKER_CPUS)
-    --sandbox-network MODE  Container network: none, bridge, host (default: $SANDBOX_DOCKER_NETWORK)
+    --sandbox-network MODE  Container network: none, bridge, host (host via flag/env only, not .ralphrc; default: $SANDBOX_DOCKER_NETWORK)
                             Note: 'none' blocks the Claude API — only for pre-authenticated images
 
   E2B cloud provider sub-flags (--sandbox e2b; needs E2B_API_KEY or ~/.ralph/e2b_api_key):
-    --sandbox-template T    E2B template (default: $SANDBOX_E2B_TEMPLATE; custom templates can preinstall claude)
+    --sandbox-template T    E2B template (default: $SANDBOX_E2B_TEMPLATE; custom templates can preinstall claude; flag/env only, not .ralphrc)
     --sandbox-id ID         Reconnect to an existing E2B sandbox instead of creating one
     --sandbox-timeout SECS  E2B session timeout in seconds (default: $SANDBOX_E2B_TIMEOUT)
     --sandbox-keep-alive    Leave the sandbox running on exit (reuse via --sandbox-id)
@@ -3037,10 +3110,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--calls)
             MAX_CALLS_PER_HOUR="$2"
+            _cli_MAX_CALLS_PER_HOUR="$2"
             shift 2
             ;;
         -p|--prompt)
             PROMPT_FILE="$2"
+            _cli_PROMPT_FILE="$2"
             shift 2
             ;;
         -s|--status)
@@ -3058,6 +3133,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -v|--verbose)
             VERBOSE_PROGRESS=true
+            _cli_VERBOSE_PROGRESS=true
             shift
             ;;
         -l|--live)
@@ -3067,6 +3143,7 @@ while [[ $# -gt 0 ]]; do
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
                 CLAUDE_TIMEOUT_MINUTES="$2"
+                _cli_CLAUDE_TIMEOUT_MINUTES="$2"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
@@ -3100,6 +3177,7 @@ while [[ $# -gt 0 ]]; do
         --output-format)
             if [[ "$2" == "json" || "$2" == "text" ]]; then
                 CLAUDE_OUTPUT_FORMAT="$2"
+                _cli_CLAUDE_OUTPUT_FORMAT="$2"
             else
                 echo "Error: --output-format must be 'json' or 'text'"
                 exit 1
@@ -3111,10 +3189,12 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CLAUDE_ALLOWED_TOOLS="$2"
+            _cli_CLAUDE_ALLOWED_TOOLS="$2"
             shift 2
             ;;
         --no-continue)
             CLAUDE_USE_CONTINUE=false
+            _cli_CLAUDE_USE_CONTINUE=false
             shift
             ;;
         --session-expiry)
@@ -3123,10 +3203,12 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CLAUDE_SESSION_EXPIRY_HOURS="$2"
+            _cli_CLAUDE_SESSION_EXPIRY_HOURS="$2"
             shift 2
             ;;
         --auto-reset-circuit)
             CB_AUTO_RESET=true
+            _cli_CB_AUTO_RESET=true
             shift
             ;;
         --dry-run)
@@ -3135,6 +3217,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -n|--notify)
             ENABLE_NOTIFICATIONS=true
+            _cli_ENABLE_NOTIFICATIONS=true
             shift
             ;;
         -b|--backup)

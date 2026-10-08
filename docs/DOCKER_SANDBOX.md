@@ -88,6 +88,12 @@ SANDBOX_DOCKER_NETWORK="bridge"
 Environment variables of the same names take precedence over `.ralphrc`, and
 `--monitor` (tmux) forwards all sandbox flags to the loop pane.
 
+> **Security (Issue #346):** `.ralphrc` is repository-controlled, so it accepts
+> only stock values for `SANDBOX_DOCKER_IMAGE` (`ralph-sandbox:latest` or the
+> official GHCR image) and `SANDBOX_DOCKER_NETWORK` (`bridge` or `none`). Custom
+> images and `host` networking must come from env vars or `--sandbox-image` /
+> `--sandbox-network`.
+
 ## Credentials
 
 Handled by `setup_docker_credentials()` in `lib/sandbox_docker.sh`, in order:
@@ -111,7 +117,8 @@ Handled by `setup_docker_credentials()` in `lib/sandbox_docker.sh`, in order:
 - `bridge` (default) — container can reach the Claude API; normal isolation
   from the host network.
 - `host` — shares the host network namespace; less isolation, occasionally
-  needed for localhost services.
+  needed for localhost services. Set it with `--sandbox-network host` or the
+  `SANDBOX_DOCKER_NETWORK` env var; `.ralphrc` rejects it.
 - `none` — full network isolation. **This blocks the Claude API**, so it only
   makes sense for images that route through a proxy or have offline tooling;
   the help text and docs call this out.

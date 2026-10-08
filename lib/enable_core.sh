@@ -701,7 +701,8 @@ PROJECT_TYPE="${project_type}"
 # Claude Code CLI command
 # If "claude" is not in your PATH, set to your installation:
 #   "npx @anthropic-ai/claude-code"  (uses npx, no global install needed)
-#   "/path/to/claude"                (custom path)
+# A custom path (/path/to/claude) is only honored from the environment:
+#   export CLAUDE_CODE_CMD=/path/to/claude
 CLAUDE_CODE_CMD="${claude_cmd}"
 
 # Loop settings
@@ -735,11 +736,9 @@ CB_OUTPUT_DECLINE_THRESHOLD=70
 # Auto-update Claude CLI at startup
 CLAUDE_AUTO_UPDATE=true
 
-# Shell init file (optional)
-# Source this file before running claude — useful when claude requires environment
-# variables or PATH entries defined in a non-bash shell config (e.g. ~/.zshrc).
-# Leave commented out unless needed.
-#RALPH_SHELL_INIT_FILE="~/.zshrc"
+# Shell init file (optional, environment only)
+# To source e.g. ~/.zshrc before running claude, export RALPH_SHELL_INIT_FILE in
+# your shell. It is ignored here: .ralphrc is repository-controlled (Issue #346).
 
 # Docker sandbox execution (optional, Issue #74)
 # Run Claude Code inside an isolated Docker container instead of on the host.

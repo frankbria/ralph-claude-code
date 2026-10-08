@@ -1096,3 +1096,16 @@ EOF
     grep -qxF ".ralph/fix_plan.md" "$RALPH_DIR/.e2b_synced_files"
     [[ $(grep -c "docs/notes.md" "$RALPH_DIR/.e2b_synced_files") -eq 0 ]]
 }
+
+@test "committed .e2b_sandbox_state numbers are never evaluated (Issue #371)" {
+    # A repo can commit the state file and pick SANDBOX_PROVIDER=e2b in .ralphrc;
+    # with the SDK missing, init fails and cleanup reads the committed file
+    jq -n --arg p "a[\$(touch\${IFS}$TEST_DIR/PWNED)]" \
+        '{sandbox_id: "x", status: "running", created_epoch: $p, accrued_cost: "0"}' > "$E2B_SANDBOX_STATE_FILE"
+    export SANDBOX_E2B_PYTHON=/bin/false
+
+    run update_e2b_cost
+    run check_e2b_cost_limits
+    run cleanup_e2b_sandbox
+    [ ! -e "$TEST_DIR/PWNED" ]
+}

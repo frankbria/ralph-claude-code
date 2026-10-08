@@ -97,3 +97,11 @@ EOF
     [[ "$output" == *"Custom"* ]]
     [[ "$output" == *"Tools"* ]]
 }
+
+@test "inspect: empty ALLOWED_TOOLS falls back to CLAUDE_ALLOWED_TOOLS, like ralph_loop.sh" {
+    local rc="$BATS_TEST_TMPDIR/.ralphrc"
+    printf '%s\n' 'ALLOWED_TOOLS=""' 'CLAUDE_ALLOWED_TOOLS="Read,Bash(npm test)"' > "$rc"
+
+    run env -u ALLOWED_TOOLS -u CLAUDE_ALLOWED_TOOLS bash "$INSPECT" "$rc"
+    [[ "$output" == *"Bash(npm test)"* ]]
+}
