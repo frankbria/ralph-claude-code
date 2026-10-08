@@ -148,6 +148,34 @@ _base_command_in_allowed_tools() {
     return 1
 }
 
+# Resolve where git-based progress detection should run (Issue #340).
+# Prefers the loop CWD's repository; falls back to $RALPH_DIR's own repository
+# when the CWD is not inside a git work tree (multi-repo workspace root whose
+# top-level folder is not itself a git repo — tracker updates in .ralph/ are
+# then the progress proxy).
+# Sets GIT_PROGRESS_DIR ("." for the CWD repo, "$RALPH_DIR" for the fallback).
+# Returns 1 when no repository is available in either location.
+# True when the loop CWD is inside a git work tree. Self-reported progress
+# (RALPH_STATUS FILES_MODIFIED / PROGRESS) is only trusted when it is NOT:
+# in a git repo, git decides, so a stuck model can't hold the breaker open by
+# claiming progress (Issue #340, maintainer decision).
+_cwd_is_git_work_tree() {
+    command -v git &>/dev/null && git rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+_resolve_git_progress_dir() {
+    GIT_PROGRESS_DIR=""
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        GIT_PROGRESS_DIR="."
+        return 0
+    fi
+    if [[ -n "${RALPH_DIR:-}" ]] && git -C "$RALPH_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+        GIT_PROGRESS_DIR="$RALPH_DIR"
+        return 0
+    fi
+    return 1
+}
+
 # Detect output format (json or text)
 # Returns: "json" if valid JSON, "text" otherwise
 detect_output_format() {
@@ -318,6 +346,36 @@ parse_json_response() {
     # Files modified: from flat format OR from metadata.files_changed
     local files_modified=$(jq -r '.metadata.files_changed // .files_modified // 0' "$output_file" 2>/dev/null)
 
+    # Issue #340: explicit progress self-report from the RALPH_STATUS block.
+    # When the loop CWD is not a git repository (multi-repo workspace root),
+    # git-based progress detection is blind, so the agent can self-report via
+    # the same block already used for EXIT_SIGNAL:
+    #   FILES_MODIFIED: <N>    — file-change count (e.g. commits made via git -C)
+    #   PROGRESS: true         — non-file work (e.g. posting a PR review)
+    # Same explicit-intent semantics as the EXIT_SIGNAL extraction above; both
+    # lines are anchored at start-of-line so prose mentions do not trigger them.
+    local self_reported_progress="false"
+    if [[ "$has_result_field" == "true" ]] && ! _cwd_is_git_work_tree; then
+        local rs_result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
+        if [[ -n "$rs_result_text" ]] && echo "$rs_result_text" | grep -qE -- "^[[:space:]]*(---RALPH_STATUS---|RALPH_STATUS:)"; then
+            local embedded_files_modified
+            embedded_files_modified=$(echo "$rs_result_text" | grep -E "^[[:space:]]*FILES_MODIFIED:" | head -1 | cut -d: -f2 | xargs)
+            if [[ "$embedded_files_modified" =~ ^[0-9]+$ ]]; then
+                # Structured metadata (when present and numeric) stays authoritative;
+                # the self-report only fills the gap, it never lowers the count
+                [[ "$files_modified" =~ ^[0-9]+$ ]] || files_modified=0
+                if (( embedded_files_modified > files_modified )); then
+                    files_modified=$embedded_files_modified
+                fi
+            fi
+            local embedded_progress
+            embedded_progress=$(echo "$rs_result_text" | grep -E "^[[:space:]]*PROGRESS:" | head -1 | cut -d: -f2 | xargs)
+            if [[ "$embedded_progress" == "true" ]]; then
+                self_reported_progress="true"
+            fi
+        fi
+    fi
+
     # Error count: from flat format OR derived from metadata.has_errors
     # Note: When only has_errors=true is present (without explicit error_count),
     # we set error_count=1 as a minimum. This is defensive programming since
@@ -456,6 +514,7 @@ parse_json_response() {
         --argjson is_stuck "$is_stuck" \
         --argjson has_completion_signal "$has_completion_signal" \
         --argjson files_modified "$files_modified" \
+        --argjson self_reported_progress "$self_reported_progress" \
         --argjson error_count "$error_count" \
         --arg summary "$summary" \
         --argjson loop_number "$loop_number" \
@@ -473,6 +532,7 @@ parse_json_response() {
             is_stuck: $is_stuck,
             has_completion_signal: $has_completion_signal,
             files_modified: $files_modified,
+            self_reported_progress: $self_reported_progress,
             error_count: $error_count,
             summary: $summary,
             loop_number: $loop_number,
@@ -512,6 +572,9 @@ analyze_response() {
     local exit_signal=false
     local work_summary=""
     local files_modified=0
+    # Issue #340: explicit self-report (RALPH_STATUS "PROGRESS: true") that the
+    # circuit breaker honors when git-based detection is blind
+    local self_reported_progress=false
 
     # Read output file
     if [[ ! -f "$output_file" ]]; then
@@ -538,6 +601,17 @@ analyze_response() {
             local json_confidence
             json_confidence=$(to_int "$(jq -r '.confidence' $RALPH_DIR/.json_parse_result 2>/dev/null)")
             local session_id=$(jq -r '.session_id' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
+
+            # Issue #340: structured or self-reported file changes count as progress
+            # even when git-based detection below is unavailable (non-git CWD)
+            self_reported_progress=$(jq -r '.self_reported_progress // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            [[ "$self_reported_progress" == "true" ]] || self_reported_progress=false
+            if [[ "$files_modified" =~ ^[0-9]+$ ]] && (( files_modified > 0 )); then
+                has_progress=true
+            fi
+            if [[ "$self_reported_progress" == "true" ]]; then
+                has_progress=true
+            fi
 
             # Extract permission denial fields (Issue #101)
             local has_permission_denials=$(jq -r '.has_permission_denials' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
@@ -571,7 +645,9 @@ analyze_response() {
 
             # Check for file changes via git (supplements JSON data)
             # Fix #141: Detect both uncommitted changes AND committed changes
-            if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
+            # Issue #340: fall back to $RALPH_DIR's own repository when the CWD
+            # is not a git work tree (multi-repo workspace root)
+            if command -v git &>/dev/null && _resolve_git_progress_dir; then
                 local git_files=0
                 local loop_start_sha=""
                 local current_sha=""
@@ -579,10 +655,13 @@ analyze_response() {
                 if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
                     loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
                 fi
-                current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+                current_sha=$(git -C "$GIT_PROGRESS_DIR" rev-parse HEAD 2>/dev/null || echo "")
 
-                # Check if commits were made (HEAD changed)
-                if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+                # Check if commits were made (HEAD changed).
+                # .loop_start_sha records the CWD repo's HEAD, so the commit-range
+                # comparison only applies when detection runs in the CWD repo —
+                # in tracker-repo fallback mode only uncommitted changes count.
+                if [[ "$GIT_PROGRESS_DIR" == "." && -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
                     # Commits were made - count union of committed files AND working tree changes
                     git_files=$(
                         {
@@ -595,8 +674,8 @@ analyze_response() {
                     # No commits - check for uncommitted changes (staged + unstaged)
                     git_files=$(
                         {
-                            git diff --name-only 2>/dev/null                # unstaged changes
-                            git diff --name-only --cached 2>/dev/null       # staged changes
+                            git -C "$GIT_PROGRESS_DIR" diff --name-only 2>/dev/null          # unstaged changes
+                            git -C "$GIT_PROGRESS_DIR" diff --name-only --cached 2>/dev/null # staged changes
                         } | sort -u | wc -l
                     )
                 fi
@@ -617,6 +696,7 @@ analyze_response() {
                 --argjson is_test_only "$is_test_only" \
                 --argjson is_stuck "$is_stuck" \
                 --argjson has_progress "$has_progress" \
+                --argjson self_reported_progress "$self_reported_progress" \
                 --argjson files_modified "$files_modified" \
                 --argjson confidence_score "$confidence_score" \
                 --argjson exit_signal "$exit_signal" \
@@ -639,6 +719,7 @@ analyze_response() {
                         is_test_only: $is_test_only,
                         is_stuck: $is_stuck,
                         has_progress: $has_progress,
+                        self_reported_progress: $self_reported_progress,
                         files_modified: $files_modified,
                         confidence_score: $confidence_score,
                         exit_signal: $exit_signal,
@@ -678,6 +759,19 @@ analyze_response() {
         # Parse structured output
         local status=$(grep "STATUS:" "$output_file" | cut -d: -f2 | xargs)
         local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | cut -d: -f2 | xargs)
+
+        # Issue #340: same self-report as the JSON path (start-of-line anchored,
+        # numeric-validated, non-git CWD only) so text mode doesn't trip the breaker
+        if ! _cwd_is_git_work_tree; then
+            local reported_files
+            reported_files=$(grep -E "^[[:space:]]*FILES_MODIFIED:" "$output_file" | head -1 | cut -d: -f2 | xargs)
+            if [[ "$reported_files" =~ ^[0-9]{1,9}$ ]] && (( reported_files > files_modified )); then
+                files_modified=$reported_files
+            fi
+            if [[ "$(grep -E "^[[:space:]]*PROGRESS:" "$output_file" | head -1 | cut -d: -f2 | xargs)" == "true" ]]; then
+                self_reported_progress=true
+            fi
+        fi
 
         # If EXIT_SIGNAL is explicitly provided, respect it
         if [[ -n "$exit_sig" ]]; then
@@ -766,17 +860,22 @@ analyze_response() {
 
     # 6. Check for file changes (git integration)
     # Fix #141: Detect both uncommitted changes AND committed changes
-    if command -v git &>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
+    # Issue #340: fall back to $RALPH_DIR's own repository when the CWD
+    # is not a git work tree (multi-repo workspace root)
+    if command -v git &>/dev/null && _resolve_git_progress_dir; then
         local loop_start_sha=""
         local current_sha=""
 
         if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
             loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
         fi
-        current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+        current_sha=$(git -C "$GIT_PROGRESS_DIR" rev-parse HEAD 2>/dev/null || echo "")
 
-        # Check if commits were made (HEAD changed)
-        if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+        # Check if commits were made (HEAD changed).
+        # .loop_start_sha records the CWD repo's HEAD, so the commit-range
+        # comparison only applies when detection runs in the CWD repo —
+        # in tracker-repo fallback mode only uncommitted changes count.
+        if [[ "$GIT_PROGRESS_DIR" == "." && -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
             # Commits were made - count union of committed files AND working tree changes
             files_modified=$(
                 {
@@ -789,8 +888,8 @@ analyze_response() {
             # No commits - check for uncommitted changes (staged + unstaged)
             files_modified=$(
                 {
-                    git diff --name-only 2>/dev/null                # unstaged changes
-                    git diff --name-only --cached 2>/dev/null       # staged changes
+                    git -C "$GIT_PROGRESS_DIR" diff --name-only 2>/dev/null          # unstaged changes
+                    git -C "$GIT_PROGRESS_DIR" diff --name-only --cached 2>/dev/null # staged changes
                 } | sort -u | wc -l
             )
         fi
@@ -853,6 +952,7 @@ analyze_response() {
         --argjson is_test_only "$is_test_only" \
         --argjson is_stuck "$is_stuck" \
         --argjson has_progress "$has_progress" \
+        --argjson self_reported_progress "$self_reported_progress" \
         --argjson files_modified "$files_modified" \
         --argjson confidence_score "$confidence_score" \
         --argjson exit_signal "$exit_signal" \
@@ -870,6 +970,7 @@ analyze_response() {
                 is_test_only: $is_test_only,
                 is_stuck: $is_stuck,
                 has_progress: $has_progress,
+                self_reported_progress: $self_reported_progress,
                 files_modified: $files_modified,
                 confidence_score: $confidence_score,
                 exit_signal: $exit_signal,

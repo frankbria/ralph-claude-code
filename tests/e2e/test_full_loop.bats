@@ -422,6 +422,91 @@ RC
 }
 
 # =============================================================================
+# NON-GIT WORKSPACE PROGRESS (Issue #340)
+# =============================================================================
+
+@test "E2E: self-reported progress keeps the circuit breaker closed when CWD is not a git repo (#340)" {
+    # Multi-repo workspace root: the loop CWD is not a git work tree, so
+    # git-based progress detection is blind. Claude reports FILES_MODIFIED: 1
+    # in its RALPH_STATUS block every loop (e2e_response_json does).
+    e2e_fix_plan 4 0
+    rm -rf .git
+    local i
+    for i in 1 2 3 4; do
+        queue_response "$i" "IN_PROGRESS" "false" "Committed to a sub-repo via git -C (loop $i)."
+        queue_effect "$i" << 'EFFECT'
+awk 'done != 1 && /^- \[ \]/ { sub(/^- \[ \]/, "- [x]"); done = 1 } { print }' \
+    .ralph/fix_plan.md > .ralph/fix_plan.md.tmp && mv .ralph/fix_plan.md.tmp .ralph/fix_plan.md
+EFFECT
+    done
+
+    run run_ralph
+
+    assert_equal "$(mock_call_count)" "4"
+    assert_equal "$(status_field exit_reason)" "plan_complete"
+    [[ "$(jq -r '.state' .ralph/.circuit_breaker_state)" == "CLOSED" ]]
+}
+
+# Shared body for the #340 non-git scenarios: 4 loops, each checks off one
+# plan item; the response text comes from $1 (a printf format with %d = loop).
+_nongit_four_loops() {
+    local fmt=$1 mode=${2:-json}
+    e2e_fix_plan 4 0
+    rm -rf .git
+    local i text
+    for i in 1 2 3 4; do
+        text=$(printf "$fmt" "$i")
+        if [[ "$mode" == json ]]; then
+            jq -cn --arg r "$text" '{type:"result",subtype:"success",is_error:false,result:$r,usage:{input_tokens:1,output_tokens:1}}' \
+                | queue_raw_response "$i" 0
+        else
+            printf '%s\n' "$text" | queue_raw_response "$i" 0
+        fi
+        queue_effect "$i" << 'EFFECT'
+awk 'done != 1 && /^- \[ \]/ { sub(/^- \[ \]/, "- [x]"); done = 1 } { print }' \
+    .ralph/fix_plan.md > .ralph/fix_plan.md.tmp && mv .ralph/fix_plan.md.tmp .ralph/fix_plan.md
+EFFECT
+    done
+}
+
+@test "E2E: PROGRESS: true (no file changes) keeps the breaker closed in a non-git CWD (#340)" {
+    _nongit_four_loops 'Posted PR review %d.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nFILES_MODIFIED: 0\nPROGRESS: true\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---'
+
+    run run_ralph
+
+    assert_equal "$(mock_call_count)" "4"
+    assert_equal "$(status_field exit_reason)" "plan_complete"
+}
+
+@test "E2E: text output mode honors the FILES_MODIFIED self-report in a non-git CWD (#340)" {
+    export CLAUDE_OUTPUT_FORMAT=text
+    _nongit_four_loops 'Committed to a sub-repo (loop %d).\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nFILES_MODIFIED: 2\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---' text
+
+    run run_ralph
+
+    assert_equal "$(mock_call_count)" "4"
+    assert_equal "$(status_field exit_reason)" "plan_complete"
+}
+
+@test "E2E: in a git repo, a FILES_MODIFIED/PROGRESS claim without real changes does not hold the breaker open (#340)" {
+    # The maintainer accepted trusting self-reports ONLY where git can't see the
+    # work. In a git repo, git decides: a stuck model claiming progress every
+    # loop (and changing nothing) must still trip the breaker.
+    e2e_fix_plan 6 0
+    local i
+    for i in 1 2 3 4 5 6; do
+        jq -cn --arg r "$(printf 'Claimed work %d.\n\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nFILES_MODIFIED: 3\nPROGRESS: true\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---' "$i")" \
+            '{type:"result",subtype:"success",is_error:false,result:$r,usage:{input_tokens:1,output_tokens:1}}' \
+            | queue_raw_response "$i" 0
+    done
+
+    run run_ralph
+
+    [ "$(mock_call_count)" -lt 6 ]
+    [[ "$(jq -r '.state' .ralph/.circuit_breaker_state)" == "OPEN" ]]
+}
+
+# =============================================================================
 # RALPH_DIR (Issue #352)
 # =============================================================================
 
