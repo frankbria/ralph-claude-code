@@ -420,3 +420,28 @@ RC
 
     [ ! -e "$E2E_DIR/PWNED" ]
 }
+
+# =============================================================================
+# RALPH_DIR (Issue #352)
+# =============================================================================
+
+@test "E2E: an exported RALPH_DIR holds all state; .ralph/ is never created (#352)" {
+    e2e_fix_plan 1 0
+    mv .ralph .custom-ralph
+    export RALPH_DIR=.custom-ralph
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_effect 1 << 'EFFECT'
+echo "work" > src/work_1.txt
+git add src/work_1.txt
+sed -i 's/^- \[ \]/- [x]/' .custom-ralph/fix_plan.md
+EFFECT
+
+    run run_ralph
+
+    assert_success
+    assert_equal "$(mock_call_count)" "1"
+    [ -f .custom-ralph/status.json ]
+    [ -f .custom-ralph/.call_count ]
+    [ -f .custom-ralph/.circuit_breaker_state ]
+    [ ! -e .ralph ]
+}

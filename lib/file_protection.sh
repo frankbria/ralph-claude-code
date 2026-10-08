@@ -24,6 +24,12 @@ validate_ralph_integrity() {
     RALPH_MISSING_FILES=()
 
     for path in "${RALPH_REQUIRED_PATHS[@]}"; do
+        # The array is the default layout; honor a relocated RALPH_DIR (Issue #352).
+        # Exact matches only: ".ralphrc" also starts with ".ralph".
+        case "$path" in
+            .ralph)   path="${RALPH_DIR:-.ralph}" ;;
+            .ralph/*) path="${RALPH_DIR:-.ralph}/${path#.ralph/}" ;;
+        esac
         if [[ ! -e "$path" ]]; then
             RALPH_MISSING_FILES+=("$path")
         fi

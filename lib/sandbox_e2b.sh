@@ -515,10 +515,13 @@ _apply_e2b_deletions() {
     candidates=$(printf '%s\n' "$candidates" | _e2b_filter_download_members)
     [[ -z "$candidates" ]] && return 0
     local deleted=0 old
+    # Same control-dir derivation as the sibling guards — never delete a
+    # relocated RALPH_DIR's files either (Issue #352)
+    local rb="${RALPH_DIR##*/}"
     while IFS= read -r old; do
         [[ -z "$old" ]] && continue
         case "$old" in
-            /*|*..*|.git|.git/*|*/.git/*|.ralph|.ralph/*) continue ;;
+            /*|*..*|.git|.git/*|*/.git/*|.ralph|.ralph/*|"$rb"|"$rb"/*) continue ;;
         esac
         if [[ -f "$old" ]]; then
             rm -f "$old" && deleted=$((deleted + 1))
