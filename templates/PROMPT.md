@@ -62,6 +62,8 @@ RECOMMENDATION: <one line summary of what to do next>
 ---END_RALPH_STATUS---
 ```
 
+If the project root is **not** a git repository (e.g. a workspace of several repos), Ralph can't see your changes through git: report them in `FILES_MODIFIED`, and for progress that changes no files (e.g. posting a review) add a line `PROGRESS: true` to the block. Both are ignored in a git repository, where git decides.
+
 ### When to set EXIT_SIGNAL: true
 
 Set EXIT_SIGNAL to **true** when ALL of these conditions are met:

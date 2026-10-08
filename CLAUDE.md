@@ -266,6 +266,8 @@ Thresholds:
 - `CB_OUTPUT_DECLINE_THRESHOLD=70%` — open if output declines >70%
 - `CB_PERMISSION_DENIAL_THRESHOLD=2` — open after 2 loops with permission denials
 
+**Non-git workspaces (Issue #340)**: when the loop CWD is not a git work tree (e.g. a multi-repo workspace root), git-based progress detection falls back to `$RALPH_DIR`'s own repository and to Claude's RALPH_STATUS self-report — `FILES_MODIFIED: <n>` and `PROGRESS: true` (non-file work), start-of-line anchored and numeric-validated, parsed in both JSON and text output modes and recorded as `.analysis.self_reported_progress`. Self-reports are honored **only** in a non-git CWD (`_cwd_is_git_work_tree`): in a git repo, git decides, so a stuck model can't hold the breaker open by claiming progress.
+
 **Question loop suppression (Issue #190)**: when `asking_questions=true`, `consecutive_no_progress` is held steady (not incremented) so the breaker doesn't open prematurely when Claude asks questions in headless mode; a corrective message is injected via `build_loop_context()` next iteration.
 
 **Auto-recovery (Issue #160)** — OPEN is not terminal:
