@@ -420,3 +420,29 @@ RC
 
     [ ! -e "$E2E_DIR/PWNED" ]
 }
+
+# =============================================================================
+# NON-GIT WORKSPACE PROGRESS (Issue #340)
+# =============================================================================
+
+@test "E2E: self-reported progress keeps the circuit breaker closed when CWD is not a git repo (#340)" {
+    # Multi-repo workspace root: the loop CWD is not a git work tree, so
+    # git-based progress detection is blind. Claude reports FILES_MODIFIED: 1
+    # in its RALPH_STATUS block every loop (e2e_response_json does).
+    e2e_fix_plan 4 0
+    rm -rf .git
+    local i
+    for i in 1 2 3 4; do
+        queue_response "$i" "IN_PROGRESS" "false" "Committed to a sub-repo via git -C (loop $i)."
+        queue_effect "$i" << 'EFFECT'
+awk 'done != 1 && /^- \[ \]/ { sub(/^- \[ \]/, "- [x]"); done = 1 } { print }' \
+    .ralph/fix_plan.md > .ralph/fix_plan.md.tmp && mv .ralph/fix_plan.md.tmp .ralph/fix_plan.md
+EFFECT
+    done
+
+    run run_ralph
+
+    assert_equal "$(mock_call_count)" "4"
+    assert_equal "$(status_field exit_reason)" "plan_complete"
+    [[ "$(jq -r '.state' .ralph/.circuit_breaker_state)" == "CLOSED" ]]
+}
