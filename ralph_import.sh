@@ -22,7 +22,7 @@ CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"
 CLAUDE_OUTPUT_FORMAT="json"
 # Use bash array for proper quoting of each tool argument
 declare -a CLAUDE_ALLOWED_TOOLS=('Read' 'Write' 'Bash(mkdir:*)' 'Bash(cp:*)')
-CLAUDE_MIN_VERSION="2.0.76"  # Minimum version for modern CLI features
+CLAUDE_MIN_VERSION="${CLAUDE_MIN_VERSION:-2.0.76}"  # Minimum version for modern CLI features
 
 # Temporary file names
 CONVERSION_OUTPUT_FILE=".ralph_conversion_output.json"

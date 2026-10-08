@@ -32,6 +32,11 @@ _env_SYNC_INCLUDE="${SYNC_INCLUDE:-}"
 _env_SYNC_EXCLUDE="${SYNC_EXCLUDE:-}"
 _env_SYNC_MAX_FILE_SIZE="${SYNC_MAX_FILE_SIZE:-}"
 _env_SYNC_LARGE_FILE_ACTION="${SYNC_LARGE_FILE_ACTION:-}"
+# Issue #369: lib/circuit_breaker.sh sets these defaults at source time
+_env_CB_NO_PROGRESS_THRESHOLD="${CB_NO_PROGRESS_THRESHOLD:-}"
+_env_CB_SAME_ERROR_THRESHOLD="${CB_SAME_ERROR_THRESHOLD:-}"
+_env_CB_OUTPUT_DECLINE_THRESHOLD="${CB_OUTPUT_DECLINE_THRESHOLD:-}"
+_env_CB_PERMISSION_DENIAL_THRESHOLD="${CB_PERMISSION_DENIAL_THRESHOLD:-}"
 
 # Source library components
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -85,6 +90,10 @@ _env_ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-}"
 _env_ENABLE_BACKUP="${ENABLE_BACKUP:-}"
 _env_LIVE_SHOW_TOOL_ARGS="${LIVE_SHOW_TOOL_ARGS:-}"
 _env_OPTIONAL_SECTIONS="${OPTIONAL_SECTIONS:-}"
+_env_CLAUDE_MIN_VERSION="${CLAUDE_MIN_VERSION:-}"
+_env_MAX_CONSECUTIVE_TEST_LOOPS="${MAX_CONSECUTIVE_TEST_LOOPS:-}"
+_env_MAX_CONSECUTIVE_DONE_SIGNALS="${MAX_CONSECUTIVE_DONE_SIGNALS:-}"
+_env_TEST_PERCENTAGE_THRESHOLD="${TEST_PERCENTAGE_THRESHOLD:-}"
 # Issue #73: GitHub issue lifecycle configuration
 _env_GITHUB_ISSUE="${GITHUB_ISSUE:-}"
 _env_COMMENT_PROGRESS="${COMMENT_PROGRESS:-}"
@@ -110,7 +119,7 @@ CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
 CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
-CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
+CLAUDE_MIN_VERSION="${CLAUDE_MIN_VERSION:-2.0.76}" # Minimum required Claude CLI version
 CLAUDE_AUTO_UPDATE="${CLAUDE_AUTO_UPDATE:-true}"  # Auto-update Claude CLI at startup
 CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-claude}"     # Claude Code CLI command (default: global install)
 CLAUDE_MODEL="${CLAUDE_MODEL:-}"                 # Model override (e.g. claude-sonnet-4-6); empty = CLI default
@@ -193,9 +202,9 @@ VALID_TOOL_PATTERNS=(
 # Exit detection configuration
 EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
 RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
-MAX_CONSECUTIVE_TEST_LOOPS=3
-MAX_CONSECUTIVE_DONE_SIGNALS=2
-TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
+MAX_CONSECUTIVE_TEST_LOOPS="${MAX_CONSECUTIVE_TEST_LOOPS:-3}"
+MAX_CONSECUTIVE_DONE_SIGNALS="${MAX_CONSECUTIVE_DONE_SIGNALS:-2}"
+TEST_PERCENTAGE_THRESHOLD="${TEST_PERCENTAGE_THRESHOLD:-30}"  # If more than 30% of recent loops are test-only, flag it
 
 # _safe_count - Count regex matches in a file safely for bash arithmetic.
 # Fixes #255, #251, #260 — `$(grep -cE … || echo "0")` can return:
@@ -364,6 +373,14 @@ load_ralphrc() {
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
+    [[ -n "$_env_CB_NO_PROGRESS_THRESHOLD" ]] && CB_NO_PROGRESS_THRESHOLD="$_env_CB_NO_PROGRESS_THRESHOLD"
+    [[ -n "$_env_CB_SAME_ERROR_THRESHOLD" ]] && CB_SAME_ERROR_THRESHOLD="$_env_CB_SAME_ERROR_THRESHOLD"
+    [[ -n "$_env_CB_OUTPUT_DECLINE_THRESHOLD" ]] && CB_OUTPUT_DECLINE_THRESHOLD="$_env_CB_OUTPUT_DECLINE_THRESHOLD"
+    [[ -n "$_env_CB_PERMISSION_DENIAL_THRESHOLD" ]] && CB_PERMISSION_DENIAL_THRESHOLD="$_env_CB_PERMISSION_DENIAL_THRESHOLD"
+    [[ -n "$_env_CLAUDE_MIN_VERSION" ]] && CLAUDE_MIN_VERSION="$_env_CLAUDE_MIN_VERSION"
+    [[ -n "$_env_MAX_CONSECUTIVE_TEST_LOOPS" ]] && MAX_CONSECUTIVE_TEST_LOOPS="$_env_MAX_CONSECUTIVE_TEST_LOOPS"
+    [[ -n "$_env_MAX_CONSECUTIVE_DONE_SIGNALS" ]] && MAX_CONSECUTIVE_DONE_SIGNALS="$_env_MAX_CONSECUTIVE_DONE_SIGNALS"
+    [[ -n "$_env_TEST_PERCENTAGE_THRESHOLD" ]] && TEST_PERCENTAGE_THRESHOLD="$_env_TEST_PERCENTAGE_THRESHOLD"
     [[ -n "$_env_CLAUDE_CODE_CMD" ]] && CLAUDE_CODE_CMD="$_env_CLAUDE_CODE_CMD"
     [[ -n "$_env_CLAUDE_AUTO_UPDATE" ]] && CLAUDE_AUTO_UPDATE="$_env_CLAUDE_AUTO_UPDATE"
     [[ -n "$_env_CLAUDE_MODEL" ]] && CLAUDE_MODEL="$_env_CLAUDE_MODEL"

@@ -840,7 +840,7 @@ Sessions are persisted to `.ralph/.ralph_session` with a configurable expiration
 
 ### Exit Thresholds
 
-Modify these variables in `~/.ralph/ralph_loop.sh`:
+Set these in your project's `.ralphrc`, or as environment variables (which take precedence over `.ralphrc`):
 
 **Exit Detection Thresholds:**
 ```bash
