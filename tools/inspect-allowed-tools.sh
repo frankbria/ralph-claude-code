@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# shellcheck source=../lib/ralphrc.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/ralphrc.sh"
+
 rcfile="${1:-.ralphrc}"
 allowed_from_env="${ALLOWED_TOOLS:-${CLAUDE_ALLOWED_TOOLS:-}}"
 
@@ -25,13 +28,9 @@ if [[ -n "$allowed_from_env" ]]; then
     allowed="$allowed_from_env"
 elif [[ -f "$rcfile" ]]; then
     echo "Source: $rcfile"
-    # Source in a subshell-style block to avoid leaking other .ralphrc vars
-    # into this script, but still pick up ALLOWED_TOOLS.
-    allowed=$(
-        # shellcheck disable=SC1090
-        source "$rcfile"
-        printf '%s' "${ALLOWED_TOOLS:-${CLAUDE_ALLOWED_TOOLS:-}}"
-    )
+    # Parsed as data, never sourced (Issue #346) — same reader as ralph_loop.sh
+    allowed=$(ralphrc_get "$rcfile" ALLOWED_TOOLS || true)
+    [[ -n "$allowed" ]] || allowed=$(ralphrc_get "$rcfile" CLAUDE_ALLOWED_TOOLS || true)
 else
     echo "ERROR: $rcfile not found and no ALLOWED_TOOLS env var set" >&2
     echo "Usage: $0 [path/to/.ralphrc]" >&2
@@ -44,7 +43,7 @@ if [[ -z "$allowed" ]]; then
 fi
 
 echo "Raw value:"
-echo "  $allowed"
+echo "  $(ralphrc_display "$allowed")"
 echo
 
 # Replicate the parsing from ralph_loop.sh:build_claude_command

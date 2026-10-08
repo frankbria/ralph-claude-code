@@ -53,3 +53,6 @@ target/
 
 # Ralph backup directories (created by migration)
 .ralph_backup_*
+
+# Local triage/announcement drafts (never commit)
+.github/drafts/

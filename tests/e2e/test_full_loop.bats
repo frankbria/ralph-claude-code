@@ -330,3 +330,93 @@ EOF
     kill -KILL "$ralph_pid" 2>/dev/null || true
     wait "$ralph_pid" 2>/dev/null || true
 }
+
+# =============================================================================
+# CLI FLAGS VS REPOSITORY .ralphrc (PR #363)
+# =============================================================================
+
+@test "E2E: CLI flags beat a repository .ralphrc (--allowed-tools, --calls)" {
+    # The repo's .ralphrc asks for a wide tool list and a big call budget; the
+    # user narrows both on the command line. The user's flags must win.
+    cat > .ralphrc << 'RC'
+ALLOWED_TOOLS="Write,Read,Edit,Bash(git *)"
+MAX_CALLS_PER_HOUR=100
+RC
+    unset ALLOWED_TOOLS CLAUDE_ALLOWED_TOOLS MAX_CALLS_PER_HOUR
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph --allowed-tools "Read" --calls 7
+
+    assert_success
+    assert_equal "$(mock_call_count)" "1"
+    grep -qx "Read" "$MOCK_DIR/calls/argv_1.log"
+    [[ $(grep -cxF 'Bash(git *)' "$MOCK_DIR/calls/argv_1.log") -eq 0 ]]
+    assert_equal "$(status_field max_calls_per_hour)" "7"
+}
+
+@test "E2E: arithmetic injection via a numeric .ralphrc key does not execute (PR #363)" {
+    # a[$(cmd)] in an arithmetic context runs cmd; MAX_CALLS_PER_HOUR reaches
+    # [[ $calls -ge $MAX_CALLS_PER_HOUR ]] in can_make_call on every loop
+    printf '%s\n' "MAX_CALLS_PER_HOUR='a[\$(touch $E2E_DIR/PWNED)]'" > .ralphrc
+    unset MAX_CALLS_PER_HOUR
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+    [[ "$output" == *"shell syntax"* ]]
+}
+
+# =============================================================================
+# UNTRUSTED NUMBERS NEVER REACH BASH ARITHMETIC (Issue #371)
+# =============================================================================
+
+@test "E2E: committed circuit-breaker state cannot execute code (#371)" {
+    # Valid JSON (so it survives init_circuit_breaker's validity check) with a
+    # payload in every numeric field record_loop_result coerces each loop.
+    # \${IFS} instead of a space: the reader strips whitespace, an attacker wouldn't use any
+    jq -n --arg p "a[\$(touch\${IFS}$E2E_DIR/PWNED)]" '{state: "CLOSED", consecutive_no_progress: $p,
+        consecutive_same_error: $p, consecutive_permission_denials: $p, last_progress_loop: $p,
+        total_opens: $p, current_loop: $p, reason: ""}' > .ralph/.circuit_breaker_state
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+    assert_equal "$(mock_call_count)" "1"
+    jq -e '.total_opens | numbers' .ralph/.circuit_breaker_state > /dev/null
+}
+
+@test "E2E: committed call/token counters cannot execute code (#371)" {
+    # A current-hour .last_reset stops init_call_tracking from resetting them
+    date +%Y%m%d%H > .ralph/.last_reset
+    echo "a[\$(touch $E2E_DIR/PWNED)]" > .ralph/.call_count
+    echo "a[\$(touch $E2E_DIR/PWNED)]" > .ralph/.token_count
+    export MAX_TOKENS_PER_HOUR=100000
+    e2e_fix_plan 1 0
+    queue_response 1 "IN_PROGRESS" "false" "Implemented the open task."
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+    jq -e '.calls_made_this_hour | numbers' .ralph/status.json > /dev/null
+}
+
+@test "E2E: a numeric field in Claude's output cannot execute code (#371)" {
+    e2e_fix_plan 1 0
+    e2e_response_json "IN_PROGRESS" "false" "Implemented the open task." "" \
+        "+ {files_modified: \"a[\$(touch $E2E_DIR/PWNED)]\", error_count: \"a[\$(touch $E2E_DIR/PWNED)]\", metadata: {files_changed: \"a[\$(touch $E2E_DIR/PWNED)]\"}}" \
+        | queue_raw_response 1 0
+    queue_productive_effect 1
+
+    run run_ralph
+
+    [ ! -e "$E2E_DIR/PWNED" ]
+}

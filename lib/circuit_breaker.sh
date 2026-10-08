@@ -5,6 +5,7 @@
 
 # Source date utilities for cross-platform compatibility
 source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/int_utils.sh"
 
 # Circuit Breaker States
 CB_STATE_CLOSED="CLOSED"        # Normal operation, progress detected
@@ -78,8 +79,8 @@ EOF
         if [[ "$CB_AUTO_RESET" == "true" ]]; then
             # Auto-reset: bypass cooldown, go straight to CLOSED
             local current_loop total_opens
-            current_loop=$(jq -r '.current_loop // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
-            total_opens=$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+            current_loop=$(to_int "$(jq -r '.current_loop // 0' "$CB_STATE_FILE" 2>/dev/null)")
+            total_opens=$(to_int "$(jq -r '.total_opens // 0' "$CB_STATE_FILE" 2>/dev/null)")
             log_circuit_transition "$CB_STATE_OPEN" "$CB_STATE_CLOSED" "Auto-reset on startup (CB_AUTO_RESET=true)" "$current_loop"
 
             cat > "$CB_STATE_FILE" << EOF
@@ -107,7 +108,7 @@ EOF
 
                 if [[ $elapsed_minutes -ge 0 && $elapsed_minutes -ge $CB_COOLDOWN_MINUTES ]]; then
                     local current_loop
-                    current_loop=$(jq -r '.current_loop // 0' "$CB_STATE_FILE" 2>/dev/null || echo "0")
+                    current_loop=$(to_int "$(jq -r '.current_loop // 0' "$CB_STATE_FILE" 2>/dev/null)")
                     log_circuit_transition "$CB_STATE_OPEN" "$CB_STATE_HALF_OPEN" "Cooldown elapsed (${elapsed_minutes}m >= ${CB_COOLDOWN_MINUTES}m)" "$current_loop"
 
                     # Preserve counters but transition state
@@ -163,11 +164,12 @@ record_loop_result() {
     local consecutive_permission_denials=$(echo "$state_data" | jq -r '.consecutive_permission_denials // 0' | tr -d '[:space:]')
     local last_progress_loop=$(echo "$state_data" | jq -r '.last_progress_loop' | tr -d '[:space:]')
 
-    # Ensure integers
-    consecutive_no_progress=$((consecutive_no_progress + 0))
-    consecutive_same_error=$((consecutive_same_error + 0))
-    consecutive_permission_denials=$((consecutive_permission_denials + 0))
-    last_progress_loop=$((last_progress_loop + 0))
+    # Ensure integers without evaluating them: the state file is repository-
+    # committable, and $((x + 0)) would run a[$(cmd)] (Issue #371)
+    consecutive_no_progress=$(to_int "$consecutive_no_progress")
+    consecutive_same_error=$(to_int "$consecutive_same_error")
+    consecutive_permission_denials=$(to_int "$consecutive_permission_denials")
+    last_progress_loop=$(to_int "$last_progress_loop")
 
     # Detect progress from multiple sources:
     # 1. Files changed (git diff)
@@ -192,7 +194,7 @@ record_loop_result() {
 
         # Check if Claude reported files modified (may differ from git diff if already committed)
         ralph_files_modified=$(jq -r '.analysis.files_modified // 0' "$response_analysis_file" 2>/dev/null || echo "0")
-        ralph_files_modified=$((ralph_files_modified + 0))
+        ralph_files_modified=$(to_int "$ralph_files_modified")
     fi
 
     # Track permission denials (Issue #101)
@@ -292,7 +294,7 @@ record_loop_result() {
 
     # Update state file
     local total_opens=$(echo "$state_data" | jq -r '.total_opens' | tr -d '[:space:]')
-    total_opens=$((total_opens + 0))
+    total_opens=$(to_int "$total_opens")
     if [[ "$new_state" == "$CB_STATE_OPEN" && "$current_state" != "$CB_STATE_OPEN" ]]; then
         total_opens=$((total_opens + 1))
     fi

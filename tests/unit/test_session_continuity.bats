@@ -167,6 +167,57 @@ function_exists_in_ralph() {
     [[ "$output" == "false" ]]
 }
 
+@test "should_resume_session honors a non-UTC offset (issue #368)" {
+    # 2h old in UTC terms, written with a -07:00 offset: must resume (< 24h)
+    local ts
+    ts=$(TZ=America/Los_Angeles date -d "@$(( $(date +%s) - 7200 ))" +%Y-%m-%dT%H:%M:%S%:z 2>/dev/null) || skip "date -d @epoch unavailable"
+    echo "{\"session_id\": \"s-offset\", \"timestamp\": \"$ts\"}" > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+    [[ "$output" == "true" ]]
+}
+
+@test "should_resume_session works when date does not identify as GNU (issue #368)" {
+    # uutils coreutils supports `date -d` but its --version has no "GNU"
+    date() { if [[ "${1:-}" == "--version" ]]; then echo "date (uutils coreutils) 0.10.0"; else command date "$@"; fi; }
+    local now_iso
+    now_iso=$(get_iso_timestamp)
+    echo "{\"session_id\": \"s-uutils\", \"timestamp\": \"$now_iso\"}" > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+    [[ "$output" == "true" ]]
+}
+
+@test "should_resume_session returns false for an unparsable timestamp (issue #368)" {
+    echo '{"session_id": "s-bad", "timestamp": "not-a-date"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+    [[ "$output" == "false" ]]
+}
+
+@test "should_resume_session returns false for a well-formed but impossible timestamp (issue #368)" {
+    echo '{"session_id": "s-bad", "timestamp": "2026-13-45T99:99:99+00:00"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+    [[ "$output" == "false" ]]
+}
+
+@test "should_resume_session rejects impossible timestamps where date normalizes them (BSD/macOS, issue #368)" {
+    # BSD `date -j -f` does no range checking: 2026-13-45T99:99:99 silently
+    # rolls over into a valid epoch. Simulate that date on any host.
+    date() {
+        case "$*" in
+            *-d*) return 1 ;;                                  # BSD: no GNU -d
+            *-j*) command date +%s ;;                          # "normalized" -> now
+            *) command date "$@" ;;
+        esac
+    }
+    echo '{"session_id": "s-bsd", "timestamp": "2026-13-45T99:99:99+00:00"}' > "$CLAUDE_SESSION_FILE"
+
+    run should_resume_session
+    [[ "$output" == "false" ]]
+}
+
 @test "should_resume_session returns false when no session file" {
     rm -f "$CLAUDE_SESSION_FILE"
 

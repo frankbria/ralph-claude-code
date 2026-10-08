@@ -1427,8 +1427,8 @@ EOF
 @test "source statements have explicit error guards" {
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # All 5 library source lines must have || { echo "FATAL: ..."; exit 1; }
-    local libs=("date_utils.sh" "timeout_utils.sh" "response_analyzer.sh" "circuit_breaker.sh" "file_protection.sh")
+    # All 6 library source lines must have || { echo "FATAL: ..."; exit 1; }
+    local libs=("date_utils.sh" "int_utils.sh" "timeout_utils.sh" "response_analyzer.sh" "circuit_breaker.sh" "file_protection.sh")
     for lib in "${libs[@]}"; do
         run grep "source.*${lib}.*|| { echo.*FATAL.*exit 1; }" "$script"
         assert_success

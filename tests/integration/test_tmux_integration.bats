@@ -56,166 +56,9 @@ get_tmux_pane_base_index() {
 }
 
 # Setup tmux session with monitor
-setup_tmux_session() {
-    local session_name="ralph-$(date +%s)"
-    local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
-    local project_dir="$(pwd)"
-
-    # base-index / pane-base-index are detected AFTER the server starts (below).
-    # See ralph_loop.sh: querying earlier fails when no tmux server exists yet
-    # (first run) — `tmux show-options` does not auto-start a server, so detection
-    # silently defaults to 0. With a base-index 1 config that yields off-by-one
-    # pane targets and the loop never starts (tmux shows empty idle panes). Keep
-    # this inline mirror in sync with ralph_loop.sh.
-    local base_win base_pane pane0 pane1 pane2
-
-    log_status "INFO" "Setting up tmux session: $session_name"
-
-    # Initialize live.log file
-    echo "=== Ralph Live Output - Waiting for first loop... ===" > "$LIVE_LOG_FILE"
-
-    # Create new tmux session detached (left pane - Ralph loop). Starts the server.
-    tmux new-session -d -s "$session_name" -c "$project_dir"
-
-    # Detect base-index / pane-base-index now that the server is running.
-    base_win=$(get_tmux_base_index)
-    base_pane=$(get_tmux_pane_base_index)
-    pane0=$((base_pane + 0))
-    pane1=$((base_pane + 1))
-    pane2=$((base_pane + 2))
-
-    # Split window vertically (right side)
-    tmux split-window -h -t "$session_name" -c "$project_dir"
-
-    # Split right pane horizontally (top: Claude output, bottom: status)
-    tmux split-window -v -t "$session_name:${base_win}.${pane1}" -c "$project_dir"
-
-    # Right-top pane: Live Claude Code output
-    tmux send-keys -t "$session_name:${base_win}.${pane1}" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
-
-    # Right-bottom pane: Ralph status monitor
-    if command -v ralph-monitor &> /dev/null; then
-        tmux send-keys -t "$session_name:${base_win}.${pane2}" "ralph-monitor" Enter
-    else
-        tmux send-keys -t "$session_name:${base_win}.${pane2}" "'$ralph_home/ralph_monitor.sh'" Enter
-    fi
-
-    # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
-    local ralph_cmd
-    if command -v ralph &> /dev/null; then
-        ralph_cmd="ralph"
-    else
-        ralph_cmd="'$ralph_home/ralph_loop.sh'"
-    fi
-
-    # Always use --live mode in tmux for real-time streaming
-    ralph_cmd="$ralph_cmd --live"
-
-    # Forward --calls if non-default
-    if [[ "$MAX_CALLS_PER_HOUR" != "100" ]]; then
-        ralph_cmd="$ralph_cmd --calls $MAX_CALLS_PER_HOUR"
-    fi
-    # Forward --prompt if non-default
-    if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
-        ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
-    fi
-    # Forward --output-format if non-default
-    if [[ "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
-        ralph_cmd="$ralph_cmd --output-format $CLAUDE_OUTPUT_FORMAT"
-    fi
-    # Forward --verbose if enabled
-    if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-        ralph_cmd="$ralph_cmd --verbose"
-    fi
-    # Forward --timeout if non-default
-    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
-        ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
-    fi
-    # Forward --allowed-tools if non-default
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(npm *),Bash(pytest)" ]]; then
-        ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
-    fi
-    # Forward --no-continue if session continuity disabled
-    if [[ "$CLAUDE_USE_CONTINUE" == "false" ]]; then
-        ralph_cmd="$ralph_cmd --no-continue"
-    fi
-    # Forward --session-expiry if non-default
-    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
-        ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
-    fi
-    # Forward --auto-reset-circuit if enabled
-    if [[ "$CB_AUTO_RESET" == "true" ]]; then
-        ralph_cmd="$ralph_cmd --auto-reset-circuit"
-    fi
-    # Forward --backup if enabled
-    if [[ "$ENABLE_BACKUP" == "true" ]]; then
-        ralph_cmd="$ralph_cmd --backup"
-    fi
-    # Forward GitHub issue lifecycle flags (Issue #73) so --monitor preserves them
-    if [[ -n "${GITHUB_ISSUE:-}" ]]; then
-        ralph_cmd="$ralph_cmd --github-issue '$GITHUB_ISSUE'"
-        [[ "${COMMENT_PROGRESS:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --comment-progress"
-        [[ "${COMMENT_INTERVAL:-5}" != "5" ]] && ralph_cmd="$ralph_cmd --comment-interval $COMMENT_INTERVAL"
-        [[ "${AUTO_CLOSE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --auto-close"
-        [[ "${CLOSE_SUMMARY:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --close-summary"
-        [[ "${CREATE_PR:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --create-pr"
-        [[ "${LINK_ISSUE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --link-issue"
-        [[ "${DRAFT_PR:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --draft-pr"
-        [[ "${CREATE_FOLLOWUPS:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --create-followups"
-        [[ "${FOLLOWUP_LABEL:-tech-debt}" != "tech-debt" ]] && ralph_cmd="$ralph_cmd --followup-label '$FOLLOWUP_LABEL'"
-        [[ -n "${ADD_COMPLETION_LABELS:-}" ]] && ralph_cmd="$ralph_cmd --add-label '$ADD_COMPLETION_LABELS'"
-    fi
-    # Forward Docker sandbox flags (Issue #74) so --monitor preserves them.
-    # Sub-flags forward independently of the provider: this runs BEFORE main()
-    # loads .ralphrc, which may be what supplies SANDBOX_PROVIDER — the child
-    # re-validates the sub-flag/provider pairing at its own startup.
-    [[ -n "${SANDBOX_PROVIDER:-}" ]] && ralph_cmd="$ralph_cmd --sandbox $SANDBOX_PROVIDER"
-    [[ "${SANDBOX_DOCKER_IMAGE:-ralph-sandbox:latest}" != "ralph-sandbox:latest" ]] && ralph_cmd="$ralph_cmd --sandbox-image '$SANDBOX_DOCKER_IMAGE'"
-    [[ "${SANDBOX_DOCKER_MEMORY:-4g}" != "4g" ]] && ralph_cmd="$ralph_cmd --sandbox-memory $SANDBOX_DOCKER_MEMORY"
-    [[ "${SANDBOX_DOCKER_CPUS:-2}" != "2" ]] && ralph_cmd="$ralph_cmd --sandbox-cpus $SANDBOX_DOCKER_CPUS"
-    [[ "${SANDBOX_DOCKER_NETWORK:-bridge}" != "bridge" ]] && ralph_cmd="$ralph_cmd --sandbox-network $SANDBOX_DOCKER_NETWORK"
-    # E2B sandbox flags (Issue #75) — same non-default forwarding rule
-    [[ "${SANDBOX_E2B_TEMPLATE:-base}" != "base" ]] && ralph_cmd="$ralph_cmd --sandbox-template '$SANDBOX_E2B_TEMPLATE'"
-    [[ -n "${SANDBOX_E2B_SANDBOX_ID:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-id '$SANDBOX_E2B_SANDBOX_ID'"
-    [[ "${SANDBOX_E2B_TIMEOUT:-3600}" != "3600" ]] && ralph_cmd="$ralph_cmd --sandbox-timeout $SANDBOX_E2B_TIMEOUT"
-    [[ "${SANDBOX_E2B_KEEP_ALIVE:-false}" == "true" ]] && ralph_cmd="$ralph_cmd --sandbox-keep-alive"
-    [[ -n "${SANDBOX_E2B_MAX_COST:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-max-cost $SANDBOX_E2B_MAX_COST"
-    [[ -n "${SANDBOX_E2B_COST_ALERT:-}" ]] && ralph_cmd="$ralph_cmd --sandbox-cost-alert $SANDBOX_E2B_COST_ALERT"
-    # Sync filter flags (Issue #76) — CLI flags with docker are rejected
-    # here (main() never runs in monitor mode); env-only values are not
-    # forwarded for docker, matching the plain-run behavior
-    if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]]; then
-        if [[ -n "${_cli_SYNC_INCLUDE:-}${_cli_SYNC_EXCLUDE:-}" ]]; then
-            log_status "ERROR" "--sync-include/--sync-exclude do not apply to --sandbox docker (the bind mount shares the whole project in real time)"
-            exit 1
-        fi
-    else
-        [[ -n "${SYNC_INCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-include '$SYNC_INCLUDE'"
-        [[ -n "${SYNC_EXCLUDE:-}" ]] && ralph_cmd="$ralph_cmd --sync-exclude '$SYNC_EXCLUDE'"
-    fi
-
-    tmux send-keys -t "$session_name:${base_win}.${pane0}" "$ralph_cmd; tmux kill-session -t $session_name 2>/dev/null" Enter
-
-    # Focus on left pane (main ralph loop)
-    tmux select-pane -t "$session_name:${base_win}.${pane0}"
-
-    # Set pane titles
-    tmux select-pane -t "$session_name:${base_win}.${pane0}" -T "Ralph Loop"
-    tmux select-pane -t "$session_name:${base_win}.${pane1}" -T "Claude Output"
-    tmux select-pane -t "$session_name:${base_win}.${pane2}" -T "Status"
-
-    # Set window title
-    tmux rename-window -t "$session_name:${base_win}" "Ralph: Loop | Output | Status"
-
-    log_status "SUCCESS" "Tmux session created with 3 panes:"
-    log_status "INFO" "Use Ctrl+B then D to detach from session"
-    log_status "INFO" "Use 'tmux attach -t $session_name' to reattach"
-
-    # Attach to session (this will block until session ends)
-    tmux attach-session -t "$session_name"
-
-    exit 0
-}
+# Load the REAL setup_tmux_session from ralph_loop.sh (an inline mirror drifted
+# silently and let forwarding regressions pass untested — PR #363)
+eval "$(sed -n '/^setup_tmux_session() {/,/^}/p' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")"
 
 # ==============================================================================
 # SETUP / TEARDOWN
@@ -814,4 +657,40 @@ assert_tmux_called_with() {
     local count
     count=$(grep -c "^tmux new-session" "$TMUX_CALL_LOG")
     [ "$count" -eq 2 ]
+}
+
+@test "setup_tmux_session forwards explicit CLI flags even at their default values (PR #363)" {
+    # The child loads the repository .ralphrc; a flag the user typed must be
+    # forwarded even when it equals the default, or the file wins in the pane
+    export MAX_CALLS_PER_HOUR=100 _cli_MAX_CALLS_PER_HOUR=100
+    export CLAUDE_TIMEOUT_MINUTES=15 _cli_CLAUDE_TIMEOUT_MINUTES=15
+    export CLAUDE_SESSION_EXPIRY_HOURS=24 _cli_CLAUDE_SESSION_EXPIRY_HOURS=24
+    export CLAUDE_OUTPUT_FORMAT=json _cli_CLAUDE_OUTPUT_FORMAT=json
+    export ENABLE_NOTIFICATIONS=true _cli_ENABLE_NOTIFICATIONS=true
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--calls 100"* ]]
+    [[ "$pane0_line" == *"--timeout 15"* ]]
+    [[ "$pane0_line" == *"--session-expiry 24"* ]]
+    [[ "$pane0_line" == *"--output-format json"* ]]
+    [[ "$pane0_line" == *"--notify"* ]]
+}
+
+@test "setup_tmux_session forwards --dry-run and --show-tool-args (PR #363)" {
+    # DRY_RUN is not exported: without forwarding, the pane child would make
+    # real API calls despite an explicit --monitor --dry-run
+    export DRY_RUN=true
+    export LIVE_SHOW_TOOL_ARGS=true
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0" "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"--dry-run"* ]]
+    [[ "$pane0_line" == *"--show-tool-args"* ]]
 }

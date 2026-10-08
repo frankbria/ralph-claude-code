@@ -4,6 +4,7 @@
 
 # Source date utilities for cross-platform compatibility
 source "$(dirname "${BASH_SOURCE[0]}")/date_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/int_utils.sh"
 
 # Response Analysis Functions
 # Based on expert recommendations from Martin Fowler, Michael Nygard, Sam Newman
@@ -322,7 +323,8 @@ parse_json_response() {
     # we set error_count=1 as a minimum. This is defensive programming since
     # the stuck detection threshold is >5 errors, so 1 error won't trigger it.
     # Actual error count may be higher, but precise count isn't critical for our logic.
-    local error_count=$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)
+    local error_count
+    error_count=$(to_int "$(jq -r '.error_count // 0' "$output_file" 2>/dev/null)")  # Claude output (#371)
     local has_errors=$(jq -r '.metadata.has_errors // false' "$output_file" 2>/dev/null)
     if [[ "$has_errors" == "true" && "$error_count" == "0" ]]; then
         error_count=1  # At least one error if has_errors is true
@@ -338,7 +340,8 @@ parse_json_response() {
     local loop_number=$(jq -r '.metadata.loop_number // .loop_number // 0' "$output_file" 2>/dev/null)
 
     # Confidence: from flat format
-    local confidence=$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)
+    local confidence
+    confidence=$(to_int "$(jq -r '.confidence // 0' "$output_file" 2>/dev/null)")
 
     # Progress indicators: from Claude CLI metadata (optional)
     local progress_count=$(jq -r '.metadata.progress_indicators | if . then length else 0 end' "$output_file" 2>/dev/null)
@@ -346,7 +349,7 @@ parse_json_response() {
     # Permission denials: from Claude Code output (Issue #101)
     # When Claude Code is denied permission to run commands, it outputs a permission_denials array
     local permission_denial_count=$(jq -r '.permission_denials | if . then length else 0 end' "$output_file" 2>/dev/null)
-    permission_denial_count=$((permission_denial_count + 0))  # Ensure integer
+    permission_denial_count=$(to_int "$permission_denial_count")  # jq length of a number can be fractional
 
     local has_permission_denials="false"
     if [[ $permission_denial_count -gt 0 ]]; then
@@ -374,7 +377,7 @@ parse_json_response() {
         # Count Bash denials. Anything else (e.g., AskUserQuestion) is a real gap.
         local bash_denial_count
         bash_denial_count=$(jq -r '[.permission_denials[] | select(.tool_name == "Bash")] | length' "$output_file" 2>/dev/null || echo "0")
-        bash_denial_count=$((bash_denial_count + 0))
+        bash_denial_count=$(to_int "$bash_denial_count")
 
         if [[ $bash_denial_count -gt 0 && $bash_denial_count -eq $permission_denial_count ]]; then
             # All denials are Bash — check coverage of each base command
@@ -425,10 +428,10 @@ parse_json_response() {
     fi
 
     # Ensure files_modified is integer
-    files_modified=$((files_modified + 0))
+    files_modified=$(to_int "$files_modified")  # from Claude's output: never evaluate (#371)
 
     # Ensure progress_count is integer
-    progress_count=$((progress_count + 0))
+    progress_count=$(to_int "$progress_count")
 
     # Calculate has_completion_signal
     local has_completion_signal="false"
@@ -531,17 +534,20 @@ analyze_response() {
             is_test_only=$(jq -r '.is_test_only' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             is_stuck=$(jq -r '.is_stuck' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
             work_summary=$(jq -r '.summary' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
-            files_modified=$(jq -r '.files_modified' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
-            local json_confidence=$(jq -r '.confidence' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            files_modified=$(to_int "$(jq -r '.files_modified' $RALPH_DIR/.json_parse_result 2>/dev/null)")
+            local json_confidence
+            json_confidence=$(to_int "$(jq -r '.confidence' $RALPH_DIR/.json_parse_result 2>/dev/null)")
             local session_id=$(jq -r '.session_id' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "")
 
             # Extract permission denial fields (Issue #101)
             local has_permission_denials=$(jq -r '.has_permission_denials' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
-            local permission_denial_count=$(jq -r '.permission_denial_count' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            local permission_denial_count
+            permission_denial_count=$(to_int "$(jq -r '.permission_denial_count' $RALPH_DIR/.json_parse_result 2>/dev/null)")
             local denied_commands_json=$(jq -r '.denied_commands' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "[]")
             # Compound-command limitation flag (Issue #243)
             local has_compound_command_limitation=$(jq -r '.has_compound_command_limitation // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
-            local compound_command_count=$(jq -r '.compound_command_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "0")
+            local compound_command_count
+            compound_command_count=$(to_int "$(jq -r '.compound_command_count // 0' $RALPH_DIR/.json_parse_result 2>/dev/null)")
 
             # Persist session ID if present (for session continuity across loop iterations)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
@@ -1120,25 +1126,21 @@ should_resume_session() {
     local now=$(get_epoch_seconds)
     local session_time
 
-    # Parse ISO timestamp to epoch - try multiple formats for cross-platform compatibility
+    # Parse ISO timestamp to epoch via date_utils' capability-based strict parser
+    # (GNU/uutils `date -d` → BSD `date -j` with %z). Brand checks like
+    # `date --version | grep GNU` misfire on uutils coreutils (Issue #368).
+    # Anything that doesn't parse counts as expired.
     # Strip milliseconds if present (e.g., 2026-01-09T10:30:00.123+00:00 → 2026-01-09T10:30:00+00:00)
     local clean_timestamp="${timestamp}"
-    if [[ "$timestamp" =~ \.[0-9]+[+-Z] ]]; then
-        clean_timestamp=$(echo "$timestamp" | sed 's/\.[0-9]*\([+-Z]\)/\1/')
+    if [[ "$timestamp" =~ ^([^.]+)\.[0-9]+(Z|[+-].*)$ ]]; then
+        clean_timestamp="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
     fi
-
-    if command -v gdate &>/dev/null; then
-        # macOS with coreutils
-        session_time=$(gdate -d "$clean_timestamp" +%s 2>/dev/null)
-    elif date --version 2>&1 | grep -q GNU; then
-        # GNU date (Linux)
-        session_time=$(date -d "$clean_timestamp" +%s 2>/dev/null)
-    else
-        # BSD date (macOS without coreutils) - try parsing ISO format
-        # Format: 2026-01-09T10:30:00+00:00 or 2026-01-09T10:30:00Z
-        # Strip timezone suffix for BSD date parsing
-        local date_only="${clean_timestamp%[+-Z]*}"
-        session_time=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$date_only" +%s 2>/dev/null)
+    # Range-checked here because BSD `date -j -f` silently normalizes out-of-range
+    # fields (2026-13-45 rolls into 2027) instead of rejecting them. Day-of-month
+    # vs. month (Feb 30) is still left to the parser: GNU rejects it, BSD rolls it.
+    local iso_re='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](Z|[+-]([01][0-9]|2[0-3]):?[0-5][0-9])$'
+    if [[ "$clean_timestamp" =~ $iso_re ]]; then
+        session_time=$(iso_to_epoch_strict "$clean_timestamp") || session_time=""
     fi
 
     # If we couldn't parse the timestamp, consider session expired

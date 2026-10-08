@@ -86,7 +86,8 @@ PROJECT_TYPE="generic"
 # Claude Code CLI command
 # If "claude" is not in your PATH, set to your installation:
 #   "npx @anthropic-ai/claude-code"  (uses npx, no global install needed)
-#   "/path/to/claude"                (custom path)
+# A custom path (/path/to/claude) is only honored from the environment:
+#   export CLAUDE_CODE_CMD=/path/to/claude
 CLAUDE_CODE_CMD="${_claude_cmd}"
 
 # Loop settings

@@ -93,6 +93,11 @@ SANDBOX_E2B_COST_PER_HOUR="0.10"
 Environment variables of the same names take precedence over `.ralphrc`, and
 `--monitor` (tmux) forwards all sandbox flags to the loop pane.
 
+Custom templates (`SANDBOX_E2B_TEMPLATE` other than `base`) and
+`SANDBOX_E2B_SANDBOX_ID` are accepted only from env vars or `--sandbox-template` /
+`--sandbox-id`, not from `.ralphrc` — a repository must not pick the environment
+that receives your credentials (Issue #346).
+
 ## Credentials
 
 Two independent secrets, neither of which ever appears on a command line:
