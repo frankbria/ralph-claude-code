@@ -475,7 +475,7 @@ NC='\033[0m' # No Color
 # Generic names (logs/, AGENT.md, ...) are excluded to avoid false-positive halts
 # on non-Ralph projects. Shared by the init guard and main()'s gate (Issue #41).
 is_legacy_flat_structure() {
-    [[ -d ".ralph" ]] && return 1
+    [[ -d "${RALPH_DIR:-.ralph}" ]] && return 1
     [[ -f "PROMPT.md" ]] || [[ -f "@fix_plan.md" ]] || [[ -f "@AGENT.md" ]]
 }
 
@@ -520,6 +520,10 @@ get_tmux_pane_base_index() {
 setup_tmux_session() {
     local session_name="ralph-$(date +%s)"
     local ralph_home="${RALPH_HOME:-$HOME/.ralph}"
+    # tmux doesn't import this client's environment into a running server, so
+    # a relocated RALPH_DIR rides on the pane commands themselves (Issue #352)
+    local env_prefix=""
+    [[ "${RALPH_DIR:-.ralph}" != ".ralph" ]] && env_prefix="RALPH_DIR=$(printf '%q' "$RALPH_DIR") "
     local project_dir="$(pwd)"
 
     # base-index / pane-base-index are detected AFTER the server starts (below).
@@ -560,18 +564,18 @@ setup_tmux_session() {
 
     # Right-bottom pane: Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then
-        tmux send-keys -t "$session_name:${base_win}.${pane2}" "ralph-monitor" Enter
+        tmux send-keys -t "$session_name:${base_win}.${pane2}" "${env_prefix}ralph-monitor" Enter
     else
-        tmux send-keys -t "$session_name:${base_win}.${pane2}" "'$ralph_home/ralph_monitor.sh'" Enter
+        tmux send-keys -t "$session_name:${base_win}.${pane2}" "${env_prefix}'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
     # Forward all CLI parameters that were set by the user
     local ralph_cmd
     if command -v ralph &> /dev/null; then
-        ralph_cmd="ralph"
+        ralph_cmd="${env_prefix}ralph"
     else
-        ralph_cmd="'$ralph_home/ralph_loop.sh'"
+        ralph_cmd="${env_prefix}'$ralph_home/ralph_loop.sh'"
     fi
 
     # Always use --live mode in tmux for real-time streaming

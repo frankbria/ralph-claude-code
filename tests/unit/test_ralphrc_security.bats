@@ -519,3 +519,10 @@ run_ralph_dry() {
     load_rc
     [ "$RALPH_DIR" = ".custom-ralph" ]
 }
+
+@test "issue #352: a relocated RALPH_DIR is not mistaken for a legacy flat layout" {
+    eval "$(sed -n '/^is_legacy_flat_structure()/,/^}/p' "$RALPH_LOOP")"
+    mkdir -p .custom-ralph && touch PROMPT.md && rm -rf .ralph
+    RALPH_DIR=.custom-ralph
+    ! is_legacy_flat_structure
+}

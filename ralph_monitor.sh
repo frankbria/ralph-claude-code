@@ -4,8 +4,9 @@
 # Note: set -e intentionally removed — the monitor is a display-only loop
 # that must be resilient to transient write errors on broken tmux ptys (Issue #188)
 
-STATUS_FILE=".ralph/status.json"
-LOG_FILE=".ralph/logs/ralph.log"
+RALPH_DIR="${RALPH_DIR:-.ralph}"   # honor a relocated state dir (Issue #352)
+STATUS_FILE="$RALPH_DIR/status.json"
+LOG_FILE="$RALPH_DIR/logs/ralph.log"
 REFRESH_INTERVAL=2
 
 # Colors
@@ -75,8 +76,8 @@ display_status() {
     fi
     
     # Claude Code Progress section
-    if [[ -f ".ralph/progress.json" ]]; then
-        local progress_data=$(cat ".ralph/progress.json" 2>/dev/null)
+    if [[ -f "$RALPH_DIR/progress.json" ]]; then
+        local progress_data=$(cat "$RALPH_DIR/progress.json" 2>/dev/null)
         local progress_status=$(echo "$progress_data" | jq -r '.status // "idle"' 2>/dev/null || echo "idle")
         
         if [[ "$progress_status" == "executing" ]]; then
@@ -148,7 +149,7 @@ display_sandbox_status() {
 
 # Issue queue progress (Issue #72). No-op unless .ralph/queue.json exists.
 display_queue_status() {
-    local queue_file=".ralph/queue.json"
+    local queue_file="$RALPH_DIR/queue.json"
     [[ -f "$queue_file" ]] || return 0
 
     local total pending processing completed failed

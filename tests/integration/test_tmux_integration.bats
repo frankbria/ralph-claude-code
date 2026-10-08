@@ -694,3 +694,18 @@ assert_tmux_called_with() {
     [[ "$pane0_line" == *"--dry-run"* ]]
     [[ "$pane0_line" == *"--show-tool-args"* ]]
 }
+
+@test "setup_tmux_session forwards a relocated RALPH_DIR to the loop and monitor panes (#352)" {
+    # tmux doesn't import the client environment into a running server, so
+    # RALPH_DIR must ride on the pane commands themselves
+    export RALPH_DIR=".custom-ralph"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane0_line pane2_line
+    pane0_line=$(grep -E "tmux send-keys -t [^ ]+\.0 " "$TMUX_CALL_LOG" | head -1)
+    pane2_line=$(grep -E "tmux send-keys -t [^ ]+\.2 " "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane0_line" == *"RALPH_DIR=.custom-ralph "* ]]
+    [[ "$pane2_line" == *"RALPH_DIR=.custom-ralph "* ]]
+}

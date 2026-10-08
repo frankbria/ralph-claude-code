@@ -328,3 +328,8 @@ JSONEOF
     echo "$output" | grep -q "┌─ Sandbox" && { echo "sandbox section shown for provider none"; return 1; }
     return 0
 }
+
+@test "ralph_monitor.sh reads a relocated RALPH_DIR (#352)" {
+    run bash -c 'RALPH_DIR=.custom-ralph; source "$1"; echo "$STATUS_FILE|$LOG_FILE"' _ "$_monitor_funcs"
+    [[ "$output" == *".custom-ralph/status.json|.custom-ralph/logs/ralph.log"* ]]
+}
