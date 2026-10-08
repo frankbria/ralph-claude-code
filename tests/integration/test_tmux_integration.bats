@@ -709,3 +709,15 @@ assert_tmux_called_with() {
     [[ "$pane0_line" == *"RALPH_DIR=.custom-ralph "* ]]
     [[ "$pane2_line" == *"RALPH_DIR=.custom-ralph "* ]]
 }
+
+@test "setup_tmux_session tails an absolute RALPH_DIR's live log without double-pathing (#352)" {
+    export RALPH_DIR="/tmp/ralph-abs-state"
+    export LIVE_LOG_FILE="$RALPH_DIR/live.log"
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local pane1_line
+    pane1_line=$(grep -E "tmux send-keys -t [^ ]+\.1 " "$TMUX_CALL_LOG" | head -1)
+    [[ "$pane1_line" == *"tail -f '/tmp/ralph-abs-state/live.log'"* ]] || { echo "$pane1_line"; false; }
+}

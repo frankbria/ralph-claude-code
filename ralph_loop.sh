@@ -560,7 +560,10 @@ setup_tmux_session() {
     tmux split-window -v -t "$session_name:${base_win}.${pane1}" -c "$project_dir"
 
     # Right-top pane: Live Claude Code output
-    tmux send-keys -t "$session_name:${base_win}.${pane1}" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+    # An absolute RALPH_DIR makes LIVE_LOG_FILE absolute already (Issue #352)
+    local live_log="$LIVE_LOG_FILE"
+    [[ "$live_log" == /* ]] || live_log="$project_dir/$live_log"
+    tmux send-keys -t "$session_name:${base_win}.${pane1}" "tail -f '$live_log'" Enter
 
     # Right-bottom pane: Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then

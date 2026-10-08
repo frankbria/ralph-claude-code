@@ -421,3 +421,15 @@ EOF
     [ "$status" -eq 0 ]
     [ "$(jq -r '.queue[0].status' "$RALPH_DIR/queue.json")" = "completed" ]
 }
+
+@test "process points fix_plan.md at specs inside a relocated RALPH_DIR (#352)" {
+    _install_loop_mock
+    export RALPH_DIR="$TEST_DIR/.custom-ralph"
+    mkdir -p "$RALPH_DIR"
+    echo "# my spec" > "$TEST_DIR/feature.md"
+    "$RALPH_QUEUE" add --prd "$TEST_DIR/feature.md"
+    run "$RALPH_QUEUE" process
+    [ "$status" -eq 0 ]
+    grep -q "$RALPH_DIR/specs/" "$RALPH_DIR/fix_plan.md" || { cat "$RALPH_DIR/fix_plan.md"; false; }
+    [ "$(grep -c '\.ralph/specs/' "$RALPH_DIR/fix_plan.md")" -eq 0 ]
+}
