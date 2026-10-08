@@ -385,6 +385,13 @@ run_ralph_dry() {
     [ -e "$TEST_DIR/env-marker" ]
 }
 
+@test "issue #369: ralph-import honors CLAUDE_MIN_VERSION from the environment" {
+    run env CLAUDE_MIN_VERSION=9.8.7 bash -c 'source "$1"; echo "MIN=$CLAUDE_MIN_VERSION"' _ "${BATS_TEST_DIRNAME}/../../ralph_import.sh"
+    [[ "$output" == *"MIN=9.8.7"* ]]
+    run env -u CLAUDE_MIN_VERSION bash -c 'source "$1"; echo "MIN=$CLAUDE_MIN_VERSION"' _ "${BATS_TEST_DIRNAME}/../../ralph_import.sh"
+    [[ "$output" == *"MIN=2.0.76"* ]]
+}
+
 @test "issue #346: inspect-allowed-tools reads .ralphrc as data, not code" {
     printf '%s\n' "touch $TEST_DIR/marker" 'ALLOWED_TOOLS="Write,Bash(git add *)"' > .ralphrc
 
