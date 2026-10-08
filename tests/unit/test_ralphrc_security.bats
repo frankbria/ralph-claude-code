@@ -501,3 +501,13 @@ run_ralph_dry() {
     [ "$CLAUDE_MIN_VERSION" = "2" ]
     [ "$(grep -c 'must be a number' "$TEST_DIR/out")" -eq 4 ]
 }
+
+@test "issue #352: RALPH_DIR is environment-only (a repo .ralphrc can't relocate Ralph's state)" {
+    RALPH_DIR=".ralph"
+    echo 'RALPH_DIR="/tmp/elsewhere"' > .ralphrc
+
+    load_rc
+    [ "$RALPH_DIR" = ".ralph" ]
+    grep -q "RALPH_DIR" "$TEST_DIR/out"
+    grep -q "only accepted from the environment" "$TEST_DIR/out"
+}
