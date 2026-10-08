@@ -255,7 +255,7 @@ _ensure_loop_files() {
 
 ## Context
 You are Ralph, an autonomous AI development agent processing a queue of issues.
-Work the current task in .ralph/fix_plan.md, using the linked spec for detail.
+Work the current task in fix_plan.md (next to this prompt), using the linked spec for detail.
 
 ## Key Principles
 - ONE task per loop — focus on the most important thing
@@ -313,7 +313,7 @@ _prepare_work() {
             return 1
         fi
         rm -f "$tmp"
-        _ensure_loop_files "Implement GitHub issue #${num}" ".ralph/specs/issue-${num}.md"
+        _ensure_loop_files "Implement GitHub issue #${num}" "$RALPH_DIR/specs/issue-${num}.md"
     else
         local path id spec_name
         path=$(echo "$entry" | jq -r '.path')
@@ -324,7 +324,7 @@ _prepare_work() {
         # (claude-review #72).
         spec_name="${id}-$(basename "$path")"
         cp "$path" "$RALPH_DIR/specs/$spec_name"
-        _ensure_loop_files "Implement spec $(basename "$path")" ".ralph/specs/$spec_name"
+        _ensure_loop_files "Implement spec $(basename "$path")" "$RALPH_DIR/specs/$spec_name"
     fi
 }
 

@@ -1109,3 +1109,14 @@ EOF
     run cleanup_e2b_sandbox
     [ ! -e "$TEST_DIR/PWNED" ]
 }
+
+@test "sync_e2b_artifacts_down: never deletes a relocated RALPH_DIR's files (#352)" {
+    _started_sandbox
+    export RALPH_DIR="$TEST_DIR/.custom-ralph"
+    mkdir -p "$RALPH_DIR"
+    echo "keep" > "$RALPH_DIR/fix_plan.md"
+    printf '%s\n' ".custom-ralph/fix_plan.md" > "$E2B_SYNCED_FILES_FILE"   # path fixed at source time
+    printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
+    sync_e2b_artifacts_down
+    assert_file_exists "$RALPH_DIR/fix_plan.md"
+}

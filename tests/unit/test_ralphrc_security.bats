@@ -501,3 +501,29 @@ run_ralph_dry() {
     [ "$CLAUDE_MIN_VERSION" = "2" ]
     [ "$(grep -c 'must be a number' "$TEST_DIR/out")" -eq 4 ]
 }
+
+@test "issue #352: RALPH_DIR is environment-only (a repo .ralphrc can't relocate Ralph's state)" {
+    RALPH_DIR=".ralph"
+    echo 'RALPH_DIR="/tmp/elsewhere"' > .ralphrc
+
+    load_rc
+    [ "$RALPH_DIR" = ".ralph" ]
+    grep -q "RALPH_DIR" "$TEST_DIR/out"
+    grep -q "only accepted from the environment" "$TEST_DIR/out"
+}
+
+@test "issue #352: an empty RALPH_DIR= in .ralphrc can't clear the exported RALPH_DIR" {
+    RALPH_DIR=".custom-ralph"
+    echo 'RALPH_DIR=' > .ralphrc
+
+    load_rc
+    [ "$RALPH_DIR" = ".custom-ralph" ]
+}
+
+@test "issue #352: a relocated RALPH_DIR is not mistaken for a legacy flat layout" {
+    eval "$(sed -n '/^is_legacy_flat_structure()/,/^}/p' "$RALPH_LOOP")"
+    mkdir -p .custom-ralph && touch PROMPT.md && rm -rf .ralph
+    RALPH_DIR=.custom-ralph
+    run is_legacy_flat_structure
+    [ "$status" -ne 0 ]
+}
