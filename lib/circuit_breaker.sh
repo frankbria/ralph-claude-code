@@ -178,6 +178,7 @@ record_loop_result() {
     local has_progress=false
     local has_completion_signal=false
     local ralph_files_modified=0
+    local self_reported_progress=false
 
     # Check response analysis file for completion signals and reported file changes
     local response_analysis_file="$RALPH_DIR/.response_analysis"
@@ -195,6 +196,10 @@ record_loop_result() {
         # Check if Claude reported files modified (may differ from git diff if already committed)
         ralph_files_modified=$(jq -r '.analysis.files_modified // 0' "$response_analysis_file" 2>/dev/null || echo "0")
         ralph_files_modified=$(to_int "$ralph_files_modified")
+
+        # Issue #340: explicit "PROGRESS: true" self-report (non-file work in a
+        # workspace whose CWD isn't a git repo)
+        self_reported_progress=$(jq -r '.analysis.self_reported_progress // false' "$response_analysis_file" 2>/dev/null || echo "false")
     fi
 
     # Track permission denials (Issue #101)
@@ -229,6 +234,11 @@ record_loop_result() {
         last_progress_loop=$loop_number
     elif [[ $ralph_files_modified -gt 0 ]]; then
         # Claude reported modifying files (may be committed already)
+        has_progress=true
+        consecutive_no_progress=0
+        last_progress_loop=$loop_number
+    elif [[ "$self_reported_progress" == "true" ]]; then
+        # Claude reported non-file progress (Issue #340)
         has_progress=true
         consecutive_no_progress=0
         last_progress_loop=$loop_number

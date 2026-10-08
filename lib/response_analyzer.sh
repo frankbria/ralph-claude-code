@@ -155,6 +155,14 @@ _base_command_in_allowed_tools() {
 # then the progress proxy).
 # Sets GIT_PROGRESS_DIR ("." for the CWD repo, "$RALPH_DIR" for the fallback).
 # Returns 1 when no repository is available in either location.
+# True when the loop CWD is inside a git work tree. Self-reported progress
+# (RALPH_STATUS FILES_MODIFIED / PROGRESS) is only trusted when it is NOT:
+# in a git repo, git decides, so a stuck model can't hold the breaker open by
+# claiming progress (Issue #340, maintainer decision).
+_cwd_is_git_work_tree() {
+    command -v git &>/dev/null && git rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
 _resolve_git_progress_dir() {
     GIT_PROGRESS_DIR=""
     if git rev-parse --git-dir >/dev/null 2>&1; then
@@ -347,7 +355,7 @@ parse_json_response() {
     # Same explicit-intent semantics as the EXIT_SIGNAL extraction above; both
     # lines are anchored at start-of-line so prose mentions do not trigger them.
     local self_reported_progress="false"
-    if [[ "$has_result_field" == "true" ]]; then
+    if [[ "$has_result_field" == "true" ]] && ! _cwd_is_git_work_tree; then
         local rs_result_text=$(jq -r '.result // ""' "$output_file" 2>/dev/null)
         if [[ -n "$rs_result_text" ]] && echo "$rs_result_text" | grep -qE -- "^[[:space:]]*(---RALPH_STATUS---|RALPH_STATUS:)"; then
             local embedded_files_modified
@@ -564,6 +572,9 @@ analyze_response() {
     local exit_signal=false
     local work_summary=""
     local files_modified=0
+    # Issue #340: explicit self-report (RALPH_STATUS "PROGRESS: true") that the
+    # circuit breaker honors when git-based detection is blind
+    local self_reported_progress=false
 
     # Read output file
     if [[ ! -f "$output_file" ]]; then
@@ -593,7 +604,8 @@ analyze_response() {
 
             # Issue #340: structured or self-reported file changes count as progress
             # even when git-based detection below is unavailable (non-git CWD)
-            local self_reported_progress=$(jq -r '.self_reported_progress // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            self_reported_progress=$(jq -r '.self_reported_progress // false' $RALPH_DIR/.json_parse_result 2>/dev/null || echo "false")
+            [[ "$self_reported_progress" == "true" ]] || self_reported_progress=false
             if [[ "$files_modified" =~ ^[0-9]+$ ]] && (( files_modified > 0 )); then
                 has_progress=true
             fi
@@ -684,6 +696,7 @@ analyze_response() {
                 --argjson is_test_only "$is_test_only" \
                 --argjson is_stuck "$is_stuck" \
                 --argjson has_progress "$has_progress" \
+                --argjson self_reported_progress "$self_reported_progress" \
                 --argjson files_modified "$files_modified" \
                 --argjson confidence_score "$confidence_score" \
                 --argjson exit_signal "$exit_signal" \
@@ -706,6 +719,7 @@ analyze_response() {
                         is_test_only: $is_test_only,
                         is_stuck: $is_stuck,
                         has_progress: $has_progress,
+                        self_reported_progress: $self_reported_progress,
                         files_modified: $files_modified,
                         confidence_score: $confidence_score,
                         exit_signal: $exit_signal,
@@ -745,6 +759,19 @@ analyze_response() {
         # Parse structured output
         local status=$(grep "STATUS:" "$output_file" | cut -d: -f2 | xargs)
         local exit_sig=$(grep "EXIT_SIGNAL:" "$output_file" | cut -d: -f2 | xargs)
+
+        # Issue #340: same self-report as the JSON path (start-of-line anchored,
+        # numeric-validated, non-git CWD only) so text mode doesn't trip the breaker
+        if ! _cwd_is_git_work_tree; then
+            local reported_files
+            reported_files=$(grep -E "^[[:space:]]*FILES_MODIFIED:" "$output_file" | head -1 | cut -d: -f2 | xargs)
+            if [[ "$reported_files" =~ ^[0-9]{1,9}$ ]] && (( reported_files > files_modified )); then
+                files_modified=$reported_files
+            fi
+            if [[ "$(grep -E "^[[:space:]]*PROGRESS:" "$output_file" | head -1 | cut -d: -f2 | xargs)" == "true" ]]; then
+                self_reported_progress=true
+            fi
+        fi
 
         # If EXIT_SIGNAL is explicitly provided, respect it
         if [[ -n "$exit_sig" ]]; then
@@ -925,6 +952,7 @@ analyze_response() {
         --argjson is_test_only "$is_test_only" \
         --argjson is_stuck "$is_stuck" \
         --argjson has_progress "$has_progress" \
+        --argjson self_reported_progress "$self_reported_progress" \
         --argjson files_modified "$files_modified" \
         --argjson confidence_score "$confidence_score" \
         --argjson exit_signal "$exit_signal" \
@@ -942,6 +970,7 @@ analyze_response() {
                 is_test_only: $is_test_only,
                 is_stuck: $is_stuck,
                 has_progress: $has_progress,
+                self_reported_progress: $self_reported_progress,
                 files_modified: $files_modified,
                 confidence_score: $confidence_score,
                 exit_signal: $exit_signal,
