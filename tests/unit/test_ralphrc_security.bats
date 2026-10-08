@@ -524,5 +524,6 @@ run_ralph_dry() {
     eval "$(sed -n '/^is_legacy_flat_structure()/,/^}/p' "$RALPH_LOOP")"
     mkdir -p .custom-ralph && touch PROMPT.md && rm -rf .ralph
     RALPH_DIR=.custom-ralph
-    ! is_legacy_flat_structure
+    run is_legacy_flat_structure
+    [ "$status" -ne 0 ]
 }
