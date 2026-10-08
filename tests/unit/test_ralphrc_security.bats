@@ -511,3 +511,11 @@ run_ralph_dry() {
     grep -q "RALPH_DIR" "$TEST_DIR/out"
     grep -q "only accepted from the environment" "$TEST_DIR/out"
 }
+
+@test "issue #352: an empty RALPH_DIR= in .ralphrc can't clear the exported RALPH_DIR" {
+    RALPH_DIR=".custom-ralph"
+    echo 'RALPH_DIR=' > .ralphrc
+
+    load_rc
+    [ "$RALPH_DIR" = ".custom-ralph" ]
+}

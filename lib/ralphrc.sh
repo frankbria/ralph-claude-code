@@ -52,16 +52,18 @@ ralphrc_parse_line() {
 #
 # Command-bearing keys decide what Ralph executes, sources, or hands
 # credentials to (or, for SANDBOX_DOCKER_NETWORK=host, how isolated it is;
-# for RALPH_DIR, where state/logs are written and PROMPT.md is read - Issue #352). From the repo file only stock values are honored; custom
-# values must come from the user's environment (or CLI flags). Returns 1 for a
-# disallowed command-bearing value, 0 otherwise.
+# for RALPH_DIR, where state/logs are written and PROMPT.md is read - #352).
+# From the repo file only stock values are honored; custom values must come
+# from the user's environment (or CLI flags). RALPH_DIR is never taken from the
+# file, not even empty (it has no _env_ restore). Returns 1 for a disallowed
+# command-bearing value, 0 otherwise.
 ralphrc_value_allowed() {
     case "$1=$2" in
         CLAUDE_CODE_CMD=|CLAUDE_CODE_CMD=claude|"CLAUDE_CODE_CMD=npx @anthropic-ai/claude-code") return 0 ;;
         SANDBOX_DOCKER_IMAGE=|SANDBOX_DOCKER_IMAGE=ralph-sandbox:latest|SANDBOX_DOCKER_IMAGE=ghcr.io/frankbria/ralph-sandbox:latest) return 0 ;;
         SANDBOX_E2B_TEMPLATE=|SANDBOX_E2B_TEMPLATE=base) return 0 ;;
         SANDBOX_DOCKER_NETWORK=|SANDBOX_DOCKER_NETWORK=bridge|SANDBOX_DOCKER_NETWORK=none) return 0 ;;
-        RALPH_SHELL_INIT_FILE=|SANDBOX_E2B_SANDBOX_ID=|RALPH_DIR=) return 0 ;;
+        RALPH_SHELL_INIT_FILE=|SANDBOX_E2B_SANDBOX_ID=) return 0 ;;
         CLAUDE_CODE_CMD=*|SANDBOX_DOCKER_IMAGE=*|SANDBOX_E2B_TEMPLATE=*|SANDBOX_DOCKER_NETWORK=*|RALPH_SHELL_INIT_FILE=*|SANDBOX_E2B_SANDBOX_ID=*|RALPH_DIR=*) return 1 ;;
     esac
     return 0
