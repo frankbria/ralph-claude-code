@@ -458,6 +458,10 @@ These keys have no CLI flag equivalent — they can only be set in `.ralphrc` or
 | `CB_NO_PROGRESS_THRESHOLD` | `3` | Open circuit breaker after N consecutive loops with no file changes. |
 | `CB_SAME_ERROR_THRESHOLD` | `5` | Open circuit breaker after N consecutive loops with the same error. |
 | `CB_OUTPUT_DECLINE_THRESHOLD` | `70` | Open circuit breaker if output size declines by more than N%. |
+| `CB_PERMISSION_DENIAL_THRESHOLD` | `2` | Open circuit breaker after N consecutive loops with permission denials. |
+| `MAX_CONSECUTIVE_TEST_LOOPS` | `3` | Exit after N consecutive test-only loops. |
+| `MAX_CONSECUTIVE_DONE_SIGNALS` | `2` | Exit after N consecutive "done" signals. |
+| `TEST_PERCENTAGE_THRESHOLD` | `30` | Flag when more than N% of recent loops are test-only. |
 | `CB_COOLDOWN_MINUTES` | `30` | Minutes in OPEN state before transitioning to HALF_OPEN for recovery attempt. |
 | `CB_AUTO_RESET` | `false` | Skip cooldown on startup and reset directly to CLOSED. Reduces safety; prefer for fully unattended CI runs. |
 | `PROJECT_NAME` | `"my-project"` | Used in prompts and log output for identification. |

@@ -527,3 +527,81 @@ run_ralph_dry() {
     run is_legacy_flat_structure
     [ "$status" -ne 0 ]
 }
+
+# =============================================================================
+# Issue #369: the environment beats .ralphrc for every key the file can set
+# =============================================================================
+
+# KEY DEFAULT RALPHRC_VALUE ENV_VALUE
+ENV_PRECEDENCE_KEYS="
+CB_NO_PROGRESS_THRESHOLD 3 1 10
+CB_SAME_ERROR_THRESHOLD 5 1 11
+CB_OUTPUT_DECLINE_THRESHOLD 70 1 12
+CB_PERMISSION_DENIAL_THRESHOLD 2 1 13
+MAX_CONSECUTIVE_TEST_LOOPS 3 1 14
+MAX_CONSECUTIVE_DONE_SIGNALS 2 1 15
+TEST_PERCENTAGE_THRESHOLD 30 1 16
+CLAUDE_MIN_VERSION 2.0.76 1.0.0 3.1.4"
+
+# real_rc_value KEY [ENV_VALUE] - KEY after sourcing the REAL ralph_loop.sh and
+# running load_ralphrc, so the top-level _env_* snapshots, lib source-time
+# defaults and script defaults all run in their real order (a hand-set mirror
+# can't catch a snapshot taken after a lib default). ENV_VALUE, when given, is
+# KEY's environment value; the other keys are unset.
+real_rc_value() {
+    local key="$1" k unset_args=()
+    for k in $(awk 'NF { print $1 }' <<< "$ENV_PRECEDENCE_KEYS"); do
+        unset_args+=(-u "$k")
+    done
+    env "${unset_args[@]}" ${2+"$key=$2"} bash -c '
+        key="$1" loop="$2"; set --
+        source "$loop" >/dev/null 2>&1
+        load_ralphrc >/dev/null 2>&1
+        printf "%s" "${!key}"' _ "$key" "$RALPH_LOOP"
+}
+
+@test "issue #369: an environment value wins over a conflicting .ralphrc value" {
+    local key default file env failures=""
+    while read -r key default file env; do
+        [[ -z "$key" ]] && continue
+        echo "$key=$file" > .ralphrc
+        [[ "$(real_rc_value "$key" "$env")" == "$env" ]] || failures+=" $key"
+    done <<< "$ENV_PRECEDENCE_KEYS"
+    [[ -z "$failures" ]] || { echo "env lost to .ralphrc for:$failures"; false; }
+}
+
+@test "issue #369: with no environment value, .ralphrc overrides the default" {
+    local key default file env failures=""
+    while read -r key default file env; do
+        [[ -z "$key" ]] && continue
+        echo "$key=$file" > .ralphrc
+        [[ "$(real_rc_value "$key")" == "$file" ]] || failures+=" $key"
+    done <<< "$ENV_PRECEDENCE_KEYS"
+    [[ -z "$failures" ]] || { echo ".ralphrc ignored for:$failures"; false; }
+}
+
+@test "issue #369: with neither environment nor .ralphrc, defaults are unchanged" {
+    local key default file env failures=""
+    rm -f .ralphrc
+    while read -r key default file env; do
+        [[ -z "$key" ]] && continue
+        [[ "$(real_rc_value "$key")" == "$default" ]] || failures+=" $key"
+    done <<< "$ENV_PRECEDENCE_KEYS"
+    [[ -z "$failures" ]] || { echo "default changed for:$failures"; false; }
+}
+
+@test "issue #369: every allowlisted .ralphrc key has an _env_ snapshot and restore" {
+    # Aliases map onto internal names that carry the snapshot; PROMPT_FILE is
+    # restored via _cli_; RALPH_DIR is environment-only.
+    local exempt=" ALLOWED_TOOLS SESSION_CONTINUITY SESSION_EXPIRY_HOURS RALPH_VERBOSE PROMPT_FILE RALPH_DIR "
+    local keys k missing=""
+    keys=$(sed -n '/local allowed_keys="/,/PROMPT_FILE RALPH_DIR "/p' "$RALPH_LOOP" |
+        sed 's/local allowed_keys="//; s/"//g' | tr -s ' \n' '\n' | grep -E '^[A-Z0-9_]+$')
+    [ "$(wc -l <<< "$keys")" -gt 40 ]
+    for k in $keys; do
+        [[ "$exempt" == *" $k "* ]] && continue
+        grep -q "^_env_$k=" "$RALPH_LOOP" || missing+=" snapshot:$k"
+        grep -qF "[[ -n \"\$_env_$k\" ]] && $k=\"\$_env_$k\"" "$RALPH_LOOP" || missing+=" restore:$k"
+    done
+    [[ -z "$missing" ]] || { echo "missing:$missing"; false; }
+}
