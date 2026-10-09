@@ -1120,3 +1120,91 @@ EOF
     sync_e2b_artifacts_down
     assert_file_exists "$RALPH_DIR/fix_plan.md"
 }
+
+# Issue #376: the control-dir guards must match RALPH_DIR as a workspace-
+# relative path — a basename misses nested dirs, and a trailing slash
+# stripped to "" disabled the guard entirely.
+@test "member classification honors nested and trailing-slash RALPH_DIR (#376)" {
+    local d
+    # Every spelling of state/ralph must protect it (.custom-ralph/ is the control-free case)
+    for d in state/ralph ./state/ralph/ .custom-ralph/ "$TEST_DIR/state/ralph/" \
+             sub/../state/ralph state/./ralph "$TEST_DIR/sub/../state/ralph"; do
+        export RALPH_DIR="$d"
+        _e2b_member_hard_excluded "state/ralph/status.json" || [[ "$d" == .custom-ralph/ ]] || fail "hard-exclude: $d"
+        _e2b_member_control_file "./state/ralph/fix_plan.md" || [[ "$d" == .custom-ralph/ ]] || fail "control: $d"
+    done
+    export RALPH_DIR=.custom-ralph/
+    _e2b_member_hard_excluded ".custom-ralph/.e2b_sandbox_state"
+    _e2b_member_control_file ".custom-ralph/PROMPT.md"
+    # A trailing slash must not collapse the guard onto the workspace root
+    run _e2b_member_hard_excluded ".hidden_project_file"
+    assert_failure
+    export RALPH_DIR=state/ralph
+    run _e2b_member_hard_excluded "ralph/status.json"
+    assert_failure
+}
+
+@test "sync_e2b_artifacts_down: never deletes nested or trailing-slash RALPH_DIR files (#376)" {
+    _started_sandbox
+    local d real
+    # <RALPH_DIR>:<the normalized dir the manifest and baseline name>
+    for d in state/ralph:state/ralph .custom-ralph/:.custom-ralph sub/../state/ralph:state/ralph; do
+        real="${d#*:}"; d="${d%%:*}"
+        export RALPH_DIR="$d"
+        mkdir -p "$real"
+        echo "keep" > "$real/fix_plan.md"
+        printf '%s\n' "$real/fix_plan.md" > "$E2B_SYNCED_FILES_FILE"
+        printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
+        sync_e2b_artifacts_down
+        assert_file_exists "$real/fix_plan.md"
+    done
+}
+
+@test "upload list excludes nested RALPH_DIR state but keeps its control files (#376)" {
+    export RALPH_DIR=state/ralph
+    mkdir -p state/ralph
+    echo '{}' > state/ralph/.call_count
+    echo "plan" > state/ralph/fix_plan.md
+    echo "code" > app.txt
+    run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
+    assert_success
+    [[ "$output" == *"app.txt"* ]]
+    [[ "$output" == *"state/ralph/fix_plan.md"* ]]
+    [[ "$output" != *".call_count"* ]]
+}
+
+@test "upload list still works with RALPH_DIR outside the workspace (#376)" {
+    # git rejects an :(exclude) pathspec outside the repository, which would
+    # silently empty the whole upload
+    git init -q .
+    echo "code" > app.txt
+    mkdir -p "$BATS_TEST_TMPDIR/outside-ralph"
+    local d
+    # "$PWD/" must not strip to "" and yield the invalid pathspec ":(exclude)";
+    # a relative ../ path escapes the repository just like an absolute one
+    for d in "$BATS_TEST_TMPDIR/outside-ralph" "$TEST_DIR/" ../outside-ralph sub/../../outside-ralph; do
+        export RALPH_DIR="$d"
+        run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
+        assert_success
+        [[ "$output" == *"app.txt"* ]] || fail "upload emptied for RALPH_DIR=$d"
+    done
+}
+
+@test "_e2b_control_dir normalizes every in-workspace spelling (#376)" {
+    local real; real=$(pwd -P)
+    local pair
+    # <RALPH_DIR>|<expected workspace-relative form>
+    for pair in "state/ralph|state/ralph" "./state/ralph/|state/ralph" \
+                "sub/../state/ralph|state/ralph" "state/./ralph|state/ralph" \
+                "$TEST_DIR/state/ralph/|state/ralph" "$TEST_DIR//state/ralph|state/ralph" \
+                "/x/..$TEST_DIR/state/ralph|state/ralph" "$real/state/ralph|state/ralph" \
+                "../out|../out" "sub/../../out|../out" "/abs/out/|/abs/out"; do
+        export RALPH_DIR="${pair%|*}"
+        assert_equal "$(_e2b_control_dir)" "${pair#*|}"
+    done
+    # A symlinked cwd: $PWD is the link, the physical spelling still maps inside
+    ln -s "$TEST_DIR" "$BATS_TEST_TMPDIR/ws-link"
+    run bash -c 'cd "$1" && source "$2" && RALPH_DIR="$3/state/ralph" _e2b_control_dir' \
+        _ "$BATS_TEST_TMPDIR/ws-link" "$PROJECT_ROOT/lib/sandbox_e2b.sh" "$real"
+    assert_output "state/ralph"
+}
