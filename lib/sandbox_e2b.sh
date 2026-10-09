@@ -421,7 +421,7 @@ build_e2b_exec_args() {
 # RALPH_DIR as a workspace-relative path — the form archive members, manifest
 # entries and git pathspecs use. Every control-dir guard derives it here: a
 # basename misses a nested dir (state/ralph) and a trailing slash would strip
-# to "" (Issue #376). A dir outside the workspace stays absolute.
+# to "" (Issue #376). A dir outside the workspace stays absolute or ../.
 _e2b_control_dir() {
     local rb="$RALPH_DIR"
     # Trailing slashes first, so "$PWD/" can't collapse to "" below
@@ -443,9 +443,10 @@ _build_e2b_upload_list() {
     local rb pathspec
     rb=$(_e2b_control_dir)
     # git rejects a pathspec outside the repository (emptying the whole
-    # upload); a control dir out there has nothing to exclude anyway
+    # upload); a control dir out there (absolute or ../) has nothing to
+    # exclude anyway
     pathspec=":(exclude)$rb"
-    [[ "$rb" == /* ]] && pathspec="."
+    [[ "$rb" == /* || "$rb" == .. || "$rb" == ../* ]] && pathspec="."
     # Generic list runs through the sync filter (SYNC_INCLUDE/SYNC_EXCLUDE/
     # .ralphignore/large-file policy, Issue #76); the .ralph control-file
     # allowlist below is appended unfiltered — the loop must never be able

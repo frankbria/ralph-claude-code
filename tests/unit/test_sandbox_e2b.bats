@@ -1126,6 +1126,7 @@ EOF
 # stripped to "" disabled the guard entirely.
 @test "member classification honors nested and trailing-slash RALPH_DIR (#376)" {
     local d
+    # Every spelling of state/ralph must protect it (.custom-ralph/ is the control-free case)
     for d in state/ralph ./state/ralph/ .custom-ralph/ "$TEST_DIR/state/ralph/"; do
         export RALPH_DIR="$d"
         _e2b_member_hard_excluded "state/ralph/status.json" || [[ "$d" == .custom-ralph/ ]] || fail "hard-exclude: $d"
@@ -1176,8 +1177,9 @@ EOF
     echo "code" > app.txt
     mkdir -p "$BATS_TEST_TMPDIR/outside-ralph"
     local d
-    # "$PWD/" must not strip to "" and yield the invalid pathspec ":(exclude)"
-    for d in "$BATS_TEST_TMPDIR/outside-ralph" "$TEST_DIR/"; do
+    # "$PWD/" must not strip to "" and yield the invalid pathspec ":(exclude)";
+    # a relative ../ path escapes the repository just like an absolute one
+    for d in "$BATS_TEST_TMPDIR/outside-ralph" "$TEST_DIR/" ../outside-ralph; do
         export RALPH_DIR="$d"
         run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
         assert_success
