@@ -1189,3 +1189,22 @@ EOF
         [[ "$output" == *"app.txt"* ]] || fail "upload emptied for RALPH_DIR=$d"
     done
 }
+
+@test "_e2b_control_dir normalizes every in-workspace spelling (#376)" {
+    local real; real=$(pwd -P)
+    local pair
+    # <RALPH_DIR>|<expected workspace-relative form>
+    for pair in "state/ralph|state/ralph" "./state/ralph/|state/ralph" \
+                "sub/../state/ralph|state/ralph" "state/./ralph|state/ralph" \
+                "$TEST_DIR/state/ralph/|state/ralph" "$TEST_DIR//state/ralph|state/ralph" \
+                "/x/..$TEST_DIR/state/ralph|state/ralph" "$real/state/ralph|state/ralph" \
+                "../out|../out" "sub/../../out|../out" "/abs/out/|/abs/out"; do
+        export RALPH_DIR="${pair%|*}"
+        assert_equal "$(_e2b_control_dir)" "${pair#*|}"
+    done
+    # A symlinked cwd: $PWD is the link, the physical spelling still maps inside
+    ln -s "$TEST_DIR" "$BATS_TEST_TMPDIR/ws-link"
+    run bash -c 'cd "$1" && source "$2" && RALPH_DIR="$3/state/ralph" _e2b_control_dir' \
+        _ "$BATS_TEST_TMPDIR/ws-link" "$PROJECT_ROOT/lib/sandbox_e2b.sh" "$real"
+    assert_output "state/ralph"
+}
