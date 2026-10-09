@@ -721,3 +721,72 @@ assert_tmux_called_with() {
     pane1_line=$(grep -E "tmux send-keys -t [^ ]+\.1 " "$TMUX_CALL_LOG" | head -1)
     [[ "$pane1_line" == *"tail -f '/tmp/ralph-abs-state/live.log'"* ]] || { echo "$pane1_line"; false; }
 }
+
+# Issue #378: a running tmux server gives panes its own environment, so the
+# user's explicit environment values must ride on the loop pane's command.
+_pane0_cmd() {
+    # The logged line is "tmux send-keys -t <session>:<win>.0 <command> Enter"
+    local line
+    line=$(grep -E "tmux send-keys -t [^ ]+\.0 " "$TMUX_CALL_LOG" | head -1)
+    line="${line#tmux send-keys -t * }"
+    printf '%s' "${line% Enter}"
+}
+
+@test "setup_tmux_session forwards every env-snapshotted key to the loop pane (#378)" {
+    local keys key
+    keys=$(grep -oE '^_env_[A-Z0-9_]+=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" | sed 's/^_env_//; s/=$//' | sort -u)
+    [[ $(wc -l <<<"$keys") -ge 40 ]]
+    for key in $keys; do
+        printf -v "_env_$key" '%s' "v-$key"
+    done
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local cmd; cmd=$(_pane0_cmd)
+    for key in $keys; do
+        [[ "$cmd" == *"$key=v-$key "* ]] || fail "$key not forwarded: $cmd"
+    done
+    # The monitor pane only needs RALPH_DIR
+    [[ $(grep -cE "tmux send-keys -t [^ ]+\.2 .*CB_NO_PROGRESS_THRESHOLD=" "$TMUX_CALL_LOG") -eq 0 ]]
+}
+
+@test "setup_tmux_session quotes forwarded env values byte-exact with no injection (#378)" {
+    mkdir -p "$TEST_TEMP_DIR/bin"
+    cat > "$TEST_TEMP_DIR/bin/ralph" << 'SH'
+#!/bin/bash
+printf '%s' "$CLAUDE_MODEL" > "$OUT_DIR/model"
+printf '%s' "$OPTIONAL_SECTIONS" > "$OUT_DIR/sections"
+printf '%s' "$CLAUDE_CODE_CMD" > "$OUT_DIR/cmd"
+SH
+    chmod +x "$TEST_TEMP_DIR/bin/ralph"
+    export PATH="$TEST_TEMP_DIR/bin:$PATH" OUT_DIR="$TEST_TEMP_DIR"
+
+    local model='a b;  touch PWNED_1; $(touch PWNED_2) `touch PWNED_3`'
+    local sections="Nice to Have, it's \"Future\" \\ & | > <"
+    local cmd_val=$'npx @anthropic-ai/claude-code\ttab\nnewline'
+    _env_CLAUDE_MODEL="$model" _env_OPTIONAL_SECTIONS="$sections" _env_CLAUDE_CODE_CMD="$cmd_val"
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    # Run the pane command the way the pane's shell would
+    bash -c "$(_pane0_cmd)"
+    assert_equal "$(cat "$TEST_TEMP_DIR/model")" "$model"
+    assert_equal "$(cat "$TEST_TEMP_DIR/sections")" "$sections"
+    assert_equal "$(cat "$TEST_TEMP_DIR/cmd")" "$cmd_val"
+    [[ ! -e PWNED_1 && ! -e PWNED_2 && ! -e PWNED_3 ]]
+}
+
+@test "setup_tmux_session forwards only keys set in the environment (#378)" {
+    _env_CB_NO_PROGRESS_THRESHOLD="10"
+    _env_CLAUDE_MODEL=""
+
+    run setup_tmux_session
+    [ "$status" -eq 0 ]
+
+    local cmd; cmd=$(_pane0_cmd)
+    [[ "$cmd" == *"CB_NO_PROGRESS_THRESHOLD=10 "* ]]
+    # Empty or absent snapshots leave .ralphrc in charge inside the pane
+    [[ "$cmd" != *"CLAUDE_MODEL="* ]]
+    [[ "$cmd" != *"MAX_CONSECUTIVE_TEST_LOOPS="* ]]
+}

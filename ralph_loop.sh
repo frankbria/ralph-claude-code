@@ -589,13 +589,24 @@ setup_tmux_session() {
         tmux send-keys -t "$session_name:${base_win}.${pane2}" "${env_prefix}'$ralph_home/ralph_monitor.sh'" Enter
     fi
 
+    # The user's explicit environment rides on the loop command for the same
+    # reason, so it still beats .ralphrc in the pane (Issue #378). Derived from
+    # the _env_* snapshots: a new snapshotted key is forwarded automatically.
+    # This runs before main() loads .ralphrc, so a non-empty snapshot is
+    # always the user's own value. CLI flags appended below still win.
+    # Like the RALPH_DIR prefix, %q output assumes a bash-compatible pane shell.
+    local loop_env="" snap
+    for snap in "${!_env_@}"; do
+        [[ -n "${!snap}" ]] && loop_env+="${snap#_env_}=$(printf '%q' "${!snap}") "
+    done
+
     # Start ralph loop in the left pane (exclude tmux flag to avoid recursion)
     # Forward all CLI parameters that were set by the user
     local ralph_cmd
     if command -v ralph &> /dev/null; then
-        ralph_cmd="${env_prefix}ralph"
+        ralph_cmd="${env_prefix}${loop_env}ralph"
     else
-        ralph_cmd="${env_prefix}'$ralph_home/ralph_loop.sh'"
+        ralph_cmd="${env_prefix}${loop_env}'$ralph_home/ralph_loop.sh'"
     fi
 
     # Always use --live mode in tmux for real-time streaming
@@ -691,9 +702,10 @@ setup_tmux_session() {
     # validation ever runs, so explicit CLI --sync-* flags with the docker
     # provider must be rejected now — silently dropping them would make
     # --monitor behave differently from a plain run (CodeRabbit, PR #305).
-    # Env-supplied SYNC_* with docker is merely not forwarded (a plain run
-    # ignores it the same way); an empty provider may still become e2b via
-    # the child's .ralphrc, so it forwards.
+    # Env-supplied SYNC_* with docker is not forwarded as a flag (it rides
+    # in the env prefix above, which a docker child ignores just like a plain
+    # run does); an empty provider may still become e2b via the child's
+    # .ralphrc, so it forwards.
     if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]]; then
         if [[ -n "${_cli_SYNC_INCLUDE:-}${_cli_SYNC_EXCLUDE:-}" ]]; then
             log_status "ERROR" "--sync-include/--sync-exclude do not apply to --sandbox docker (the bind mount shares the whole project in real time)"
