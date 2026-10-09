@@ -7,6 +7,17 @@ setup() {
     # Source helper functions
     source "$(dirname "$BATS_TEST_FILENAME")/../helpers/test_helper.bash"
 
+    # Load the production functions without running the loop or its startup code.
+    source "${BATS_TEST_DIRNAME}/../../lib/int_utils.sh"
+    local function_name function_body
+    for function_name in _safe_count _count_blocking_unchecked should_exit_gracefully; do
+        function_body=$(sed -n "/^${function_name}() {/,/^}/p" "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")
+        [[ -n "$function_body" ]] || return 1
+        eval "$function_body"
+        declare -F "$function_name" > /dev/null || return 1
+    done
+    log_status() { :; }
+
     # Set up environment with .ralph/ subfolder structure
     export RALPH_DIR=".ralph"
     export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
@@ -28,110 +39,6 @@ setup() {
 teardown() {
     cd /
     rm -rf "$TEST_TEMP_DIR"
-}
-
-# Helper: _count_blocking_unchecked (extracted from ralph_loop.sh, Issue #239)
-# Counts unchecked "- [ ]" items that block exit, skipping items under OPTIONAL_SECTIONS.
-_count_blocking_unchecked() {
-    local file="$1"
-    [[ ! -f "$file" ]] && { printf '0'; return 0; }
-    local raw
-    raw=$(awk -v sections="${OPTIONAL_SECTIONS:-}" '
-        BEGIN {
-            n = split(sections, arr, ",")
-            for (i = 1; i <= n; i++) {
-                s = arr[i]
-                gsub(/^[ \t]+|[ \t]+$/, "", s)
-                if (s != "") opt[tolower(s)] = 1
-            }
-        }
-        /^[[:space:]]*#+[[:space:]]+/ {
-            line = $0
-            sub(/^[[:space:]]+/, "", line)
-            level = 0
-            while (substr(line, level + 1, 1) == "#") level++
-            title = substr(line, level + 1)
-            sub(/^[[:space:]]+/, "", title)
-            sub(/[[:space:]]+$/, "", title)
-            if (optional_active && level <= optional_level) optional_active = 0
-            if (tolower(title) in opt) { optional_active = 1; optional_level = level }
-            next
-        }
-        !optional_active && /^[[:space:]]*- \[ \]/ { count++ }
-        END { print count + 0 }
-    ' "$file" 2>/dev/null | tr -d '\r\n[:space:]' | head -c 10)
-    if [[ "$raw" =~ ^[0-9]+$ ]]; then
-        printf '%d' "$raw"
-    else
-        printf '0'
-    fi
-}
-
-# Helper function: should_exit_gracefully (extracted from ralph_loop.sh)
-# Updated to respect EXIT_SIGNAL from .response_analysis for completion indicators
-should_exit_gracefully() {
-    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
-        echo ""  # Return empty string instead of using return code
-        return 1  # Don't exit, file doesn't exist
-    fi
-
-    local signals=$(cat "$EXIT_SIGNALS_FILE")
-
-    # Count recent signals (last 5 loops) - with error handling
-    local recent_test_loops
-    local recent_done_signals
-    local recent_completion_indicators
-
-    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
-    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
-    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
-
-    # Check for exit conditions
-
-    # 1. Too many consecutive test-only loops
-    if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
-        echo "test_saturation"
-        return 0
-    fi
-
-    # 2. Multiple "done" signals
-    if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
-        echo "completion_signals"
-        return 0
-    fi
-
-    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
-    # This prevents premature exits when heuristics detect completion patterns
-    # but Claude explicitly indicates work is still in progress
-    local claude_exit_signal="false"
-    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
-        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
-    fi
-
-    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
-        echo "project_complete"
-        return 0
-    fi
-
-    # 4. Check fix_plan.md for completion
-    # Fix #144: Only match valid markdown checkboxes, not date entries like [2026-01-29]
-    # Issue #239: unchecked items under OPTIONAL_SECTIONS do not block exit
-    if [[ -f "$RALPH_DIR/fix_plan.md" ]]; then
-        local uncompleted_items
-        local completed_items
-        uncompleted_items=$(_count_blocking_unchecked "$RALPH_DIR/fix_plan.md")
-        completed_items=$(grep -cE "^[[:space:]]*- \[[xX]\]" "$RALPH_DIR/fix_plan.md" 2>/dev/null || echo "0")
-        completed_items=$(echo "$completed_items" | tr -d '[:space:]')
-        local total_items=$((uncompleted_items + completed_items))
-
-        if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]]; then
-            echo "plan_complete"
-            return 0
-        fi
-    fi
-
-    echo ""  # Return empty string instead of using return code
-    return 1  # Don't exit
 }
 
 # Test 1: No exit when signals are empty
@@ -556,8 +463,9 @@ EOF
 
 # Test 26: EXIT_SIGNAL=false with explicit false value in JSON
 @test "should_exit_gracefully handles explicit false exit_signal" {
-    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3,4,5]}' > "$EXIT_SIGNALS_FILE"
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3,4]}' > "$EXIT_SIGNALS_FILE"
 
+    # Keep below the independent five-indicator safety circuit breaker.
     # Explicit false value
     cat > "$RESPONSE_ANALYSIS_FILE" << 'EOF'
 {
@@ -858,59 +766,6 @@ EOF
 # When Claude Code is denied permission to run commands, Ralph should detect
 # this from the permission_denials field and halt the loop to allow user intervention.
 
-# Helper function with permission denial support
-should_exit_gracefully_with_denials() {
-    if [[ ! -f "$EXIT_SIGNALS_FILE" ]]; then
-        echo ""
-        return 1
-    fi
-
-    local signals=$(cat "$EXIT_SIGNALS_FILE")
-
-    local recent_test_loops
-    local recent_done_signals
-    local recent_completion_indicators
-
-    recent_test_loops=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
-    recent_done_signals=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
-    recent_completion_indicators=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
-
-    # Check for permission denials first (highest priority - Issue #101)
-    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
-        local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
-        if [[ "$has_permission_denials" == "true" ]]; then
-            echo "permission_denied"
-            return 0
-        fi
-    fi
-
-    # 1. Too many consecutive test-only loops
-    if [[ $recent_test_loops -ge $MAX_CONSECUTIVE_TEST_LOOPS ]]; then
-        echo "test_saturation"
-        return 0
-    fi
-
-    # 2. Multiple "done" signals
-    if [[ $recent_done_signals -ge $MAX_CONSECUTIVE_DONE_SIGNALS ]]; then
-        echo "completion_signals"
-        return 0
-    fi
-
-    # 3. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
-    local claude_exit_signal="false"
-    if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
-        claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
-    fi
-
-    if [[ $recent_completion_indicators -ge 2 ]] && [[ "$claude_exit_signal" == "true" ]]; then
-        echo "project_complete"
-        return 0
-    fi
-
-    echo ""
-    return 1
-}
-
 # Test 36: Exit on permission denial detected
 @test "should_exit_gracefully exits on permission_denied" {
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
@@ -936,7 +791,7 @@ should_exit_gracefully_with_denials() {
 }
 EOF
 
-    result=$(should_exit_gracefully_with_denials)
+    result=$(should_exit_gracefully)
     assert_equal "$result" "permission_denied"
 }
 
@@ -965,7 +820,7 @@ EOF
 }
 EOF
 
-    result=$(should_exit_gracefully_with_denials || true)
+    result=$(should_exit_gracefully || true)
     assert_equal "$result" ""
 }
 
@@ -988,7 +843,7 @@ EOF
 EOF
 
     # Permission denied should take priority
-    result=$(should_exit_gracefully_with_denials)
+    result=$(should_exit_gracefully)
     assert_equal "$result" "permission_denied"
 }
 
@@ -1007,7 +862,7 @@ EOF
 }
 EOF
 
-    result=$(should_exit_gracefully_with_denials)
+    result=$(should_exit_gracefully)
     assert_equal "$result" "permission_denied"
 }
 
@@ -1027,7 +882,7 @@ EOF
 }
 EOF
 
-    result=$(should_exit_gracefully_with_denials || true)
+    result=$(should_exit_gracefully || true)
     assert_equal "$result" ""
 }
 
