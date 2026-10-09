@@ -479,6 +479,15 @@ EOF
     assert_equal "$result" ""
 }
 
+@test "should_exit_gracefully safety breaker fires at five indicators despite explicit false" {
+    # The breaker is independent of EXIT_SIGNAL: one indicator past test 26's fixture forces the exit
+    echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2,3,4,5]}' > "$EXIT_SIGNALS_FILE"
+    echo '{"analysis": {"exit_signal": false}}' > "$RESPONSE_ANALYSIS_FILE"
+
+    result=$(should_exit_gracefully)
+    assert_equal "$result" "safety_circuit_breaker"
+}
+
 # Test 27: EXIT_SIGNAL missing from analysis object should default to false
 @test "should_exit_gracefully defaults to false when exit_signal field missing" {
     echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": [1,2]}' > "$EXIT_SIGNALS_FILE"
