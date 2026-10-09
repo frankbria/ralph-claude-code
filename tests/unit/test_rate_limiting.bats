@@ -3,10 +3,20 @@
 
 load '../helpers/test_helper'
 
-# Source ralph functions (we need to extract these first)
 setup() {
     # Source helper functions
     source "$(dirname "$BATS_TEST_FILENAME")/../helpers/test_helper.bash"
+
+    # Load the production functions without running the loop or its startup code.
+    source "${BATS_TEST_DIRNAME}/../../lib/int_utils.sh"
+    local function_name function_body
+    for function_name in extract_token_usage update_token_count can_make_call increment_call_counter; do
+        function_body=$(sed -n "/^${function_name}() {/,/^}/p" "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")
+        [[ -n "$function_body" ]] || return 1
+        eval "$function_body"
+        declare -F "$function_name" > /dev/null || return 1
+    done
+    log_status() { :; }
 
     # Set up environment with .ralph/ subfolder structure
     export RALPH_DIR=".ralph"
@@ -31,69 +41,6 @@ teardown() {
     # Clean up
     cd /
     rm -rf "$TEST_TEMP_DIR"
-}
-
-# Helper function: extract_token_usage (extracted from ralph_loop.sh)
-extract_token_usage() {
-    local output_file=$1
-    if [[ ! -f "$output_file" ]]; then
-        echo "0"
-        return
-    fi
-    local tokens
-    tokens=$(jq -r '
-        ((.usage.input_tokens // .metadata.usage.input_tokens // 0) |
-         if type == "number" then . else 0 end) +
-        ((.usage.output_tokens // .metadata.usage.output_tokens // 0) |
-         if type == "number" then . else 0 end)
-    ' "$output_file" 2>/dev/null)
-    echo "${tokens:-0}"
-}
-
-# Helper function: update_token_count (extracted from ralph_loop.sh)
-update_token_count() {
-    local output_file=$1
-    local new_tokens
-    new_tokens=$(extract_token_usage "$output_file")
-    if [[ "$new_tokens" -gt 0 ]] 2>/dev/null; then
-        local current
-        current=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
-        echo $(( current + new_tokens )) > "$TOKEN_COUNT_FILE"
-    fi
-}
-
-# Helper function: can_make_call (extracted from ralph_loop.sh)
-can_make_call() {
-    local calls_made=0
-    if [[ -f "$CALL_COUNT_FILE" ]]; then
-        calls_made=$(cat "$CALL_COUNT_FILE")
-    fi
-
-    if [[ $calls_made -ge $MAX_CALLS_PER_HOUR ]]; then
-        return 1  # Cannot make call — invocation limit reached
-    fi
-
-    if [[ "${MAX_TOKENS_PER_HOUR:-0}" -gt 0 ]] 2>/dev/null; then
-        local tokens_used=0
-        tokens_used=$(cat "$TOKEN_COUNT_FILE" 2>/dev/null || echo "0")
-        if [[ $tokens_used -ge $MAX_TOKENS_PER_HOUR ]]; then
-            return 1  # Cannot make call — token limit reached
-        fi
-    fi
-
-    return 0  # Can make call
-}
-
-# Helper function: increment_call_counter (extracted from ralph_loop.sh)
-increment_call_counter() {
-    local calls_made=0
-    if [[ -f "$CALL_COUNT_FILE" ]]; then
-        calls_made=$(cat "$CALL_COUNT_FILE")
-    fi
-
-    ((calls_made++))
-    echo "$calls_made" > "$CALL_COUNT_FILE"
-    echo "$calls_made"
 }
 
 # Test 1: can_make_call returns success when under limit

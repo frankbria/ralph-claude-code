@@ -46,6 +46,15 @@ setup() {
     source "${BATS_TEST_DIRNAME}/../../lib/response_analyzer.sh"
     source "${BATS_TEST_DIRNAME}/../../lib/circuit_breaker.sh"
 
+    # Exercise the real reset implementation, including its history dependency.
+    local function_name function_body
+    for function_name in reset_session log_session_transition; do
+        function_body=$(sed -n "/^${function_name}() {/,/^}/p" "${BATS_TEST_DIRNAME}/../../ralph_loop.sh")
+        [[ -n "$function_body" ]] || return 1
+        eval "$function_body"
+        declare -F "$function_name" > /dev/null || return 1
+    done
+
     # Define color variables for log_status
     RED='\033[0;31m'
     GREEN='\033[0;32m'
@@ -572,45 +581,12 @@ EOF
     local completion_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
     [[ "$completion_count" == "3" ]]
 
-    # Source ralph_loop.sh to get reset_session function
-    # We need to mock some things to prevent full initialization
     export RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"
     export RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
 
     # Create a mock response analysis file
     echo '{"analysis": {"exit_signal": true}}' > "$RESPONSE_ANALYSIS_FILE"
     [[ -f "$RESPONSE_ANALYSIS_FILE" ]]
-
-    # Define reset_session inline for testing (extracted from ralph_loop.sh)
-    reset_session() {
-        local reason=${1:-"manual_reset"}
-        local reset_timestamp
-        reset_timestamp=$(get_iso_timestamp)
-
-        jq -n \
-            --arg session_id "" \
-            --arg created_at "" \
-            --arg last_used "" \
-            --arg reset_at "$reset_timestamp" \
-            --arg reset_reason "$reason" \
-            '{
-                session_id: $session_id,
-                created_at: $created_at,
-                last_used: $last_used,
-                reset_at: $reset_at,
-                reset_reason: $reset_reason
-            }' > "$RALPH_SESSION_FILE"
-
-        rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
-
-        # Issue #91 fix: Clear exit signals
-        if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
-            echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-        fi
-
-        # Clear response analysis
-        rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
-    }
 
     # Call reset_session
     reset_session "test_reset"
@@ -648,35 +624,6 @@ EOF
 
     local exit_signal=$(jq -r '.analysis.exit_signal' "$RESPONSE_ANALYSIS_FILE")
     [[ "$exit_signal" == "true" ]]
-
-    # Define reset_session with the fix
-    reset_session() {
-        local reason=${1:-"manual_reset"}
-        local reset_timestamp
-        reset_timestamp=$(get_iso_timestamp)
-
-        jq -n \
-            --arg session_id "" \
-            --arg created_at "" \
-            --arg last_used "" \
-            --arg reset_at "$reset_timestamp" \
-            --arg reset_reason "$reason" \
-            '{
-                session_id: $session_id,
-                created_at: $created_at,
-                last_used: $last_used,
-                reset_at: $reset_at,
-                reset_reason: $reset_reason
-            }' > "$RALPH_SESSION_FILE"
-
-        rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
-
-        # Issue #91 fix
-        if [[ -f "$EXIT_SIGNALS_FILE" ]]; then
-            echo '{"test_only_loops": [], "done_signals": [], "completion_indicators": []}' > "$EXIT_SIGNALS_FILE"
-        fi
-        rm -f "$RESPONSE_ANALYSIS_FILE" 2>/dev/null
-    }
 
     # User runs --reset-session
     reset_session "manual_reset"
