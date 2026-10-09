@@ -423,9 +423,11 @@ build_e2b_exec_args() {
 # basename misses a nested dir (state/ralph) and a trailing slash would strip
 # to "" (Issue #376). A dir outside the workspace stays absolute.
 _e2b_control_dir() {
-    local rb="${RALPH_DIR#"$PWD"/}"
-    rb="${rb#./}"
+    local rb="$RALPH_DIR"
+    # Trailing slashes first, so "$PWD/" can't collapse to "" below
     while [[ "$rb" == */ ]]; do rb="${rb%/}"; done
+    rb="${rb#"$PWD"/}"
+    rb="${rb#./}"
     printf '%s' "$rb"
 }
 

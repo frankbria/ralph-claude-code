@@ -1174,9 +1174,13 @@ EOF
     # silently empty the whole upload
     git init -q .
     echo "code" > app.txt
-    export RALPH_DIR="$BATS_TEST_TMPDIR/outside-ralph"
-    mkdir -p "$RALPH_DIR"
-    run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
-    assert_success
-    [[ "$output" == *"app.txt"* ]]
+    mkdir -p "$BATS_TEST_TMPDIR/outside-ralph"
+    local d
+    # "$PWD/" must not strip to "" and yield the invalid pathspec ":(exclude)"
+    for d in "$BATS_TEST_TMPDIR/outside-ralph" "$TEST_DIR/"; do
+        export RALPH_DIR="$d"
+        run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
+        assert_success
+        [[ "$output" == *"app.txt"* ]] || fail "upload emptied for RALPH_DIR=$d"
+    done
 }
