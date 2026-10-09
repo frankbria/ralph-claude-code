@@ -417,6 +417,18 @@ build_e2b_exec_args() {
 
 # --- file synchronization --------------------------------------------------------
 
+# _e2b_control_dir
+# RALPH_DIR as a workspace-relative path — the form archive members, manifest
+# entries and git pathspecs use. Every control-dir guard derives it here: a
+# basename misses a nested dir (state/ralph) and a trailing slash would strip
+# to "" (Issue #376). A dir outside the workspace stays absolute.
+_e2b_control_dir() {
+    local rb="${RALPH_DIR#"$PWD"/}"
+    rb="${rb#./}"
+    while [[ "$rb" == */ ]]; do rb="${rb%/}"; done
+    printf '%s' "$rb"
+}
+
 # _build_e2b_upload_list
 # NUL-separated list of project files to upload: tracked + untracked
 # non-ignored files (so .git internals, node_modules etc. follow .gitignore),
@@ -426,30 +438,33 @@ build_e2b_exec_args() {
 # sync back over the host's control state. Only the explicit allowlist below
 # re-adds the control files.
 _build_e2b_upload_list() {
-    local ralph_base="${RALPH_DIR##*/}"
+    local rb pathspec
+    rb=$(_e2b_control_dir)
+    # git rejects a pathspec outside the repository (emptying the whole
+    # upload); a control dir out there has nothing to exclude anyway
+    pathspec=":(exclude)$rb"
+    [[ "$rb" == /* ]] && pathspec="."
     # Generic list runs through the sync filter (SYNC_INCLUDE/SYNC_EXCLUDE/
     # .ralphignore/large-file policy, Issue #76); the .ralph control-file
     # allowlist below is appended unfiltered — the loop must never be able
     # to starve itself of its own prompt and plan.
     {
         if git rev-parse --git-dir &>/dev/null; then
-            git ls-files -coz --exclude-standard -- . ":(exclude)$ralph_base" 2>/dev/null
+            git ls-files -coz --exclude-standard -- . "$pathspec" 2>/dev/null
         else
             find . -type f \
                 ! -path './.git/*' ! -path './node_modules/*' \
-                ! -path "./$ralph_base/*" -print0 2>/dev/null
+                ! -path "./$rb/*" -print0 2>/dev/null
         fi
     } | sync_filter_file_list
     # Allowlist entries must be cwd-relative: an absolute RALPH_DIR would
     # otherwise become a wrong member path in the tar (leading / stripped).
-    local f rel
-    for f in .ralphrc "$RALPH_DIR/PROMPT.md" "$RALPH_DIR/fix_plan.md" "$RALPH_DIR/AGENT.md"; do
-        rel="${f#"$PWD"/}"
-        [[ -f "$rel" ]] && printf '%s\0' "$rel"
+    local f
+    for f in .ralphrc "$rb/PROMPT.md" "$rb/fix_plan.md" "$rb/AGENT.md"; do
+        [[ -f "$f" ]] && printf '%s\0' "$f"
     done
-    rel="${RALPH_DIR#"$PWD"/}"
-    if [[ -d "$rel/specs" ]]; then
-        find "$rel/specs" -type f -print0 2>/dev/null
+    if [[ -d "$rb/specs" ]]; then
+        find "$rb/specs" -type f -print0 2>/dev/null
     fi
 }
 
@@ -517,7 +532,7 @@ _apply_e2b_deletions() {
     local deleted=0 old
     # Same control-dir derivation as the sibling guards — never delete a
     # relocated RALPH_DIR's files either (Issue #352)
-    local rb="${RALPH_DIR##*/}"
+    local rb; rb=$(_e2b_control_dir)
     while IFS= read -r old; do
         [[ -z "$old" ]] && continue
         case "$old" in
@@ -541,7 +556,7 @@ _e2b_member_hard_excluded() {
     local m="${1#./}"
     # Same control-dir derivation as _build_e2b_upload_list — honors a
     # non-default RALPH_DIR (absolute or relative)
-    local rb="${RALPH_DIR##*/}"
+    local rb; rb=$(_e2b_control_dir)
     case "$m" in
         "$E2B_SYNC_MANIFEST_NAME") return 0 ;;
         .git|.git/*|*/.git|*/.git/*) return 0 ;;
@@ -557,7 +572,7 @@ _e2b_member_hard_excluded() {
 # sync patterns never filter these on download — a broad pattern like *.md
 # must not silently drop Claude's plan/prompt updates.
 _e2b_member_control_file() {
-    local rb="${RALPH_DIR##*/}"
+    local rb; rb=$(_e2b_control_dir)
     # .ralphrc lives at the project root, not under RALPH_DIR
     case "${1#./}" in
         .ralphrc|"$rb"/PROMPT.md|"$rb"/fix_plan.md|"$rb"/AGENT.md|"$rb"/specs/*) return 0 ;;
@@ -650,7 +665,7 @@ sync_e2b_artifacts_down() {
             return 1
         fi
         printf '%s' "$selected" > "$list_file"
-        local rb="${RALPH_DIR##*/}"
+        local rb; rb=$(_e2b_control_dir)
         if ! tar -xzf "$tarball" -C . -T "$list_file" \
             --exclude="$E2B_SYNC_MANIFEST_NAME" \
             --exclude='.git' --exclude='.git/*' --exclude='*/.git' --exclude='*/.git/*' \

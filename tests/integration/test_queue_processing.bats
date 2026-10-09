@@ -433,3 +433,20 @@ EOF
     grep -q "$RALPH_DIR/specs/" "$RALPH_DIR/fix_plan.md" || { cat "$RALPH_DIR/fix_plan.md"; false; }
     [ "$(grep -c '\.ralph/specs/' "$RALPH_DIR/fix_plan.md")" -eq 0 ]
 }
+
+@test "generated PROMPT.md text never names .ralph/ for a relocated RALPH_DIR (#376)" {
+    _install_loop_mock
+    echo "# my spec" > "$TEST_DIR/feature.md"
+    local fresh
+    for fresh in 1 0; do
+        export RALPH_DIR="$TEST_DIR/.custom-ralph-$fresh"
+        mkdir -p "$RALPH_DIR"
+        # Branch 0: an existing PROMPT.md that predates the spec fence gets it appended
+        [[ $fresh -eq 0 ]] && echo "# existing prompt" > "$RALPH_DIR/PROMPT.md"
+        "$RALPH_QUEUE" add --prd "$TEST_DIR/feature.md"
+        run "$RALPH_QUEUE" process
+        [ "$status" -eq 0 ]
+        grep -q "Handling Spec Content" "$RALPH_DIR/PROMPT.md"
+        [ "$(grep -c '\.ralph/' "$RALPH_DIR/PROMPT.md")" -eq 0 ] || { cat "$RALPH_DIR/PROMPT.md"; false; }
+    done
+}

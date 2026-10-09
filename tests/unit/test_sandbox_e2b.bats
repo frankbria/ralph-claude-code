@@ -1120,3 +1120,63 @@ EOF
     sync_e2b_artifacts_down
     assert_file_exists "$RALPH_DIR/fix_plan.md"
 }
+
+# Issue #376: the control-dir guards must match RALPH_DIR as a workspace-
+# relative path — a basename misses nested dirs, and a trailing slash
+# stripped to "" disabled the guard entirely.
+@test "member classification honors nested and trailing-slash RALPH_DIR (#376)" {
+    local d
+    for d in state/ralph ./state/ralph/ .custom-ralph/ "$TEST_DIR/state/ralph/"; do
+        export RALPH_DIR="$d"
+        _e2b_member_hard_excluded "state/ralph/status.json" || [[ "$d" == .custom-ralph/ ]] || fail "hard-exclude: $d"
+        _e2b_member_control_file "./state/ralph/fix_plan.md" || [[ "$d" == .custom-ralph/ ]] || fail "control: $d"
+    done
+    export RALPH_DIR=.custom-ralph/
+    _e2b_member_hard_excluded ".custom-ralph/.e2b_sandbox_state"
+    _e2b_member_control_file ".custom-ralph/PROMPT.md"
+    # A trailing slash must not collapse the guard onto the workspace root
+    run _e2b_member_hard_excluded ".hidden_project_file"
+    assert_failure
+    export RALPH_DIR=state/ralph
+    run _e2b_member_hard_excluded "ralph/status.json"
+    assert_failure
+}
+
+@test "sync_e2b_artifacts_down: never deletes nested or trailing-slash RALPH_DIR files (#376)" {
+    _started_sandbox
+    local d
+    for d in state/ralph .custom-ralph/; do
+        export RALPH_DIR="$d"
+        mkdir -p "$d"
+        echo "keep" > "${d%/}/fix_plan.md"
+        printf '%s\n' "${d%/}/fix_plan.md" > "$E2B_SYNCED_FILES_FILE"
+        printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
+        sync_e2b_artifacts_down
+        assert_file_exists "${d%/}/fix_plan.md"
+    done
+}
+
+@test "upload list excludes nested RALPH_DIR state but keeps its control files (#376)" {
+    export RALPH_DIR=state/ralph
+    mkdir -p state/ralph
+    echo '{}' > state/ralph/.call_count
+    echo "plan" > state/ralph/fix_plan.md
+    echo "code" > app.txt
+    run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
+    assert_success
+    [[ "$output" == *"app.txt"* ]]
+    [[ "$output" == *"state/ralph/fix_plan.md"* ]]
+    [[ "$output" != *".call_count"* ]]
+}
+
+@test "upload list still works with RALPH_DIR outside the workspace (#376)" {
+    # git rejects an :(exclude) pathspec outside the repository, which would
+    # silently empty the whole upload
+    git init -q .
+    echo "code" > app.txt
+    export RALPH_DIR="$BATS_TEST_TMPDIR/outside-ralph"
+    mkdir -p "$RALPH_DIR"
+    run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
+    assert_success
+    [[ "$output" == *"app.txt"* ]]
+}
