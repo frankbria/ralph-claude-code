@@ -418,17 +418,38 @@ build_e2b_exec_args() {
 # --- file synchronization --------------------------------------------------------
 
 # _e2b_control_dir
-# RALPH_DIR as a workspace-relative path — the form archive members, manifest
-# entries and git pathspecs use. Every control-dir guard derives it here: a
-# basename misses a nested dir (state/ralph) and a trailing slash would strip
-# to "" (Issue #376). A dir outside the workspace stays absolute or ../.
+# RALPH_DIR as a normalized workspace-relative path — the form archive
+# members, manifest entries and git pathspecs use. Every control-dir guard
+# derives it here: a basename misses a nested dir (state/ralph), a trailing
+# slash would strip to "" and an uncollapsed sub/../x never matches a real
+# member (Issue #376). A dir outside the workspace stays absolute or ../x.
 _e2b_control_dir() {
     local rb="$RALPH_DIR"
     # Trailing slashes first, so "$PWD/" can't collapse to "" below
     while [[ "$rb" == */ ]]; do rb="${rb%/}"; done
     rb="${rb#"$PWD"/}"
-    rb="${rb#./}"
-    printf '%s' "$rb"
+    if [[ "$rb" == /* ]]; then
+        printf '%s' "$rb"
+        return 0
+    fi
+    # Collapse . and .. lexically (read -a, not word splitting: no globbing)
+    local -a parts out=()
+    local seg n
+    IFS=/ read -ra parts <<< "$rb"
+    for seg in "${parts[@]}"; do
+        n=${#out[@]}
+        case "$seg" in
+            ''|.) ;;
+            ..) if (( n > 0 )) && [[ "${out[n-1]}" != ".." ]]; then
+                    unset "out[n-1]"
+                else
+                    out+=("..")
+                fi ;;
+            *) out+=("$seg") ;;
+        esac
+    done
+    local IFS=/
+    printf '%s' "${out[*]}"
 }
 
 # _build_e2b_upload_list

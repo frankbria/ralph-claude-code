@@ -1127,7 +1127,8 @@ EOF
 @test "member classification honors nested and trailing-slash RALPH_DIR (#376)" {
     local d
     # Every spelling of state/ralph must protect it (.custom-ralph/ is the control-free case)
-    for d in state/ralph ./state/ralph/ .custom-ralph/ "$TEST_DIR/state/ralph/"; do
+    for d in state/ralph ./state/ralph/ .custom-ralph/ "$TEST_DIR/state/ralph/" \
+             sub/../state/ralph state/./ralph "$TEST_DIR/sub/../state/ralph"; do
         export RALPH_DIR="$d"
         _e2b_member_hard_excluded "state/ralph/status.json" || [[ "$d" == .custom-ralph/ ]] || fail "hard-exclude: $d"
         _e2b_member_control_file "./state/ralph/fix_plan.md" || [[ "$d" == .custom-ralph/ ]] || fail "control: $d"
@@ -1145,15 +1146,17 @@ EOF
 
 @test "sync_e2b_artifacts_down: never deletes nested or trailing-slash RALPH_DIR files (#376)" {
     _started_sandbox
-    local d
-    for d in state/ralph .custom-ralph/; do
+    local d real
+    # <RALPH_DIR>:<the normalized dir the manifest and baseline name>
+    for d in state/ralph:state/ralph .custom-ralph/:.custom-ralph sub/../state/ralph:state/ralph; do
+        real="${d#*:}"; d="${d%%:*}"
         export RALPH_DIR="$d"
-        mkdir -p "$d"
-        echo "keep" > "${d%/}/fix_plan.md"
-        printf '%s\n' "${d%/}/fix_plan.md" > "$E2B_SYNCED_FILES_FILE"
+        mkdir -p "$real"
+        echo "keep" > "$real/fix_plan.md"
+        printf '%s\n' "$real/fix_plan.md" > "$E2B_SYNCED_FILES_FILE"
         printf '%s\n' "./src/synced.txt" > "$TEST_DIR/manifest_override"
         sync_e2b_artifacts_down
-        assert_file_exists "${d%/}/fix_plan.md"
+        assert_file_exists "$real/fix_plan.md"
     done
 }
 
