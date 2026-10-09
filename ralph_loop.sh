@@ -594,6 +594,7 @@ setup_tmux_session() {
     # the _env_* snapshots: a new snapshotted key is forwarded automatically.
     # This runs before main() loads .ralphrc, so a non-empty snapshot is
     # always the user's own value. CLI flags appended below still win.
+    # Like the RALPH_DIR prefix, %q output assumes a bash-compatible pane shell.
     local loop_env="" snap
     for snap in "${!_env_@}"; do
         [[ -n "${!snap}" ]] && loop_env+="${snap#_env_}=$(printf '%q' "${!snap}") "
@@ -701,9 +702,10 @@ setup_tmux_session() {
     # validation ever runs, so explicit CLI --sync-* flags with the docker
     # provider must be rejected now — silently dropping them would make
     # --monitor behave differently from a plain run (CodeRabbit, PR #305).
-    # Env-supplied SYNC_* with docker is merely not forwarded (a plain run
-    # ignores it the same way); an empty provider may still become e2b via
-    # the child's .ralphrc, so it forwards.
+    # Env-supplied SYNC_* with docker is not forwarded as a flag (it rides
+    # in the env prefix above, which a docker child ignores just like a plain
+    # run does); an empty provider may still become e2b via the child's
+    # .ralphrc, so it forwards.
     if [[ "${SANDBOX_PROVIDER:-}" == "docker" ]]; then
         if [[ -n "${_cli_SYNC_INCLUDE:-}${_cli_SYNC_EXCLUDE:-}" ]]; then
             log_status "ERROR" "--sync-include/--sync-exclude do not apply to --sandbox docker (the bind mount shares the whole project in real time)"
