@@ -442,18 +442,21 @@ _e2b_control_dir() {
 _build_e2b_upload_list() {
     local rb pathspec
     rb=$(_e2b_control_dir)
-    # git rejects a pathspec outside the repository (emptying the whole
-    # upload); a control dir out there (absolute or ../) has nothing to
-    # exclude anyway
+    # Absolute here means not under $PWD/: nothing to exclude (and excluding
+    # the workspace root itself would list nothing)
     pathspec=":(exclude)$rb"
-    [[ "$rb" == /* || "$rb" == .. || "$rb" == ../* ]] && pathspec="."
+    [[ "$rb" == /* ]] && pathspec="."
     # Generic list runs through the sync filter (SYNC_INCLUDE/SYNC_EXCLUDE/
     # .ralphignore/large-file policy, Issue #76); the .ralph control-file
     # allowlist below is appended unfiltered — the loop must never be able
     # to starve itself of its own prompt and plan.
     {
         if git rev-parse --git-dir &>/dev/null; then
-            git ls-files -coz --exclude-standard -- . "$pathspec" 2>/dev/null
+            # git rejects (before listing anything) a relative exclude that
+            # escapes the repository, in any spelling (../x, a/../../x); a
+            # control dir out there has nothing to exclude, so list without it
+            git ls-files -coz --exclude-standard -- . "$pathspec" 2>/dev/null \
+                || git ls-files -coz --exclude-standard 2>/dev/null
         else
             find . -type f \
                 ! -path './.git/*' ! -path './node_modules/*' \

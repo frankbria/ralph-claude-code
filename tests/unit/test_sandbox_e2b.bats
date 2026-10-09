@@ -1179,7 +1179,7 @@ EOF
     local d
     # "$PWD/" must not strip to "" and yield the invalid pathspec ":(exclude)";
     # a relative ../ path escapes the repository just like an absolute one
-    for d in "$BATS_TEST_TMPDIR/outside-ralph" "$TEST_DIR/" ../outside-ralph; do
+    for d in "$BATS_TEST_TMPDIR/outside-ralph" "$TEST_DIR/" ../outside-ralph sub/../../outside-ralph; do
         export RALPH_DIR="$d"
         run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
         assert_success
