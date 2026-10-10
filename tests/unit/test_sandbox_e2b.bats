@@ -216,7 +216,7 @@ _started_sandbox() {
     for d in .ralph state/ralph "$TEST_DIR/state/ralph/"; do
         export RALPH_DIR="$d"
         run validate_e2b_sandbox_config
-        assert_success
+        [[ "$status" -eq 0 ]] || fail "rejected valid RALPH_DIR=$d: $output"
     done
 }
 
@@ -225,7 +225,7 @@ _started_sandbox() {
     export RALPH_DIR="."
     run init_e2b_sandbox
     assert_failure
-    [[ "$output" == *"workspace root"* ]]
+    [[ "$output" == *"workspace root"* ]] || fail "expected workspace root message: $output"
     [[ ! -f "$TEST_DIR/e2b_args" ]] || fail "helper was called: $(cat "$TEST_DIR/e2b_args")"
 }
 

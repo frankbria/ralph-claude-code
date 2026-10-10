@@ -182,7 +182,10 @@ validate_e2b_sandbox_config() {
     # The control-dir guards (upload exclude + allowlist, download and
     # deletion guards) need RALPH_DIR strictly inside the workspace: at the
     # root they can't tell control state from project files, outside it the
-    # control files get wrong tar member paths (Issue #383)
+    # control files get wrong tar member paths (Issue #383).
+    # _e2b_control_dir strips the workspace prefix only from a path below it;
+    # an absolute RALPH_DIR equal to the workspace comes back whole, hence the
+    # two explicit comparisons
     local rb
     rb=$(_e2b_control_dir)
     if [[ -z "$rb" || "$rb" == "$(_e2b_collapse_path "$PWD")" || "$rb" == "$(_e2b_collapse_path "$(pwd -P)")" ]]; then
