@@ -179,6 +179,20 @@ validate_e2b_sandbox_config() {
         echo "Error: invalid SANDBOX_E2B_COST_PER_HOUR '$SANDBOX_E2B_COST_PER_HOUR'" >&2
         return 1
     fi
+    # The control-dir guards (upload exclude + allowlist, download and
+    # deletion guards) need RALPH_DIR strictly inside the workspace: at the
+    # root they can't tell control state from project files, outside it the
+    # control files get wrong tar member paths (Issue #383)
+    local rb
+    rb=$(_e2b_control_dir)
+    if [[ -z "$rb" || "$rb" == "$(_e2b_collapse_path "$PWD")" || "$rb" == "$(_e2b_collapse_path "$(pwd -P)")" ]]; then
+        echo "Error: RALPH_DIR '$RALPH_DIR' is the workspace root — --sandbox e2b needs it in a subdirectory (e.g. .ralph)" >&2
+        return 1
+    fi
+    if [[ "$rb" == /* || "$rb" == ".." || "$rb" == ../* ]]; then
+        echo "Error: RALPH_DIR '$RALPH_DIR' is outside the workspace — --sandbox e2b needs it inside the project (e.g. .ralph)" >&2
+        return 1
+    fi
     return 0
 }
 

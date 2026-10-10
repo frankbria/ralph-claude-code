@@ -188,4 +188,5 @@ dashboard for actual usage.
 | `Claude Code CLI is unavailable in the E2B sandbox` | Build a custom E2B template with `@anthropic-ai/claude-code` preinstalled and pass `--sandbox-template` |
 | Claude auth errors inside the sandbox | Export `ANTHROPIC_API_KEY`, or log in on the host first so `~/.claude/.credentials.json` exists |
 | Loop stops with `e2b_cost_limit` | Expected — raise `--sandbox-max-cost` or fix `SANDBOX_E2B_COST_PER_HOUR` if your template rate differs |
+| `RALPH_DIR ... is the workspace root` / `... is outside the workspace` | E2B needs `RALPH_DIR` in a subdirectory of the project (default `.ralph`); unset it or point it at e.g. `.ralph` |
 | Orphaned sandbox after a hard kill (`kill -9`) | It expires at `--sandbox-timeout`; kill it sooner from the E2B dashboard |
