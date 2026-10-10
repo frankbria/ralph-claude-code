@@ -191,6 +191,44 @@ _started_sandbox() {
     [[ "$output" == *"provider"* ]]
 }
 
+@test "validate_e2b_sandbox_config: rejects RALPH_DIR at the workspace root (#383)" {
+    local d
+    for d in . ./ a/.. "$TEST_DIR" "$TEST_DIR/" "$(pwd -P)"; do
+        export RALPH_DIR="$d"
+        run validate_e2b_sandbox_config
+        assert_failure
+        [[ "$output" == *"workspace root"* ]] || fail "no root message for RALPH_DIR=$d: $output"
+    done
+}
+
+@test "validate_e2b_sandbox_config: rejects RALPH_DIR outside the workspace (#383)" {
+    local d
+    for d in /abs/out ../out sub/../../out ..; do
+        export RALPH_DIR="$d"
+        run validate_e2b_sandbox_config
+        assert_failure
+        [[ "$output" == *"outside the workspace"* ]] || fail "no outside message for RALPH_DIR=$d: $output"
+    done
+}
+
+@test "validate_e2b_sandbox_config: accepts in-workspace RALPH_DIR spellings (#383)" {
+    local d
+    for d in .ralph state/ralph "$TEST_DIR/state/ralph/"; do
+        export RALPH_DIR="$d"
+        run validate_e2b_sandbox_config
+        [[ "$status" -eq 0 ]] || fail "rejected valid RALPH_DIR=$d: $output"
+    done
+}
+
+@test "init_e2b_sandbox: workspace-root RALPH_DIR fails before any helper call (#383)" {
+    _mock_e2b ok
+    export RALPH_DIR="."
+    run init_e2b_sandbox
+    assert_failure
+    [[ "$output" == *"workspace root"* ]] || fail "expected workspace root message: $output"
+    [[ ! -f "$TEST_DIR/e2b_args" ]] || fail "helper was called: $(cat "$TEST_DIR/e2b_args")"
+}
+
 @test "validate_e2b_sandbox_config: rejects template with shell metacharacters" {
     export SANDBOX_E2B_TEMPLATE='evil;rm -rf /'
     run validate_e2b_sandbox_config
