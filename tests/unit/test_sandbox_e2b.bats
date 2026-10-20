@@ -1246,3 +1246,85 @@ EOF
         _ "$BATS_TEST_TMPDIR/ws-link" "$PROJECT_ROOT/lib/sandbox_e2b.sh" "$real"
     assert_output "state/ralph"
 }
+
+# Issue #389: root config can occur in the generic list and the allowlist.
+_upload_config_case() {
+    local mode="$1" layout="$2"
+    export COPYFILE_DISABLE=1 # Keep macOS tar metadata out of this synthetic file count.
+    export RALPH_DIR="$TEST_DIR/$layout"
+    export LOG_DIR="$RALPH_DIR/logs"
+    export E2B_SANDBOX_STATE_FILE="$RALPH_DIR/.e2b_sandbox_state"
+    export E2B_SYNCED_FILES_FILE="$RALPH_DIR/.e2b_synced_files"
+    mkdir -p "$RALPH_DIR/specs" "$LOG_DIR"
+    printf 'config\n' > .ralphrc
+    printf 'payload\n' > 'a file [one].txt'
+    printf 'prompt\n' > "$RALPH_DIR/PROMPT.md"
+    printf 'plan\n' > "$RALPH_DIR/fix_plan.md"
+    printf 'spec\n' > "$RALPH_DIR/specs/a spec.md"
+    printf 'state\n' > "$RALPH_DIR/.call_count"
+    if [[ "$mode" != find ]]; then
+        git init -q .
+        [[ "$mode" != tracked ]] || git add .ralphrc
+    else
+        ! git rev-parse --git-dir >/dev/null 2>&1 || fail "find fixture unexpectedly inside git"
+    fi
+    local listing="$BATS_TEST_TMPDIR/upload-list-$BATS_TEST_NUMBER"
+    _build_e2b_upload_list > "$listing"
+    run python3 - "$listing" <<'PY'
+import pathlib, sys
+paths = pathlib.Path(sys.argv[1]).read_bytes().split(b'\0')[:-1]
+normalized = [p.removeprefix(b'./') for p in paths]
+assert normalized.count(b'.ralphrc') == 1, normalized
+assert len(set(normalized)) == len(normalized), normalized
+assert b'a file [one].txt' in normalized
+assert not any(p.endswith(b'.call_count') for p in normalized)
+# Generic project entries retain their position before the appended controls.
+assert normalized.index(b'.ralphrc') < next(i for i, p in enumerate(normalized) if p.endswith(b'PROMPT.md'))
+PY
+    assert_success
+
+    export TEST_UPLOAD_CAPTURE="$BATS_TEST_TMPDIR/upload-archive-$BATS_TEST_NUMBER.tar.gz"
+    printf '{"sandbox_id":"synthetic"}\n' > "$E2B_SANDBOX_STATE_FILE"
+    _e2b_helper() { cat > "$TEST_UPLOAD_CAPTURE"; printf '{"ok":true}\n'; }
+    run upload_project_to_e2b
+    assert_success
+    local log="$output"
+    run python3 - "$TEST_UPLOAD_CAPTURE" "$E2B_SYNCED_FILES_FILE" <<'PY'
+import pathlib, sys, tarfile
+with tarfile.open(sys.argv[1]) as archive:
+    paths = [m.name.removeprefix('./') for m in archive if m.isfile()]
+assert paths.count('.ralphrc') == 1, paths
+assert len(paths) == len(set(paths)), paths
+assert any(p.endswith('/PROMPT.md') for p in paths), paths
+assert any(p.endswith('/specs/a spec.md') for p in paths), paths
+assert 'a file [one].txt' in paths
+baseline = pathlib.Path(sys.argv[2]).read_text().splitlines()
+assert baseline.count('.ralphrc') == 1, baseline
+print(len(paths))
+PY
+    assert_success
+    [[ "$log" == *"Uploading $output file(s)"* ]] || fail "count/log mismatch: expected=$output log=$log"
+}
+
+@test "upload config occurs once when tracked, including tar and count (#389)" {
+    _upload_config_case tracked .ralph
+}
+
+@test "upload config occurs once when untracked with a spaced nested control dir (#389)" {
+    _upload_config_case untracked 'control state/ralph files'
+}
+
+@test "find upload config occurs once, including tar and count (#389)" {
+    _upload_config_case find .ralph
+}
+
+@test "filtered root config is still force included exactly once (#389)" {
+    printf 'config\n' > .ralphrc
+    printf 'prompt\n' > "$RALPH_DIR/PROMPT.md"
+    printf 'code\n' > app.txt
+    export SYNC_EXCLUDE='.ralphrc'
+    run bash -c 'source "$1"; _build_e2b_upload_list | tr "\0" "\n"' _ "$PROJECT_ROOT/lib/sandbox_e2b.sh"
+    assert_success
+    [[ $(printf '%s\n' "$output" | grep -cx '.ralphrc') -eq 1 ]]
+    [[ "$output" == *'.ralph/PROMPT.md'* ]]
+}
