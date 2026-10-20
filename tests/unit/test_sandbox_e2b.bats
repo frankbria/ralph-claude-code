@@ -1266,7 +1266,9 @@ _upload_config_case() {
         git init -q .
         [[ "$mode" != tracked ]] || git add .ralphrc
     else
-        ! git rev-parse --git-dir >/dev/null 2>&1 || fail "find fixture unexpectedly inside git"
+        if git rev-parse --git-dir >/dev/null 2>&1; then
+            fail "find fixture unexpectedly inside git"
+        fi
     fi
     local listing="$BATS_TEST_TMPDIR/upload-list-$BATS_TEST_NUMBER"
     _build_e2b_upload_list > "$listing"
