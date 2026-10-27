@@ -1,0 +1,79 @@
+name: Update Badges
+
+on:
+  workflow_run:
+    workflows: ["Test Suite"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  update-badges:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 2
+
+      - name: Check if last commit was a badge update
+        id: skip-check
+        run: |
+          LAST_MSG=$(git log -1 --pretty=%B)
+          if echo "$LAST_MSG" | grep -qiE '^(ci|chore)\(.*badge\)|^\[skip badges\]|^chore: update badge'; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping: last commit was a badge update ($LAST_MSG)"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Count tests
+        id: count
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          TEST_COUNT=$(grep -rE '^\s*@test\s' tests/unit/ tests/integration/ | wc -l)
+          TEST_FILES=$(find tests/unit/ tests/integration/ -name "*.bats" | wc -l)
+          echo "TEST_COUNT=$TEST_COUNT" >> $GITHUB_ENV
+          echo "TEST_FILES=$TEST_FILES" >> $GITHUB_ENV
+          echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+          echo "test_files=$TEST_FILES" >> $GITHUB_OUTPUT
+          echo "Tests: $TEST_COUNT across $TEST_FILES files"
+
+      - name: Update README.md test badge
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          sed -i "s|https://img.shields.io/badge/tests-[0-9]*%20passing|https://img.shields.io/badge/tests-${TEST_COUNT}%20passing|g" README.md
+          sed -i "s|tests-[0-9]*%20passing|tests-${TEST_COUNT}%20passing|g" README.md
+          sed -i "s/\*\*Test Coverage\*\*: [0-9]* tests/\*\*Test Coverage\*\*: ${TEST_COUNT} tests/g" README.md
+          sed -i "s/\*\*[0-9]* tests\*\* across/\*\*${TEST_COUNT} tests\*\* across/g" README.md
+
+      - name: Update CLAUDE.md test references
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          # Update any test count text in CLAUDE.md (if present)
+          sed -i "s/\*\*Test Coverage\*\*: [0-9]* tests/\*\*Test Coverage\*\*: ${TEST_COUNT} tests/g" CLAUDE.md || true
+          sed -i "s/[0-9]* tests, 100% pass rate/${TEST_COUNT} tests, 100% pass rate/g" CLAUDE.md || true
+
+      - name: Check for changes
+        id: changes
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No badge changes needed."
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            git diff
+          fi
+
+      - name: Commit and push changes
+        if: steps.skip-check.outputs.skip != 'true' && steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md CLAUDE.md
+          git commit -m "ci(badge): update test count to ${TEST_COUNT} (${TEST_FILES} files)"
+          git push
