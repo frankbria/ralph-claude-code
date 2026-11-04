@@ -48,7 +48,7 @@ jobs:
         if: |
           github.event.pull_request.changed_files >= 5 ||
           steps.calc.outputs.total >= 20
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Checkout the PR head commit (pull_request_target defaults to base branch)
           ref: ${{ github.event.pull_request.head.sha }}
@@ -56,6 +56,10 @@ jobs:
           # Review is read-only; gh commands use GH_TOKEN, not git credentials.
           # Especially important under pull_request_target with PR-head code (#282)
           persist-credentials: false
+          # checkout v7 refuses fork-PR heads under pull_request_target without this.
+          # Safe here: the job-level author_association gate, no persisted credentials,
+          # and a review that reads the code but never executes it.
+          allow-unsafe-pr-checkout: true
 
       - name: Run Claude Code Review
         # Only review substantial changes (5+ files OR 20+ lines changed)
@@ -63,7 +67,7 @@ jobs:
           github.event.pull_request.changed_files >= 5 ||
           steps.calc.outputs.total >= 20
         id: claude-review
-        uses: anthropics/claude-code-action@d5726de019ec4498aa667642bc3a80fca83aa102 # v1.0.148
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Explicit github_token needed for pull_request_target (OIDC doesn't work)
