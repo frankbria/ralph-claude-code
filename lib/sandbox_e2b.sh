@@ -513,16 +513,23 @@ _build_e2b_upload_list() {
                 ! -path './.git/*' ! -path './node_modules/*' \
                 ! -path "./$rb/*" -print0 2>/dev/null
         fi
-    } | sync_filter_file_list
-    # Allowlist entries must be cwd-relative: an absolute RALPH_DIR would
-    # otherwise become a wrong member path in the tar (leading / stripped).
-    local f
-    for f in .ralphrc "$rb/PROMPT.md" "$rb/fix_plan.md" "$rb/AGENT.md"; do
-        [[ -f "$f" ]] && printf '%s\0' "$f"
-    done
-    if [[ -d "$rb/specs" ]]; then
-        find "$rb/specs" -type f -print0 2>/dev/null
-    fi
+    } | sync_filter_file_list | {
+        local f ralphrc_listed=false
+        while IFS= read -r -d '' f; do
+            printf '%s\0' "$f"
+            [[ "${f#./}" != .ralphrc ]] || ralphrc_listed=true
+        done
+        # Keep the first config entry's order and spelling, or force it in if filtered.
+        # Allowlist entries must be cwd-relative: an absolute RALPH_DIR would
+        # otherwise become a wrong member path in the tar (leading / stripped).
+        for f in .ralphrc "$rb/PROMPT.md" "$rb/fix_plan.md" "$rb/AGENT.md"; do
+            [[ "$f" != .ralphrc || "$ralphrc_listed" != true ]] || continue
+            [[ -f "$f" ]] && printf '%s\0' "$f"
+        done
+        if [[ -d "$rb/specs" ]]; then
+            find "$rb/specs" -type f -print0 2>/dev/null
+        fi
+    }
 }
 
 # upload_project_to_e2b
