@@ -331,6 +331,55 @@ EOF
     wait "$ralph_pid" 2>/dev/null || true
 }
 
+@test "E2E: SIGTERM in --live mode stops the loop mid-call and kills the Claude tree (#394)" {
+    # Live mode used to run Claude as a FOREGROUND pipeline, and bash defers a
+    # trapped signal until the foreground command finishes: SIGTERM waited for
+    # the whole Claude call, and CLAUDE_CHILD_PID was never set, so kill_tree
+    # had nothing to reap. Unlike the background-mode test above, this one
+    # signals ralph ALONE (no help for its children), exactly as `kill <pid>`
+    # or a supervisor would. A distinctive sleep length lets us find an
+    # orphaned mock afterwards.
+    echo "61.7" > "$MOCK_DIR/responses/1.sleep"
+
+    bash "$RALPH_SCRIPT" --live > "$E2E_DIR/ralph_run.log" 2>&1 < /dev/null &
+    local ralph_pid=$!
+
+    local waited=0
+    while [[ "$(mock_call_count)" == "0" && $waited -lt 200 ]]; do
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    assert_equal "$(mock_call_count)" "1"
+    sleep 1   # let the live pipeline settle into the mock's sleep
+
+    local t0=$SECONDS
+    kill -TERM "$ralph_pid"
+
+    # Watchdog: the old behaviour holds ralph for the full 61.7s call.
+    # Its own fds go to /dev/null so an orphaned `sleep` cannot hold bats open.
+    ( sleep 20; kill -KILL "$ralph_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    local watchdog=$!
+    local rc=0
+    wait "$ralph_pid" 2>/dev/null || rc=$?
+    local elapsed=$((SECONDS - t0))
+    pkill -P "$watchdog" 2>/dev/null || true
+    kill "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
+
+    if [[ $rc -ne 143 || $elapsed -gt 10 ]]; then
+        echo "expected exit 143 within 10s, got rc=$rc after ${elapsed}s; log:"
+        cat "$E2E_DIR/ralph_run.log"
+        return 1
+    fi
+
+    # The whole Claude tree is gone: the mock CLI and its sleep child.
+    sleep 0.5
+    run pgrep -f "$E2E_DIR/bin/claude"
+    assert_failure
+    run pgrep -fx "sleep 61.7"
+    assert_failure
+}
+
 # =============================================================================
 # CLI FLAGS VS REPOSITORY .ralphrc (PR #363)
 # =============================================================================

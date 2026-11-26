@@ -2093,11 +2093,36 @@ execute_claude_code() {
             true|yes|on|1) _show_args=true ;;
         esac
 
-        portable_timeout ${timeout_seconds}s "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>"$stderr_file" | tee "$output_file" | jq --unbuffered -j --argjson show_args "$_show_args" "$jq_filter" 2>>"$stderr_file" | tee "$LIVE_LOG_FILE"
+        # Issue #394: run the pipeline in the BACKGROUND and `wait` on it.
+        # Bash defers a trapped signal until the current foreground command
+        # finishes, so a foreground pipeline left SIGTERM/Ctrl-C pending for
+        # the whole Claude call (up to CLAUDE_TIMEOUT_MINUTES). `wait` is
+        # interruptible: the trap fires at once, and on_signal() kill_tree()s
+        # the subshell below, which reaches timeout, claude, tee and jq.
+        # PIPESTATUS only exists inside the subshell, so it is written to a
+        # file and read back; exit 124 (timeout) handling is unchanged.
+        local pipe_status_file="${LOG_DIR}/.live_pipe_status.$$"
+        rm -f "$pipe_status_file" 2>/dev/null
+        (
+            portable_timeout ${timeout_seconds}s "${LIVE_CMD_ARGS[@]}" \
+                < /dev/null 2>"$stderr_file" | tee "$output_file" | jq --unbuffered -j --argjson show_args "$_show_args" "$jq_filter" 2>>"$stderr_file" | tee "$LIVE_LOG_FILE"
+            echo "${PIPESTATUS[*]}" > "$pipe_status_file"
+        ) &
+        CLAUDE_CHILD_PID=$!
+        wait "$CLAUDE_CHILD_PID"
+        CLAUDE_CHILD_PID=""
 
-        # Capture exit codes from pipeline
-        local -a pipe_status=("${PIPESTATUS[@]}")
+        # Capture exit codes from pipeline. A missing or short status file
+        # (the subshell died before writing it) counts as a failed stage.
+        local -a pipe_status=()
+        if [[ -s "$pipe_status_file" ]]; then
+            read -r -a pipe_status < "$pipe_status_file"
+        fi
+        rm -f "$pipe_status_file" 2>/dev/null
+        local _ps_i
+        for _ps_i in 0 1 2 3; do
+            [[ -n "${pipe_status[$_ps_i]:-}" ]] || pipe_status[$_ps_i]=1
+        done
 
         # Primary exit code is from Claude/timeout (first command in pipeline)
         exit_code=${pipe_status[0]}
