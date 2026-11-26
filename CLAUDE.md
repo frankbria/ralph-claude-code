@@ -235,7 +235,7 @@ Exit requires BOTH conditions (dual-condition check prevents premature exits):
 
 ### Timeout Handling (Issues #175, #198)
 
-When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` kills the process with exit code **124**. Live mode (`--live`/`--monitor`) captures per-command exit codes via `PIPESTATUS` and logs a WARN; background mode captures via `wait $claude_pid`.
+When Claude Code exceeds `CLAUDE_TIMEOUT_MINUTES`, `portable_timeout` kills the process with exit code **124**. Live mode (`--live`/`--monitor`) runs its pipeline in a background subshell and `wait`s on it (Issue #394: a foreground pipeline deferred SIGTERM/Ctrl-C for the whole Claude call); the subshell writes `PIPESTATUS` to `$LOG_DIR/.live_pipe_status.$$` for per-command exit codes and logs a WARN; background mode captures via `wait $claude_pid`. Both modes set `CLAUDE_CHILD_PID`, so `on_signal()` `kill_tree`s the Claude process tree immediately.
 
 **Productive timeout detection**: on exit 124, the handler checks git for work done during execution (HEAD vs `.loop_start_sha`):
 
