@@ -699,10 +699,12 @@ EOF
     run "$python" - "$PROJECT_ROOT/lib/e2b_helper.py" "$TEST_DIR/remote" <<'PY'
 import importlib.util
 import io
+import os
 import shlex
 import subprocess
 import sys
 import tarfile
+import time
 from types import SimpleNamespace
 
 helper_path, remote_root = sys.argv[1:]
@@ -715,11 +717,28 @@ def bash(command):
         ["bash", "-c", command], check=True, stdout=subprocess.PIPE
     ).stdout
 
+# Keep the helper's staging files under the test dir, not its fixed /tmp
+# paths, so parallel runs can't collide and nothing leaks on failure.
+staging = remote_root + "/staging"
+os.makedirs(staging)
+helper.DOWNLOAD_STAGING = staging + "/ralph_download.tgz"
+helper.CHANGED_LIST = staging + "/ralph_changed.list"
+helper.MANIFEST_STAGING = os.path.join(staging, helper.MANIFEST_NAME)
+
 workspace = remote_root + "/workspace"
 marker = remote_root + "/.ralph_sync_marker"
-bash("mkdir -p {0} && touch {1} && sleep 0.05 && printf early > {0}/early.txt".format(
-    shlex.quote(workspace), shlex.quote(marker)
-))
+os.makedirs(workspace)
+
+# Explicit mtimes instead of sleeps, so ordering holds on coarse-timestamp
+# filesystems: committed marker in the past, early.txt just after it.
+now = int(time.time())
+early = workspace + "/early.txt"
+with open(marker, "w"):
+    pass
+with open(early, "w") as fh:
+    fh.write("early")
+os.utime(marker, (now - 1000, now - 1000))
+os.utime(early, (now - 900, now - 900))
 
 sandbox = SimpleNamespace(
     commands=SimpleNamespace(run=lambda command: bash(command)),
@@ -744,10 +763,25 @@ def download_names():
         return {name[2:] if name.startswith("./") else name for name in archive.getnames()}
 
 assert "early.txt" in download_names()
-bash("sleep 0.05 && printf raced > " + shlex.quote(workspace + "/raced.txt"))
+# Model the race window with explicit times: the scan's snapshot (the pending
+# marker) was taken at now-500, and a file was written at now-100, after the
+# scan but before the ack runs at ~now. Acking by touching the marker at ack
+# time would bury that write; advancing to the snapshot must keep it.
+pending = marker + ".pending"
+if os.path.exists(pending):
+    os.utime(pending, (now - 500, now - 500))
+raced = workspace + "/raced.txt"
+with open(raced, "w") as fh:
+    fh.write("raced")
+os.utime(raced, (now - 100, now - 100))
 helper.cmd_ack_download(args)
 helper.cmd_ack_download(args)
-assert "raced.txt" in download_names()
+names = download_names()
+assert "raced.txt" in names, names
+# The marker advanced to the snapshot, so already-delivered files are not resent
+assert "early.txt" not in names, names
+# The staging files landed under the test dir, not the helper's /tmp defaults
+assert os.path.exists(helper.DOWNLOAD_STAGING)
 PY
     assert_success
 }
