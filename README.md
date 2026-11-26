@@ -11,6 +11,12 @@
 
 > **Autonomous AI development loop with intelligent exit detection and rate limiting**
 
+> [!IMPORTANT]
+> **Ralph is becoming a companion to Claude Code's native `/goal`.**
+> Claude Code now keeps working toward a goal on its own; what it doesn't do is keep the context fresh. Ralph's next version is a plugin that rotates context at safe points and rehydrates each fresh session with a handoff and a context packet. See the vision in [#367](https://github.com/frankbria/ralph-claude-code/issues/367).
+>
+> The bash loop documented below is **Ralph Classic (v1.x)**. It stays available and receives bug and security fixes on the `release/1.x` branch, but no new features. Pin it with `git checkout v1.0.0`.
+
 Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code that enables continuous autonomous development cycles he named after [Ralph Wiggum](https://ghuntley.com/ralph/). It enables continuous autonomous development cycles where Claude Code iteratively improves your project until completion, with built-in safeguards to prevent infinite loops and API overuse.
 
 **Install once, use everywhere** - Ralph becomes a global command available in any directory.
