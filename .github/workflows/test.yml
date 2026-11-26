@@ -99,7 +99,10 @@ jobs:
         git clone --depth 1 --branch v${KCOV_VERSION} https://github.com/SimonKagstrom/kcov.git /tmp/kcov-src
         cd /tmp/kcov-src
         mkdir build && cd build
-        cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
+        # kcov v42's CMakeLists asks for a CMake older than 3.5, which CMake 4
+        # (current ubuntu-latest) refuses outright; the policy floor restores
+        # the old behaviour for this build only.
+        cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX=/usr/local ..
         make -j$(nproc)
         sudo make install
 
@@ -118,16 +121,23 @@ jobs:
         # Use full path to bats since kcov subprocess doesn't inherit npm PATH
         BATS_CMD="$(pwd)/node_modules/.bin/bats"
 
+        # Output dirs MUST be absolute: kcov preloads its wrapper from
+        # <outdir>/libkcov_sowrapper.so, and a relative path stops resolving as
+        # soon as a test cd's into its temp dir, which spammed stderr and failed
+        # ~43 unit tests under kcov only (#372). `|| true` stays because coverage
+        # is informational; the plain `test` job is the pass/fail gate.
+        COVERAGE_DIR="$(pwd)/coverage"
+
         # Run CLI parsing tests under kcov
         kcov --include-path="$(pwd)/ralph_loop.sh,$(pwd)/lib" \
              --exclude-pattern=tests/,node_modules/ \
-             coverage/cli-parsing \
+             "$COVERAGE_DIR/cli-parsing" \
              bash -c "$BATS_CMD tests/unit/test_cli_parsing.bats" || true
 
         # Run all unit tests under kcov for comprehensive coverage
         kcov --include-path="$(pwd)/ralph_loop.sh,$(pwd)/lib" \
              --exclude-pattern=tests/,node_modules/ \
-             coverage/all-unit \
+             "$COVERAGE_DIR/all-unit" \
              bash -c "$BATS_CMD tests/unit/" || true
 
     - name: Parse coverage results
@@ -141,8 +151,11 @@ jobs:
           echo "coverage_percent=$COVERAGE_PCT" >> $GITHUB_OUTPUT
           echo "Coverage: ${COVERAGE_PCT}%"
         else
-          # Fallback: try to find any coverage.json
-          COVERAGE_FILE=$(find coverage -name "coverage.json" -type f 2>/dev/null | head -1)
+          # Fallback: kcov only writes kcov-merged when it merges several
+          # binaries; otherwise the report sits in a per-binary dir. Prefer the
+          # all-unit run over the narrower cli-parsing one.
+          COVERAGE_FILE=$(find coverage/all-unit -name "coverage.json" -type f 2>/dev/null | head -1)
+          [[ -z "$COVERAGE_FILE" ]] && COVERAGE_FILE=$(find coverage -name "coverage.json" -type f 2>/dev/null | head -1)
           if [[ -n "$COVERAGE_FILE" && -f "$COVERAGE_FILE" ]]; then
             COVERAGE_PCT=$(jq -r '.percent_covered // "0"' "$COVERAGE_FILE" | cut -d'.' -f1)
             echo "coverage_percent=$COVERAGE_PCT" >> $GITHUB_OUTPUT
