@@ -9,10 +9,15 @@ on:
 jobs:
   review:
     # Only review substantial changes (5+ files, or 20+ additions, or 20+ deletions)
+    # from this repository's own branches. Fork PRs get no repository secrets on
+    # pull_request events, so the review always failed there (#384).
     if: |
-      github.event.pull_request.changed_files >= 5 ||
-      github.event.pull_request.additions >= 20 ||
-      github.event.pull_request.deletions >= 20
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        github.event.pull_request.changed_files >= 5 ||
+        github.event.pull_request.additions >= 20 ||
+        github.event.pull_request.deletions >= 20
+      )
     uses: frankbria/glm-review/.github/workflows/review.yml@main
     permissions:
       contents: read
