@@ -149,7 +149,9 @@ dashboard for actual usage.
   The sandbox-side sync marker is advanced only after host extraction and the
   deletion pass both succeed (`ack-download` subcommand) — a missed ack simply
   re-delivers the same changes on the next iteration (idempotent overwrite,
-  at-least-once delivery).
+  at-least-once delivery). The ack advances the marker to a snapshot taken
+  just before the download scan, not to ack time, so a file written while the
+  archive was being built is still picked up by the next download.
 - **Session expiry**: E2B kills sandboxes at their session timeout. The
   pre-exec liveness probe detects this and starts a replacement (fresh create
   + re-upload) automatically.
